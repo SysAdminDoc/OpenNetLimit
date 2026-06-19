@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Native.WinDivert" Version="2.2.2" />
     <PackageReference Include="SharpDivert" Version="1.1.0" />
   </ItemGroup>
 

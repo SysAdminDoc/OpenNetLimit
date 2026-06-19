@@ -168,13 +168,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P0
 
-- [ ] P0 — Package WinDivert and document license/trust requirements
-  Why: SharpDivert requires a separate WinDivert v2.2 binary, admin privileges, and careful DLL/driver trust handling before any user can run the service.
-  Evidence: SharpDivert NuGet README; WinDivert homepage; LOLDrivers `windivert.sys` entry; `src/OpenNetLimit.Engine/OpenNetLimit.Engine.csproj`.
-  Touches: packaging project files, app manifest/service install assets, README, third-party notices.
-  Acceptance: build output or installer includes the expected WinDivert runtime files with published hashes, admin/service launch path, third-party license notice, and clear error when the driver cannot load.
-  Complexity: M
-
 ### P1
 
 - [ ] P1 — Add a rule-to-enforcement reconciler with schema migration
