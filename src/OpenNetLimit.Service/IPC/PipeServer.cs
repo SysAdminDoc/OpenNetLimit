@@ -6,6 +6,7 @@ using System.Text.Json;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service.IPC;
 
@@ -17,6 +18,7 @@ public class PipeServer
 
     public Func<DiagnosticInfo>? DiagnosticProvider { get; set; }
     public Func<IReadOnlyList<object>>? ConnectionLogProvider { get; set; }
+    public TrafficStatsDb? StatsProvider { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -167,6 +169,9 @@ public class PipeServer
             "STATUS" => GetStatusResponse(),
             "CONNECTION_LOG" => GetConnectionLog(),
             "EXPORT_RULES" => _ruleEngine.ExportRules(),
+            "STATS_HOURLY" => GetStatsHourly(payload),
+            "STATS_DAILY" => GetStatsDaily(payload),
+            "STATS_TOP" => GetStatsTop(),
             "ADD_RULE" => AddRule(payload),
             "REMOVE_RULE" => RemoveRule(payload),
             "UPDATE_RULE" => UpdateRule(payload),
@@ -227,6 +232,29 @@ public class PipeServer
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
         }
+    }
+
+    private string GetStatsHourly(string payload)
+    {
+        if (StatsProvider is null) return ErrorResponse("stats unavailable");
+        var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
+        var entries = StatsProvider.GetHourlyStats(processName);
+        return JsonSerializer.Serialize(entries, JsonOptions);
+    }
+
+    private string GetStatsDaily(string payload)
+    {
+        if (StatsProvider is null) return ErrorResponse("stats unavailable");
+        var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
+        var entries = StatsProvider.GetDailyStats(processName);
+        return JsonSerializer.Serialize(entries, JsonOptions);
+    }
+
+    private string GetStatsTop()
+    {
+        if (StatsProvider is null) return ErrorResponse("stats unavailable");
+        var entries = StatsProvider.GetTopProcesses();
+        return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetConnectionLog()

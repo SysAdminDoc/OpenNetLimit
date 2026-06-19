@@ -6,18 +6,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ---
 
-## Phase 3: Rules, Blocking & Statistics (v0.3)
-
-**Goal:** Persistent rules, connection blocking, historical data.
-
-- [ ] Real-time traffic charts (LiveCharts2 or OxyPlot)
-- [ ] SQLite-backed traffic statistics (per-process, per-hour/day)
-- [ ] Historical traffic reports and graphs
-
-**Deliverable:** Feature-complete local traffic manager.
-
----
-
 ## Phase 4: Advanced Features (v0.4)
 
 **Goal:** Quotas, scheduling, priorities.

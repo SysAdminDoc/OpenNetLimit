@@ -7,6 +7,11 @@ using System.Windows;
 using System.Windows.Threading;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
+using LiveChartsCore;
+using LiveChartsCore.Defaults;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using SkiaSharp;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.UI.Services;
 
@@ -23,7 +28,33 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    private const int ChartMaxPoints = 60;
+
+    private readonly ObservableCollection<ObservableValue> _downloadPoints = [];
+    private readonly ObservableCollection<ObservableValue> _uploadPoints = [];
+
     public ObservableCollection<ProcessViewModel> Processes { get; } = [];
+
+    public ISeries[] ChartSeries { get; }
+
+    public Axis[] ChartYAxes { get; } =
+    [
+        new Axis
+        {
+            Name = "KB/s",
+            MinLimit = 0,
+            Labeler = v => $"{v / 1024:F0}"
+        }
+    ];
+
+    public Axis[] ChartXAxes { get; } =
+    [
+        new Axis
+        {
+            Labels = null,
+            IsVisible = false
+        }
+    ];
 
     private string _statusText = "Disconnected";
     public string StatusText
@@ -83,6 +114,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public MainViewModel()
     {
+        ChartSeries =
+        [
+            new LineSeries<ObservableValue>
+            {
+                Values = _downloadPoints,
+                Name = "Download",
+                GeometrySize = 0,
+                Stroke = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3)) { StrokeThickness = 2 },
+                Fill = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3, 0x40)),
+                LineSmoothness = 0.3
+            },
+            new LineSeries<ObservableValue>
+            {
+                Values = _uploadPoints,
+                Name = "Upload",
+                GeometrySize = 0,
+                Stroke = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50)) { StrokeThickness = 2 },
+                Fill = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50, 0x40)),
+                LineSmoothness = 0.3
+            }
+        ];
+
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _pollTimer.Tick += async (_, _) => await PollServiceAsync();
 
@@ -138,6 +191,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
             TotalDownload = ProcessViewModel.FormatBytes(snapshot.TotalDownloadBytesPerSecond);
             TotalUpload = ProcessViewModel.FormatBytes(snapshot.TotalUploadBytesPerSecond);
+
+            _downloadPoints.Add(new ObservableValue(snapshot.TotalDownloadBytesPerSecond));
+            _uploadPoints.Add(new ObservableValue(snapshot.TotalUploadBytesPerSecond));
+            while (_downloadPoints.Count > ChartMaxPoints) _downloadPoints.RemoveAt(0);
+            while (_uploadPoints.Count > ChartMaxPoints) _uploadPoints.RemoveAt(0);
 
             UpdateProcessList(snapshot.Processes);
         }

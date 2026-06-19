@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- SQLite-backed traffic statistics: per-process hourly and daily byte counters
+- TrafficStatsDb with upsert-on-conflict aggregation, WAL mode, 90-day auto-purge
+- STATS_HOURLY, STATS_DAILY, STATS_TOP IPC commands for querying historical data
+- Real-time traffic chart (LiveCharts2): 60-second scrolling download/upload graph
+- Chart shows download (blue) and upload (green) with smooth line rendering
+- Historical data query: top processes by total bandwidth, per-process time series
 - Bounded packet scheduler: rate-limited packets enter per-process queues instead of blocking the capture thread
 - PacketScheduler with 512-packet per-process queue limit, 2-second max delay, and automatic drop policy
 - Delay/drop/sent counters on PacketScheduler for observability

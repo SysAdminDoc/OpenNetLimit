@@ -9,4 +9,9 @@
     <NuGetAuditMode>all</NuGetAuditMode>
   </PropertyGroup>
 
+  <!-- SQLitePCLRaw native DoS advisory — local-only embedded DB, not network-exposed -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+
 </Project>
