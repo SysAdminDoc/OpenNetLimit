@@ -165,6 +165,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var connection = _flowTracker.LookupConnection(flowKey);
                 string processName = connection?.ProcessName ?? "unknown";
 
+                if (connection is not null)
+                {
+                    if (isOutbound)
+                        connection.AddBytesSent(payloadLength);
+                    else
+                        connection.AddBytesReceived(payloadLength);
+                }
+
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound);
 
                 if (_rateLimiter.HasLimit(processId.Value))
