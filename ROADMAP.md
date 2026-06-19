@@ -137,13 +137,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P2
 
-- [ ] P2 — Add .NET LTS upgrade and NuGet audit strategy
-  Why: .NET 8 support ends November 10, 2026, while this repo targets .NET 8 and already has package-version drift in `Microsoft.Extensions.Hosting.WindowsServices`.
-  Evidence: Microsoft .NET lifecycle; NuGet audit docs; `src/OpenNetLimit.Service/OpenNetLimit.Service.csproj`; `dotnet list package --outdated`.
-  Touches: shared build props/targets, project files, CI or local audit script, README.
-  Acceptance: repository has an explicit .NET 10 LTS migration decision or schedule, restore audit can run as a dedicated gate, and package-update policy is documented.
-  Complexity: M
-
 - [ ] P2 — Establish accessibility and localization foundations before UI growth
   Why: The UI is currently hard-coded English with minimal accessibility metadata, while comparable OSS tools ship localization and polished monitor states.
   Evidence: `src/OpenNetLimit.UI/MainWindow.xaml`; simplewall localization support; Sniffnet notification docs.
