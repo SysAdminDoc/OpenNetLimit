@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
@@ -65,6 +66,20 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetField(ref _activeRuleCount, value);
     }
 
+    private bool _isAdmin;
+    public bool IsAdmin
+    {
+        get => _isAdmin;
+        set => SetField(ref _isAdmin, value);
+    }
+
+    private string _permissionDisplay = "Read-only";
+    public string PermissionDisplay
+    {
+        get => _permissionDisplay;
+        set => SetField(ref _permissionDisplay, value);
+    }
+
     public MainViewModel()
     {
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -73,7 +88,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _reconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _reconnectTimer.Tick += async (_, _) => await TryConnectAsync();
 
+        DetectAdmin();
         _ = TryConnectAsync();
+    }
+
+    private void DetectAdmin()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        IsAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+        PermissionDisplay = IsAdmin ? "Administrator" : "Read-only";
     }
 
     private async Task TryConnectAsync()

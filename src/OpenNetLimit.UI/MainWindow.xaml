@@ -53,6 +53,10 @@
             <StatusBarItem>
                 <TextBlock Text="{Binding ActiveRuleCount, StringFormat='Active Rules: {0}'}"/>
             </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding PermissionDisplay, StringFormat='Mode: {0}'}"/>
+            </StatusBarItem>
         </StatusBar>
     </Grid>
 </Window>
