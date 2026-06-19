@@ -170,13 +170,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P1
 
-- [ ] P1 — Add a rule-to-enforcement reconciler with schema migration
-  Why: Rules currently persist separately from limiter state, `ADD_RULE` does not enforce limits, and `REMOVE_RULE` clears all live limits.
-  Evidence: `src/OpenNetLimit.Service/IPC/PipeServer.cs`; `src/OpenNetLimit.Core/Models/BandwidthRule.cs`; OpenSnitch rule schema; NetBalancer rules docs.
-  Touches: `RuleEngine`, `PipeServer`, `IRateLimiter`, rule storage, migration tests.
-  Acceptance: every rule add/update/remove atomically updates live enforcement, rule files are versioned/validated/migrated, and tests cover priority, direction, path wildcard, remote address/port, and disabled schedules.
-  Complexity: M
-
 - [ ] P1 — Add retained diagnostics and redacted support bundles
   Why: Packet filters need durable evidence after outages; current service logs are not packaged or exposed, and Fort users reported losing useful logs after closure.
   Evidence: Fort Firewall issue #435; Portmaster debug information pattern; `src/OpenNetLimit.Service/EngineWorker.cs`.

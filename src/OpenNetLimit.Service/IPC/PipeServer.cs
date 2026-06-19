@@ -13,7 +13,6 @@ public class PipeServer
 {
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly IRuleEngine _ruleEngine;
-    private readonly IRateLimiter _rateLimiter;
     private readonly ILogger<PipeServer> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -24,12 +23,10 @@ public class PipeServer
     public PipeServer(
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
-        IRateLimiter rateLimiter,
         ILogger<PipeServer> logger)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
-        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
