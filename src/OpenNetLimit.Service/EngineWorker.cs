@@ -19,9 +19,11 @@ public class EngineWorker : BackgroundService
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
     private RuleReconciler? _reconciler;
+    private QuotaTracker? _quotaTracker;
     private TrafficStatsDb? _statsDb;
     private Timer? _statsTimer;
     private Timer? _purgeTimer;
+    private Timer? _quotaTimer;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -72,6 +74,14 @@ public class EngineWorker : BackgroundService
             };
         }
 
+        _quotaTracker = new QuotaTracker(_ruleEngine, _trafficMonitor);
+        _quotaTracker.OnQuotaWarning += (name, state) =>
+            _logger.LogWarning("Quota warning for {Process}: {Percent}% used ({Used}/{Limit} bytes)",
+                name, state.PercentUsed, state.UsedBytes, state.LimitBytes);
+        _quotaTracker.OnQuotaExceeded += (name, state) =>
+            _logger.LogWarning("Quota exceeded for {Process}: {Used}/{Limit} bytes — action: {Action}",
+                name, state.UsedBytes, state.LimitBytes, state.Action);
+
         LoadRules();
         _reconciler.Reconcile();
 
@@ -99,8 +109,11 @@ public class EngineWorker : BackgroundService
             _logger.LogWarning(ex, "Failed to initialize stats database — statistics will be unavailable");
         }
 
+        _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
         _pipeServer.DiagnosticProvider = GetDiagnosticInfo;
         _pipeServer.StatsProvider = _statsDb;
+        _pipeServer.QuotaTracker = _quotaTracker;
         if (_interceptor is WinDivertInterceptor wdi2)
             _pipeServer.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
@@ -194,6 +207,7 @@ public class EngineWorker : BackgroundService
 
     private async Task ShutdownGracefully()
     {
+        _quotaTimer?.Dispose();
         _statsTimer?.Dispose();
         _purgeTimer?.Dispose();
 
