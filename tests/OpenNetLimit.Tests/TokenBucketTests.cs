@@ -1,4 +1,5 @@
 using OpenNetLimit.Engine.RateLimiting;
+using Xunit;
 
 namespace OpenNetLimit.Tests;
 

@@ -38,9 +38,9 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             (_, existing) =>
             {
                 if (isUpload)
-                    Interlocked.Add(ref existing.TotalBytesSent, byteCount);
+                    existing.AddBytesSent(byteCount);
                 else
-                    Interlocked.Add(ref existing.TotalBytesReceived, byteCount);
+                    existing.AddBytesReceived(byteCount);
                 existing.LastActivityAt = DateTime.UtcNow;
                 return existing;
             });

@@ -1,5 +1,6 @@
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
+using Xunit;
 
 namespace OpenNetLimit.Tests;
 

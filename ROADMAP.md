@@ -6,21 +6,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ---
 
-## Phase 0: Foundation (Current)
-
-**Goal:** Project scaffold, build system, core abstractions.
-
-- [x] Research & feasibility study
-- [x] Project scaffold with .NET 8 solution
-- [x] Define core interfaces (IPacketInterceptor, IRateLimiter, IRuleEngine, ITrafficMonitor)
-- [x] Define data models (BandwidthRule, ConnectionInfo, ProcessTrafficInfo)
-- [x] Token bucket rate limiter implementation
-- [x] Unit test infrastructure
-
-**Deliverable:** Buildable solution with core library and tests.
-
----
-
 ## Phase 1: MVP — Per-Process Bandwidth Limiting (v0.1)
 
 **Goal:** Capture packets, identify owning process, enforce speed limits.
@@ -182,13 +167,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 ## Research-Driven Additions
 
 ### P0
-
-- [ ] P0 — Restore solution build and test harness
-  Why: The advertised foundation is not buildable; tests cannot restore and the engine has wrapper/API compile errors.
-  Evidence: `dotnet build OpenNetLimit.sln -c Debug`; `tests/OpenNetLimit.Tests/OpenNetLimit.Tests.csproj`; `src/OpenNetLimit.Engine/Interception/WinDivertInterceptor.cs`; `src/OpenNetLimit.Engine/Monitoring/TrafficMonitor.cs`; SharpDivert 1.1.0 README/API.
-  Touches: `*.csproj`, `WinDivertInterceptor.cs`, `TrafficMonitor.cs`, tests.
-  Acceptance: `dotnet restore`, `dotnet build OpenNetLimit.sln -c Debug`, and `dotnet test OpenNetLimit.sln -c Debug` pass on Windows x64.
-  Complexity: M
 
 - [ ] P0 — Package WinDivert and document license/trust requirements
   Why: SharpDivert requires a separate WinDivert v2.2 binary, admin privileges, and careful DLL/driver trust handling before any user can run the service.

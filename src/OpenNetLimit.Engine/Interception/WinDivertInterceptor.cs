@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net;
-using System.Runtime.InteropServices;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 using SharpDivert;
@@ -37,8 +36,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        _flowHandle = new WinDivert("true", WinDivertLayer.Flow, 0, WinDivertOpenFlags.Sniff);
-        _networkHandle = new WinDivert("true", WinDivertLayer.Network, 0, WinDivertOpenFlags.None);
+        _flowHandle = new WinDivert("true", WinDivert.Layer.Flow, 0, WinDivert.Flag.Sniff);
+        _networkHandle = new WinDivert("true", WinDivert.Layer.Network, 0, default);
 
         _flowTask = Task.Factory.StartNew(
             () => FlowLoop(_cts.Token),
@@ -93,7 +92,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             try
             {
-                var recvLen = _flowHandle!.RecvEx(buffer.Span, addrBuffer.Span);
+                var (recvLen, _) = _flowHandle!.RecvEx(buffer.Span, addrBuffer.Span);
                 ref var addr = ref addrBuffer.Span[0];
 
                 var flowData = addr.Flow;
@@ -101,8 +100,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                                flowData.Protocol == 17 ? TransportProtocol.Udp :
                                TransportProtocol.Other;
 
-                var localAddr = ParseAddress(flowData.LocalAddr);
-                var remoteAddr = ParseAddress(flowData.RemoteAddr);
+                var localAddr = ParseIPv6Addr(flowData.LocalAddr);
+                var remoteAddr = ParseIPv6Addr(flowData.RemoteAddr);
                 var flowKey = new FlowKey(
                     protocol,
                     localAddr,
@@ -110,13 +109,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     remoteAddr,
                     flowData.RemotePort);
 
-                if (addr.Event == WinDivertEvent.FlowEstablished)
+                if (addr.Event == WinDivert.Event.FlowEstablished)
                 {
-                    string processName = ResolveProcessName(addr.ProcessId);
-                    string? processPath = ResolveProcessPath(addr.ProcessId);
-                    _flowTracker.RegisterFlow(flowKey, addr.ProcessId, processName, processPath);
+                    string processName = ResolveProcessName(flowData.ProcessId);
+                    string? processPath = ResolveProcessPath(flowData.ProcessId);
+                    _flowTracker.RegisterFlow(flowKey, flowData.ProcessId, processName, processPath);
                 }
-                else if (addr.Event == WinDivertEvent.FlowDeleted)
+                else if (addr.Event == WinDivert.Event.FlowDeleted)
                 {
                     _flowTracker.UnregisterFlow(flowKey);
                 }
@@ -137,11 +136,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             try
             {
-                var recvLen = _networkHandle!.RecvEx(buffer.Span, addrBuffer.Span);
+                var (recvLen, _) = _networkHandle!.RecvEx(buffer.Span, addrBuffer.Span);
                 ref var addr = ref addrBuffer.Span[0];
-                var packet = buffer[..recvLen];
+                var packet = buffer[..(int)recvLen];
 
-                var parsed = ParsePacket(packet.Span);
+                var parsed = ParsePacket(packet);
                 if (parsed is null)
                 {
                     _networkHandle.SendEx(packet.Span, addrBuffer.Span);
@@ -149,7 +148,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 }
 
                 var (flowKey, payloadLength) = parsed.Value;
-                bool isOutbound = addr.Flags.HasFlag(WinDivertAddressFlags.Outbound);
+                bool isOutbound = addr.Outbound;
 
                 var processId = _flowTracker.LookupProcessId(flowKey);
                 if (processId is null)
@@ -182,60 +181,58 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
     }
 
-    private static (FlowKey flowKey, int payloadLength)? ParsePacket(ReadOnlySpan<byte> packet)
+    private static unsafe (FlowKey flowKey, int payloadLength)? ParsePacket(Memory<byte> packet)
     {
-        var result = WinDivertParser.Parse(packet);
-        if (result.IPv4Header == null && result.IPv6Header == null)
-            return null;
+        var parser = new WinDivertPacketParser(packet);
+        foreach (var result in parser)
+        {
+            IPAddress srcAddr, dstAddr;
+            if (result.IPv4Hdr != null)
+            {
+                srcAddr = IPAddress.Parse(result.IPv4Hdr->SrcAddr.ToString());
+                dstAddr = IPAddress.Parse(result.IPv4Hdr->DstAddr.ToString());
+            }
+            else if (result.IPv6Hdr != null)
+            {
+                srcAddr = IPAddress.Parse(result.IPv6Hdr->SrcAddr.ToString());
+                dstAddr = IPAddress.Parse(result.IPv6Hdr->DstAddr.ToString());
+            }
+            else
+            {
+                return null;
+            }
 
-        IPAddress srcAddr, dstAddr;
-        if (result.IPv4Header != null)
-        {
-            srcAddr = new IPAddress(result.IPv4Header.Value.SrcAddr);
-            dstAddr = new IPAddress(result.IPv4Header.Value.DstAddr);
-        }
-        else
-        {
-            srcAddr = new IPAddress(result.IPv6Header!.Value.SrcAddr);
-            dstAddr = new IPAddress(result.IPv6Header!.Value.DstAddr);
+            TransportProtocol protocol;
+            ushort srcPort, dstPort;
+            int payloadLength = packet.Length;
+
+            if (result.TCPHdr != null)
+            {
+                protocol = TransportProtocol.Tcp;
+                srcPort = result.TCPHdr->SrcPort;
+                dstPort = result.TCPHdr->DstPort;
+            }
+            else if (result.UDPHdr != null)
+            {
+                protocol = TransportProtocol.Udp;
+                srcPort = result.UDPHdr->SrcPort;
+                dstPort = result.UDPHdr->DstPort;
+            }
+            else
+            {
+                return null;
+            }
+
+            var flowKey = new FlowKey(protocol, srcAddr, srcPort, dstAddr, dstPort);
+            return (flowKey, payloadLength);
         }
 
-        TransportProtocol protocol;
-        ushort srcPort, dstPort;
-        int payloadLength = packet.Length;
-
-        if (result.TcpHeader != null)
-        {
-            protocol = TransportProtocol.Tcp;
-            srcPort = result.TcpHeader.Value.SrcPort;
-            dstPort = result.TcpHeader.Value.DstPort;
-        }
-        else if (result.UdpHeader != null)
-        {
-            protocol = TransportProtocol.Udp;
-            srcPort = result.UdpHeader.Value.SrcPort;
-            dstPort = result.UdpHeader.Value.DstPort;
-        }
-        else
-        {
-            return null;
-        }
-
-        var flowKey = new FlowKey(protocol, srcAddr, srcPort, dstAddr, dstPort);
-        return (flowKey, payloadLength);
+        return null;
     }
 
-    private static IPAddress ParseAddress(ReadOnlySpan<byte> addr)
+    private static IPAddress ParseIPv6Addr(IPv6Addr addr)
     {
-        if (addr.Length == 16)
-        {
-            bool isIPv4Mapped = addr[..10].SequenceEqual(stackalloc byte[10])
-                && addr[10] == 0xFF && addr[11] == 0xFF;
-            if (isIPv4Mapped)
-                return new IPAddress(addr[12..16]);
-            return new IPAddress(addr);
-        }
-        return new IPAddress(addr);
+        return IPAddress.Parse(addr.ToString());
     }
 
     private static string ResolveProcessName(uint processId)

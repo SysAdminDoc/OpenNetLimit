@@ -1,0 +1,32 @@
+# CLAUDE.md — OpenNetLimit
+
+## Build & Test
+
+```powershell
+dotnet build OpenNetLimit.sln -c Debug
+dotnet test OpenNetLimit.sln -c Debug
+```
+
+Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows/x64 except Core (net8.0).
+
+## Project Structure
+
+- `src/OpenNetLimit.Core` — Shared models and interfaces (netstandard-compatible)
+- `src/OpenNetLimit.Engine` — WinDivert integration, flow tracking, rate limiting (requires SharpDivert, unsafe code)
+- `src/OpenNetLimit.Service` — Windows background service hosting the engine
+- `src/OpenNetLimit.UI` — WPF desktop GUI
+- `tests/OpenNetLimit.Tests` — xUnit tests
+
+## File Hygiene
+
+- Only allowed markdown files: README.md, CLAUDE.md, CHANGELOG.md, ROADMAP.md, RESEARCH.md, Roadmap_Blocked.md
+- ROADMAP.md contains only actionable items. Delete completed items (don't check off with [x]).
+- Move blocked items to Roadmap_Blocked.md with a note explaining the blocker.
+- Do not create TODO.md, COMPLETED.md, SESSION_SUMMARY.md, or any other tracking markdown files.
+- Completed work lives in git history and CHANGELOG.md, not in the roadmap.
+
+## Conventions
+
+- Engine code using SharpDivert requires `AllowUnsafeBlocks` (pointer-based packet headers).
+- SharpDivert 1.1.0 API: enums are nested (`WinDivert.Layer`, `WinDivert.Flag`, `WinDivert.Event`), `RecvEx` returns `(uint recvLen, uint addrLen)` tuple, flow data accessed via `addr.Flow.ProcessId`, outbound check via `addr.Outbound` bool property.
+- Thread-safe counters in ProcessTrafficInfo use explicit backing fields with `AddBytesSent`/`AddBytesReceived` methods.
