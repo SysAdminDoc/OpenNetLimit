@@ -13,6 +13,10 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Diagnostic STATUS command returns service uptime, active flows/rules, packet delay/drop/sent counters
+- DiagnosticInfo model in Core for structured status reporting
+- Structured console logging with timestamps in service
+- Log directory created at %ProgramData%\OpenNetLimit\logs
 - RuleReconciler: rule changes atomically update live rate limiter state via OnRulesChanged event
 - Rule file versioning: schema envelope with version field, backward-compatible with legacy array format
 - Atomic rule file save (write to temp, rename) prevents corruption on crash

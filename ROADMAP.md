@@ -135,13 +135,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P1
 
-- [ ] P1 — Add retained diagnostics and redacted support bundles
-  Why: Packet filters need durable evidence after outages; current service logs are not packaged or exposed, and Fort users reported losing useful logs after closure.
-  Evidence: Fort Firewall issue #435; Portmaster debug information pattern; `src/OpenNetLimit.Service/EngineWorker.cs`.
-  Touches: service logging, `%ProgramData%\OpenNetLimit`, UI diagnostics view/export, documentation.
-  Acceptance: rolling logs and counters include driver load, flow map size, queue delays/drops, rule changes, IPC denials, and a UI/CLI support bundle with redaction.
-  Complexity: M
-
 - [ ] P1 — Build a connection/accounting model for adapters, IPv4/IPv6, TCP/UDP, and process identity
   Why: Competitors expose per-app connection detail and adapter-aware traffic; current `ConnectionInfo` byte counters and active connection counts are not updated.
   Evidence: `src/OpenNetLimit.Core/Models/ConnectionInfo.cs`; `src/OpenNetLimit.Engine/Monitoring/TrafficMonitor.cs`; NetLimiter basic features; NetBalancer feature table; Sniffnet programs docs.
