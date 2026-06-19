@@ -1,0 +1,46 @@
+OpenNetLimit uses the following third-party components:
+
+================================================================================
+WinDivert
+================================================================================
+
+Copyright (c) Basil (basil00)
+https://github.com/basil00/WinDivert
+https://reqrypt.org/windivert.html
+
+Licensed under your choice of:
+  - GNU Lesser General Public License v3.0 (LGPL-3.0)
+  - GNU General Public License v2.0 (GPL-2.0)
+
+WinDivert is a user-mode packet capture/injection library for Windows.
+OpenNetLimit uses WinDivert to intercept network packets for per-process
+bandwidth limiting. The WinDivert driver (WinDivert64.sys) is a signed
+kernel driver that must be loaded with administrator privileges.
+
+Note: WinDivert's signed driver may be flagged by enterprise security tools
+(EDR/AV) or blocked under Hypervisor-Protected Code Integrity (HVCI).
+See: https://www.loldrivers.io/drivers/45a31a17-f78d-48ec-beba-74f6bfc5f96e/
+
+================================================================================
+SharpDivert
+================================================================================
+
+Copyright (c) gcrtnst
+https://github.com/gcrtnst/SharpDivert
+NuGet: https://www.nuget.org/packages/SharpDivert/
+
+Licensed under the MIT License.
+
+Thin C# bindings for WinDivert 2.x.
+
+================================================================================
+Native.WinDivert
+================================================================================
+
+Copyright (c) gdlol
+https://github.com/gdlol/Native.WinDivert
+NuGet: https://www.nuget.org/packages/Native.WinDivert/
+
+Licensed under the MIT License.
+
+NuGet packaging of WinDivert native binaries (WinDivert.dll, WinDivert64.sys).
