@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Security
+- Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
+- Added client identity checking via impersonation for mutation commands
+- Mutation commands (ADD_RULE, REMOVE_RULE, UPDATE_RULE) require administrator privileges
+- Read-only commands (SNAPSHOT, RULES, PROCESSES, STATUS) available to all authenticated local users
+- Added IPC protocol definitions with versioning and command validation
+- Input length limits prevent oversized command injection
+- Fixed REMOVE_RULE bug that was calling RemoveAll() instead of removing only the specified rule
+
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
