@@ -7,6 +7,12 @@
 - PacketScheduler with 512-packet per-process queue limit, 2-second max delay, and automatic drop policy
 - Delay/drop/sent counters on PacketScheduler for observability
 - Graceful queue flush on shutdown (all queued packets reinjected)
+- WPF UI connects to service via named pipe with auto-reconnect
+- Live process list with per-second bandwidth and total byte display
+- Honest connection states: Disconnected (gray), Connecting (orange), Connected (green), Error (red)
+- Auto-reconnect every 3 seconds when service is not running
+- 1-second polling for traffic snapshots and rule counts
+- Proper ViewModel disposal on window close
 - RuleReconciler: rule changes atomically update live rate limiter state via OnRulesChanged event
 - Rule file versioning: schema envelope with version field, backward-compatible with legacy array format
 - Atomic rule file save (write to temp, rename) prevents corruption on crash

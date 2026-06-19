@@ -177,13 +177,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Acceptance: rolling logs and counters include driver load, flow map size, queue delays/drops, rule changes, IPC denials, and a UI/CLI support bundle with redaction.
   Complexity: M
 
-- [ ] P1 — Wire the WPF shell to the service with honest states
-  Why: The UI currently builds but remains a static disconnected grid with no pipe client, empty/loading/error states, or rule actions.
-  Evidence: `src/OpenNetLimit.UI/ViewModels/MainViewModel.cs`; `src/OpenNetLimit.UI/MainWindow.xaml`; GlassWire features; Sniffnet program monitoring docs.
-  Touches: UI view models, pipe client, XAML states, accessibility metadata.
-  Acceptance: UI auto-connects to the service, shows driver/admin/service status, renders loading/empty/error states, displays live processes, and disables mutation controls when disconnected or unauthorized.
-  Complexity: M
-
 - [ ] P1 — Build a connection/accounting model for adapters, IPv4/IPv6, TCP/UDP, and process identity
   Why: Competitors expose per-app connection detail and adapter-aware traffic; current `ConnectionInfo` byte counters and active connection counts are not updated.
   Evidence: `src/OpenNetLimit.Core/Models/ConnectionInfo.cs`; `src/OpenNetLimit.Engine/Monitoring/TrafficMonitor.cs`; NetLimiter basic features; NetBalancer feature table; Sniffnet programs docs.
