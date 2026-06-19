@@ -136,6 +136,31 @@ public class RuleEngine : IRuleEngine
         File.Move(tempPath, filePath, overwrite: true);
     }
 
+    public string ExportRules()
+    {
+        List<BandwidthRule> snapshot;
+        lock (_lock)
+        {
+            snapshot = _rules.ToList();
+        }
+        return JsonSerializer.Serialize(snapshot, JsonOptions);
+    }
+
+    public void ImportRules(string json, bool replace = false)
+    {
+        var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(json, JsonOptions);
+        if (rules is null) return;
+
+        lock (_lock)
+        {
+            if (replace)
+                _rules.Clear();
+            _rules.AddRange(rules);
+            _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+        }
+        OnRulesChanged?.Invoke();
+    }
+
     private sealed class RuleFileEnvelope
     {
         [JsonPropertyName("version")]

@@ -135,4 +135,83 @@ public class RuleEngineTests
         Assert.True(rule.MatchesProcess("app", @"C:\appX.exe"));
         Assert.False(rule.MatchesProcess("app", @"C:\appXY.exe"));
     }
+
+    [Fact]
+    public void Schedule_TimeWindow_InsideIsActive()
+    {
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Schedule = new RuleSchedule
+            {
+                StartTime = new TimeOnly(0, 0),
+                EndTime = new TimeOnly(23, 59)
+            }
+        };
+        Assert.True(rule.IsActiveNow());
+    }
+
+    [Fact]
+    public void Schedule_DayOfWeek_TodayIsActive()
+    {
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Schedule = new RuleSchedule
+            {
+                ActiveDays = [DateTime.UtcNow.DayOfWeek]
+            }
+        };
+        Assert.True(rule.IsActiveNow());
+    }
+
+    [Fact]
+    public void Schedule_WrongDay_IsInactive()
+    {
+        var wrongDay = (DayOfWeek)(((int)DateTime.UtcNow.DayOfWeek + 1) % 7);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Schedule = new RuleSchedule
+            {
+                ActiveDays = [wrongDay]
+            }
+        };
+        Assert.False(rule.IsActiveNow());
+    }
+
+    [Fact]
+    public void ExportImport_RoundTrips()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 100_000 });
+        engine.AddRule(new BandwidthRule { ProcessName = "firefox", DownloadBytesPerSecond = 50_000 });
+
+        var exported = engine.ExportRules();
+
+        var engine2 = new RuleEngine();
+        engine2.ImportRules(exported);
+        Assert.Equal(2, engine2.GetAllRules().Count);
+    }
+
+    [Fact]
+    public void ImportRules_Merge_AddsToExisting()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome" });
+
+        engine.ImportRules("""[{"processName":"firefox"}]""", replace: false);
+        Assert.Equal(2, engine.GetAllRules().Count);
+    }
+
+    [Fact]
+    public void ImportRules_Replace_ClearsExisting()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome" });
+
+        engine.ImportRules("""[{"processName":"firefox"}]""", replace: true);
+        Assert.Single(engine.GetAllRules());
+        Assert.Equal("firefox", engine.GetAllRules()[0].ProcessName);
+    }
 }

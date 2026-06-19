@@ -166,9 +166,11 @@ public class PipeServer
             "PROCESSES" => JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions),
             "STATUS" => GetStatusResponse(),
             "CONNECTION_LOG" => GetConnectionLog(),
+            "EXPORT_RULES" => _ruleEngine.ExportRules(),
             "ADD_RULE" => AddRule(payload),
             "REMOVE_RULE" => RemoveRule(payload),
             "UPDATE_RULE" => UpdateRule(payload),
+            "IMPORT_RULES" => ImportRules(payload),
             _ => ErrorResponse("unknown command")
         };
     }
@@ -207,6 +209,19 @@ public class PipeServer
 
             _ruleEngine.UpdateRule(rule);
             return JsonSerializer.Serialize(new { ok = true, id = rule.Id }, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return ErrorResponse($"invalid JSON: {ex.Message}");
+        }
+    }
+
+    private string ImportRules(string payload)
+    {
+        try
+        {
+            _ruleEngine.ImportRules(payload, replace: false);
+            return JsonSerializer.Serialize(new { ok = true }, JsonOptions);
         }
         catch (JsonException ex)
         {
