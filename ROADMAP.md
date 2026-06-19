@@ -137,10 +137,4 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P2
 
-- [ ] P2 — Establish accessibility and localization foundations before UI growth
-  Why: The UI is currently hard-coded English with minimal accessibility metadata, while comparable OSS tools ship localization and polished monitor states.
-  Evidence: `src/OpenNetLimit.UI/MainWindow.xaml`; simplewall localization support; Sniffnet notification docs.
-  Touches: WPF resources, XAML automation properties, UI tests, README.
-  Acceptance: user-visible strings move to resources, key controls expose accessible names/status, high-contrast/light/dark checks pass, and a UI automation smoke test covers disconnected, loading, empty, and live states.
-  Complexity: M
 
