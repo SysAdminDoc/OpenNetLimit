@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 
@@ -8,6 +9,8 @@ public class RuleEngine : IRuleEngine
 {
     private readonly object _lock = new();
     private readonly List<BandwidthRule> _rules = [];
+
+    public event Action? OnRulesChanged;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,6 +25,7 @@ public class RuleEngine : IRuleEngine
             _rules.Add(rule);
             _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         }
+        OnRulesChanged?.Invoke();
     }
 
     public void RemoveRule(Guid ruleId)
@@ -30,6 +34,7 @@ public class RuleEngine : IRuleEngine
         {
             _rules.RemoveAll(r => r.Id == ruleId);
         }
+        OnRulesChanged?.Invoke();
     }
 
     public void UpdateRule(BandwidthRule rule)
@@ -43,6 +48,7 @@ public class RuleEngine : IRuleEngine
                 _rules.Add(rule);
             _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         }
+        OnRulesChanged?.Invoke();
     }
 
     public BandwidthRule? GetRule(Guid ruleId)
@@ -76,7 +82,25 @@ public class RuleEngine : IRuleEngine
         if (!File.Exists(filePath)) return;
 
         var json = File.ReadAllText(filePath);
-        var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(json, JsonOptions);
+
+        List<BandwidthRule>? rules;
+        try
+        {
+            var envelope = JsonSerializer.Deserialize<RuleFileEnvelope>(json, JsonOptions);
+            if (envelope?.Rules is not null)
+            {
+                rules = envelope.Rules;
+            }
+            else
+            {
+                rules = JsonSerializer.Deserialize<List<BandwidthRule>>(json, JsonOptions);
+            }
+        }
+        catch (JsonException)
+        {
+            rules = JsonSerializer.Deserialize<List<BandwidthRule>>(json, JsonOptions);
+        }
+
         if (rules is null) return;
 
         lock (_lock)
@@ -99,7 +123,25 @@ public class RuleEngine : IRuleEngine
         if (directory is not null)
             Directory.CreateDirectory(directory);
 
-        var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-        File.WriteAllText(filePath, json);
+        var envelope = new RuleFileEnvelope
+        {
+            Version = 1,
+            Rules = snapshot
+        };
+
+        var json = JsonSerializer.Serialize(envelope, JsonOptions);
+
+        var tempPath = filePath + ".tmp";
+        File.WriteAllText(tempPath, json);
+        File.Move(tempPath, filePath, overwrite: true);
+    }
+
+    private sealed class RuleFileEnvelope
+    {
+        [JsonPropertyName("version")]
+        public int Version { get; set; } = 1;
+
+        [JsonPropertyName("rules")]
+        public List<BandwidthRule>? Rules { get; set; }
     }
 }

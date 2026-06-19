@@ -1,5 +1,6 @@
 using System.Security.Principal;
 using OpenNetLimit.Core.Interfaces;
+using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.IPC;
 
 namespace OpenNetLimit.Service;
@@ -8,9 +9,12 @@ public class EngineWorker : BackgroundService
 {
     private readonly IPacketInterceptor _interceptor;
     private readonly IRuleEngine _ruleEngine;
+    private readonly IRateLimiter _rateLimiter;
+    private readonly IFlowTracker _flowTracker;
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PipeServer _pipeServer;
     private readonly ILogger<EngineWorker> _logger;
+    private RuleReconciler? _reconciler;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -22,12 +26,16 @@ public class EngineWorker : BackgroundService
     public EngineWorker(
         IPacketInterceptor interceptor,
         IRuleEngine ruleEngine,
+        IRateLimiter rateLimiter,
+        IFlowTracker flowTracker,
         ITrafficMonitor trafficMonitor,
         PipeServer pipeServer,
         ILogger<EngineWorker> logger)
     {
         _interceptor = interceptor;
         _ruleEngine = ruleEngine;
+        _rateLimiter = rateLimiter;
+        _flowTracker = flowTracker;
         _trafficMonitor = trafficMonitor;
         _pipeServer = pipeServer;
         _logger = logger;
@@ -45,7 +53,19 @@ public class EngineWorker : BackgroundService
 
         ClearLastError();
         EnsureDataDirectory();
+
+        _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker);
+        if (_ruleEngine is RuleEngine concreteEngine)
+        {
+            concreteEngine.OnRulesChanged += () =>
+            {
+                try { _reconciler.Reconcile(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Rule reconciliation failed"); }
+            };
+        }
+
         LoadRules();
+        _reconciler.Reconcile();
 
         try
         {

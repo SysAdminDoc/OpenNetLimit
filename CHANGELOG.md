@@ -7,6 +7,9 @@
 - PacketScheduler with 512-packet per-process queue limit, 2-second max delay, and automatic drop policy
 - Delay/drop/sent counters on PacketScheduler for observability
 - Graceful queue flush on shutdown (all queued packets reinjected)
+- RuleReconciler: rule changes atomically update live rate limiter state via OnRulesChanged event
+- Rule file versioning: schema envelope with version field, backward-compatible with legacy array format
+- Atomic rule file save (write to temp, rename) prevents corruption on crash
 - WinDivert native binaries (WinDivert.dll, WinDivert64.sys) automatically included via Native.WinDivert NuGet package
 - Third-party license notices (THIRD-PARTY-NOTICES.txt) documenting WinDivert LGPL/GPL and SharpDivert MIT
 - README updated with current project status, WinDivert trust/HVCI/EDR guidance, and troubleshooting
