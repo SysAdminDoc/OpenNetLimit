@@ -1,4 +1,5 @@
 using System.Windows;
+using MessageBox = System.Windows.MessageBox;
 
 namespace OpenNetLimit.UI;
 

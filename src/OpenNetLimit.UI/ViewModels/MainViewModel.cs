@@ -4,8 +4,9 @@ using System.Runtime.CompilerServices;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
+using Brush = System.Windows.Media.Brush;
+using Brushes = System.Windows.Media.Brushes;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.UI.Services;
 
