@@ -27,13 +27,18 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             Interlocked.Add(ref counter.DownloadBytes, byteCount);
 
         _processes.AddOrUpdate(processId,
-            _ => new ProcessTrafficInfo
+            _ =>
             {
-                ProcessId = processId,
-                ProcessName = processName,
-                TotalBytesReceived = isUpload ? 0 : byteCount,
-                TotalBytesSent = isUpload ? byteCount : 0,
-                LastActivityAt = DateTime.UtcNow
+                var info = new ProcessTrafficInfo
+                {
+                    ProcessId = processId,
+                    ProcessName = processName,
+                    TotalBytesReceived = isUpload ? 0 : byteCount,
+                    TotalBytesSent = isUpload ? byteCount : 0,
+                    LastActivityAt = DateTime.UtcNow
+                };
+                EnrichProcessInfo(info);
+                return info;
             },
             (_, existing) =>
             {
@@ -44,6 +49,19 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
                 existing.LastActivityAt = DateTime.UtcNow;
                 return existing;
             });
+    }
+
+    private static void EnrichProcessInfo(ProcessTrafficInfo info)
+    {
+        try
+        {
+            info.ServiceName = ProcessIdentifier.GetServiceName(info.ProcessId);
+            info.AppxPackage = ProcessIdentifier.GetAppxPackageName(info.ProcessId);
+        }
+        catch
+        {
+            // Best-effort enrichment
+        }
     }
 
     public ProcessTrafficInfo? GetProcessInfo(uint processId)
