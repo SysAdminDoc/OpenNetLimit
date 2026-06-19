@@ -25,11 +25,9 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 - [ ] Quota management: set daily/weekly/monthly data caps per app
 - [ ] Auto-throttle or auto-block when quota exceeded
 - [ ] Quota warnings and notifications
-- [ ] Rule scheduling: activate/deactivate rules on a time schedule
 - [ ] Bandwidth priority system (high/medium/low priority per app)
 - [ ] Windows service detection (filter by svchost service name)
 - [ ] UWP / Store app detection and filtering
-- [ ] Import/export rule sets
 - [ ] Profile system (e.g., "Gaming", "Work", "Metered")
 
 **Deliverable:** Power-user traffic manager rivaling NetLimiter's feature set.

@@ -12,4 +12,6 @@ public interface IRuleEngine
     BandwidthRule? FindMatchingRule(string processName, string? processPath);
     void LoadRules(string filePath);
     void SaveRules(string filePath);
+    string ExportRules();
+    void ImportRules(string json, bool replace = false);
 }

@@ -35,6 +35,8 @@ public class BandwidthRule
     public DateTime? ActiveFrom { get; set; }
     public DateTime? ActiveUntil { get; set; }
 
+    public RuleSchedule? Schedule { get; set; }
+
     public int Priority { get; set; }
 
     public bool MatchesProcess(string processName, string? processPath)
@@ -90,6 +92,30 @@ public class BandwidthRule
         var now = DateTime.UtcNow;
         if (ActiveFrom.HasValue && now < ActiveFrom.Value) return false;
         if (ActiveUntil.HasValue && now > ActiveUntil.Value) return false;
+        if (Schedule is not null && !Schedule.IsActiveAt(now)) return false;
+        return true;
+    }
+}
+
+public class RuleSchedule
+{
+    public TimeOnly? StartTime { get; set; }
+    public TimeOnly? EndTime { get; set; }
+    public DayOfWeek[]? ActiveDays { get; set; }
+
+    public bool IsActiveAt(DateTime utcNow)
+    {
+        if (ActiveDays is { Length: > 0 } && !ActiveDays.Contains(utcNow.DayOfWeek))
+            return false;
+
+        if (StartTime.HasValue && EndTime.HasValue)
+        {
+            var timeNow = TimeOnly.FromDateTime(utcNow);
+            if (StartTime.Value <= EndTime.Value)
+                return timeNow >= StartTime.Value && timeNow <= EndTime.Value;
+            return timeNow >= StartTime.Value || timeNow <= EndTime.Value;
+        }
+
         return true;
     }
 }

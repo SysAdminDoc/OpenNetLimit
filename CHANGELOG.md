@@ -13,6 +13,9 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Rule scheduling: time-of-day and day-of-week recurring schedules on BandwidthRule
+- Import/export rule sets via IPC (EXPORT_RULES / IMPORT_RULES commands)
+- Import supports merge (append) and replace modes
 - DNS resolver with 10-minute cache for reverse-resolving IP addresses to hostnames
 - Connection logger: rolling log of established, deleted, and blocked connections (max 10K entries)
 - CONNECTION_LOG IPC command returns last 100 log entries
