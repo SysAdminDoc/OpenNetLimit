@@ -6,28 +6,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ---
 
-## Phase 4: Advanced Features (v0.4)
-
-**Goal:** Quotas, scheduling, priorities.
-
-
-**Deliverable:** Power-user traffic manager rivaling NetLimiter's feature set.
-
----
-
-## Phase 5: Performance & Polish (v1.0)
-
-**Goal:** Production-quality release.
-
-- [ ] Performance profiling and optimization
-- [ ] First-run setup wizard
-- [ ] User documentation
-- [ ] Accessibility review (keyboard nav, screen reader support)
-
-**Deliverable:** v1.0 public release.
-
----
-
 ## Future (Post-1.0)
 
 - Remote administration (manage other machines)

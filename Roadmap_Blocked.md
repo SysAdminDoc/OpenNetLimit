@@ -32,3 +32,6 @@ Complexity: L
 
 ## Phase 5 — Auto-update mechanism
 **Blocker:** Requires hosted update server/GitHub releases infrastructure and update protocol design.
+
+## Phase 5 — Performance profiling and optimization
+**Blocker:** Requires running the service with a live WinDivert driver under real network traffic to identify actual bottlenecks. Cannot meaningfully profile packet processing, queue latency, or memory pressure without the driver loaded and real traffic flowing.
