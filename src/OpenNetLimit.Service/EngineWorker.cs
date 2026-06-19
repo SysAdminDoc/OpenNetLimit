@@ -202,6 +202,7 @@ public class EngineWorker : BackgroundService
             info.PacketsDelayed = wdi.Scheduler.TotalDelayed;
             info.PacketsDropped = wdi.Scheduler.TotalDropped;
             info.PacketsSent = wdi.Scheduler.TotalSent;
+            info.PacketsBlocked = wdi.TotalBlocked;
         }
 
         return info;
