@@ -24,11 +24,13 @@
                    FontWeight="SemiBold"/>
 
         <TextBlock Grid.Row="1" Grid.Column="0" Text="Download:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-        <TextBox Grid.Row="1" Grid.Column="1" x:Name="DownloadBox" Text="0" Margin="0,0,4,4"/>
+        <TextBox Grid.Row="1" Grid.Column="1" x:Name="DownloadBox" Text="0" Margin="0,0,4,4"
+                 AutomationProperties.Name="Download limit in KB/s"/>
         <TextBlock Grid.Row="1" Grid.Column="2" Text="KB/s" VerticalAlignment="Center" Margin="0,0,0,4"/>
 
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Upload:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-        <TextBox Grid.Row="2" Grid.Column="1" x:Name="UploadBox" Text="0" Margin="0,0,4,4"/>
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="UploadBox" Text="0" Margin="0,0,4,4"
+                 AutomationProperties.Name="Upload limit in KB/s"/>
         <TextBlock Grid.Row="2" Grid.Column="2" Text="KB/s" VerticalAlignment="Center" Margin="0,0,0,4"/>
 
         <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="Set to 0 to remove limit." Foreground="Gray" Margin="0,4,0,0" FontSize="11"/>

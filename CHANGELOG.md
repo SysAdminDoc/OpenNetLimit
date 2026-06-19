@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- First-run setup wizard: 3-page guided walkthrough for new users (requirements, tips, finish)
+- Wizard shows on first launch, stores completion marker in %LocalAppData%\OpenNetLimit
+- Skip button available on all wizard pages
+- Comprehensive README with feature list, setup guide, IPC protocol reference, troubleshooting
+- Accessibility: AutomationProperties on limit dialog text boxes
 - Quota management: daily/weekly/monthly data caps per app with QuotaConfig on rules
 - QuotaTracker monitors usage vs limits, fires warning and exceeded events
 - Auto-throttle or auto-block when quota exceeded (configurable per rule)
