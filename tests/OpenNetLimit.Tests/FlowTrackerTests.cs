@@ -1,6 +1,7 @@
 using System.Net;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using Xunit;
 
 namespace OpenNetLimit.Tests;
 

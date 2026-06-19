@@ -58,16 +58,18 @@ public class PipeServer
         try
         {
             using (pipe)
-            using var reader = new StreamReader(pipe, Encoding.UTF8);
-            using var writer = new StreamWriter(pipe, Encoding.UTF8) { AutoFlush = true };
-
-            while (pipe.IsConnected && !ct.IsCancellationRequested)
             {
-                var line = await reader.ReadLineAsync(ct);
-                if (line is null) break;
+                using var reader = new StreamReader(pipe, Encoding.UTF8);
+                using var writer = new StreamWriter(pipe, Encoding.UTF8) { AutoFlush = true };
 
-                var response = ProcessCommand(line);
-                await writer.WriteLineAsync(response);
+                while (pipe.IsConnected && !ct.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(ct);
+                    if (line is null) break;
+
+                    var response = ProcessCommand(line);
+                    await writer.WriteLineAsync(response);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
