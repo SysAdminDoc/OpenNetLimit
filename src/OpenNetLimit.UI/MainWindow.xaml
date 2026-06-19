@@ -38,8 +38,14 @@
         </StackPanel>
 
         <!-- Process list -->
-        <DataGrid Grid.Row="2" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
+        <DataGrid Grid.Row="2" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
                   AutomationProperties.Name="Process traffic list">
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Set Bandwidth Limit..." Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"/>
+                    <MenuItem Header="Remove Limit" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"/>
+                </ContextMenu>
+            </DataGrid.ContextMenu>
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="180"/>
                 <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="60"/>

@@ -10,7 +10,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 **Goal:** Background service with a usable desktop interface.
 
-- [ ] GUI: right-click a process → set download/upload limit
 - [ ] GUI: system tray icon with quick access
 
 **Deliverable:** Installable app with tray icon showing per-app bandwidth and allowing limits.
@@ -22,7 +21,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 **Goal:** Persistent rules, connection blocking, historical data.
 
 - [ ] Connection blocking rules (by app path, IP range, port, domain)
-- [ ] Wildcard rules for app paths (e.g., `*\chrome.exe`)
 - [ ] Real-time traffic charts (LiveCharts2 or OxyPlot)
 - [ ] SQLite-backed traffic statistics (per-process, per-hour/day)
 - [ ] Historical traffic reports and graphs
