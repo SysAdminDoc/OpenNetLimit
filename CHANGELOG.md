@@ -13,6 +13,8 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- UI displays permission mode (Administrator / Read-only) in status bar
+- Admin detection on UI startup determines available actions
 - Per-connection byte tracking with thread-safe AddBytesSent/AddBytesReceived on ConnectionInfo
 - IPv4/IPv6 detection on connections (IsIPv6 property)
 - Network loop records per-connection bytes alongside per-process totals

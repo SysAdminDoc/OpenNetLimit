@@ -144,13 +144,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Acceptance: repository has an explicit .NET 10 LTS migration decision or schedule, restore audit can run as a dedicated gate, and package-update policy is documented.
   Complexity: M
 
-- [ ] P2 — Add local user permissions and read-only monitor mode
-  Why: Commercial tools protect who can monitor or change rules, and an elevated local service needs separate view and mutation permissions.
-  Evidence: NetLimiter permissions docs; NetBalancer password-protected settings; `PipeServer.cs`.
-  Touches: IPC authorization, settings model, UI, tests.
-  Acceptance: non-admin viewing and rule mutation are governed separately, read-only mode blocks all mutation commands, and denied attempts are logged and visible.
-  Complexity: M
-
 - [ ] P2 — Establish accessibility and localization foundations before UI growth
   Why: The UI is currently hard-coded English with minimal accessibility metadata, while comparable OSS tools ship localization and polished monitor states.
   Evidence: `src/OpenNetLimit.UI/MainWindow.xaml`; simplewall localization support; Sniffnet notification docs.
