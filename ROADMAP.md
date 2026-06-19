@@ -175,13 +175,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Acceptance: build output or installer includes the expected WinDivert runtime files with published hashes, admin/service launch path, third-party license notice, and clear error when the driver cannot load.
   Complexity: M
 
-- [ ] P0 — Secure the elevated named-pipe IPC boundary
-  Why: The service accepts rule mutation commands over a default-ACL pipe, which is unsafe for an elevated traffic-control process.
-  Evidence: `src/OpenNetLimit.Service/IPC/PipeServer.cs`; Microsoft named-pipe security docs; NetLimiter user permissions.
-  Touches: `PipeServer`, IPC DTOs, service host, UI client, IPC tests.
-  Acceptance: pipe ACL allows only intended local principals, client identity is checked, commands are schema-versioned and validated, unauthorized clients are denied in tests.
-  Complexity: M
-
 - [ ] P0 — Define fail-safe service lifecycle and recovery behavior
   Why: Users need predictable behavior when the service, driver, or rule store fails; competitor issues show filtering durability and lost diagnostics are trust breakers.
   Evidence: `src/OpenNetLimit.Service/EngineWorker.cs`; Fort Firewall issue #6; Fort Firewall issue #435; NetLimiter components model.
