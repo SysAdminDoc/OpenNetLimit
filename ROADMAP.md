@@ -10,7 +10,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 **Goal:** Background service with a usable desktop interface.
 
-- [ ] GUI: system tray icon with quick access
 
 **Deliverable:** Installable app with tray icon showing per-app bandwidth and allowing limits.
 
