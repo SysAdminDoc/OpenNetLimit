@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- Bounded packet scheduler: rate-limited packets enter per-process queues instead of blocking the capture thread
+- PacketScheduler with 512-packet per-process queue limit, 2-second max delay, and automatic drop policy
+- Delay/drop/sent counters on PacketScheduler for observability
+- Graceful queue flush on shutdown (all queued packets reinjected)
 - Fail-safe service lifecycle: validates admin privileges before starting interceptor
 - Graceful shutdown: interceptor stop and rule save wrapped in try/catch to prevent data loss
 - Last-error recording: writes startup/crash errors to %ProgramData%\OpenNetLimit\last-error.txt

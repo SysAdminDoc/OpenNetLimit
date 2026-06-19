@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.RateLimiting;
 using SharpDivert;
 
 namespace OpenNetLimit.Engine.Interception;
@@ -11,6 +12,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly IFlowTracker _flowTracker;
     private readonly IRateLimiter _rateLimiter;
     private readonly ITrafficMonitor _trafficMonitor;
+    private readonly PacketScheduler _scheduler = new();
 
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
@@ -19,6 +21,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private Task? _flowTask;
 
     public bool IsRunning { get; private set; }
+    public PacketScheduler Scheduler => _scheduler;
 
     public WinDivertInterceptor(
         IFlowTracker flowTracker,
@@ -38,6 +41,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
         _flowHandle = new WinDivert("true", WinDivert.Layer.Flow, 0, WinDivert.Flag.Sniff);
         _networkHandle = new WinDivert("true", WinDivert.Layer.Network, 0, default);
+        _scheduler.SetHandle(_networkHandle);
 
         _flowTask = Task.Factory.StartNew(
             () => FlowLoop(_cts.Token),
@@ -75,6 +79,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
         catch (OperationCanceledException) { }
 
+        _scheduler.Dispose();
         _networkHandle?.Dispose();
         _flowHandle?.Dispose();
         _networkHandle = null;
@@ -165,9 +170,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 if (_rateLimiter.HasLimit(processId.Value))
                 {
                     var delay = _rateLimiter.GetDelay(processId.Value, payloadLength, isOutbound);
-                    if (delay > TimeSpan.Zero && delay < TimeSpan.FromSeconds(2))
+                    if (delay > TimeSpan.Zero)
                     {
-                        Thread.Sleep(delay);
+                        _rateLimiter.TryConsume(processId.Value, payloadLength, isOutbound);
+                        _scheduler.Enqueue(processId.Value, packet.Span, addrBuffer.Span, delay);
+                        continue;
                     }
                     _rateLimiter.TryConsume(processId.Value, payloadLength, isOutbound);
                 }
