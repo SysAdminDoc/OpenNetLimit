@@ -6,40 +6,12 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ---
 
-## Phase 1: MVP — Per-Process Bandwidth Limiting (v0.1)
-
-**Goal:** Capture packets, identify owning process, enforce speed limits.
-
-- [ ] WinDivert FLOW layer integration — track (flow → process ID) mappings
-- [ ] WinDivert NETWORK layer integration — capture and reinject packets
-- [ ] Flow-to-packet correlation (match packets to processes via 5-tuple lookup)
-- [ ] Token bucket enforcement — queue packets when over limit, release on schedule
-- [ ] Per-process upload & download rate limiting
-- [ ] Console test harness (set a limit, observe throttling)
-- [ ] Integration tests with loopback traffic
-
-**Technical Notes:**
-- WinDivert's `ProcessId` field is only available at FLOW and SOCKET layers, NOT the NETWORK layer.
-- Architecture: FLOW handle watches connection lifecycle and builds a lookup table of `(protocol, localAddr, localPort, remoteAddr, remotePort) → processId`.
-- NETWORK handle captures actual packets. For each packet, parse headers, look up the 5-tuple in the flow table to find the owning process.
-- Rate limiting uses a token bucket per process: tokens refill at the configured bytes/sec rate, each packet consumes tokens equal to its size. If tokens are insufficient, the packet is queued and reinjected after a calculated delay.
-
-**Deliverable:** CLI tool that throttles a named process to a specified bandwidth.
-
----
-
 ## Phase 2: Service + Basic GUI (v0.2)
 
 **Goal:** Background service with a usable desktop interface.
 
-- [ ] Windows service (or background worker) hosting the engine
-- [ ] Named pipe IPC between service and GUI
-- [ ] IPC protocol: query active processes, get traffic stats, add/remove rules
-- [ ] WPF GUI: main window with process list, live bandwidth per process
 - [ ] GUI: right-click a process → set download/upload limit
 - [ ] GUI: system tray icon with quick access
-- [ ] Real-time traffic display (bytes/sec per process, total)
-- [ ] Start-on-boot option
 
 **Deliverable:** Installable app with tray icon showing per-app bandwidth and allowing limits.
 
@@ -49,7 +21,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 **Goal:** Persistent rules, connection blocking, historical data.
 
-- [ ] Persistent rule storage (JSON or SQLite)
 - [ ] Connection blocking rules (by app path, IP range, port, domain)
 - [ ] Wildcard rules for app paths (e.g., `*\chrome.exe`)
 - [ ] Real-time traffic charts (LiveCharts2 or OxyPlot)
@@ -85,11 +56,7 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 **Goal:** Production-quality release.
 
 - [ ] Performance profiling and optimization
-- [ ] Optional WFP callout driver for lower-latency packet handling
-- [ ] Signed installer (MSIX or Inno Setup)
 - [ ] First-run setup wizard
-- [ ] Auto-update mechanism
-- [ ] Comprehensive error handling and logging
 - [ ] User documentation
 - [ ] Accessibility review (keyboard nav, screen reader support)
 
@@ -166,8 +133,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ## Research-Driven Additions
 
-### P0
-
 ### P1
 
 - [ ] P1 — Add retained diagnostics and redacted support bundles
@@ -182,13 +147,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Evidence: `src/OpenNetLimit.Core/Models/ConnectionInfo.cs`; `src/OpenNetLimit.Engine/Monitoring/TrafficMonitor.cs`; NetLimiter basic features; NetBalancer feature table; Sniffnet programs docs.
   Touches: `FlowTracker`, `TrafficMonitor`, packet parser adapter, UI process/connection views, tests.
   Acceptance: snapshots include protocol, direction, adapter, endpoint, PID/name/path/service where available, bytes sent/received, active connection counts, and sortable/filterable UI data.
-  Complexity: L
-
-- [ ] P1 — Create a Windows compatibility and performance matrix
-  Why: WinDivert/WFP tools are sensitive to HVCI, VPNs, tethering, IPv6, UDP, and high throughput; these are release-blocking reliability conditions.
-  Evidence: Fort Firewall README HVCI note; Fort Firewall issue #435; WinDivert docs; NetLimiter release compatibility notes.
-  Touches: integration test harness, benchmark scripts, release checklist, docs.
-  Acceptance: scripted smoke tests cover loopback and external traffic, IPv4/IPv6, TCP/UDP, VPN coexistence, USB tethering, HVCI state, and high-throughput delay/drop metrics.
   Complexity: L
 
 ### P2
