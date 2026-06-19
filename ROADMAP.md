@@ -13,7 +13,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 - [ ] Real-time traffic charts (LiveCharts2 or OxyPlot)
 - [ ] SQLite-backed traffic statistics (per-process, per-hour/day)
 - [ ] Historical traffic reports and graphs
-- [ ] DNS resolution for displaying domain names alongside IPs
 
 **Deliverable:** Feature-complete local traffic manager.
 

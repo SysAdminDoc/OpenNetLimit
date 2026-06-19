@@ -13,6 +13,7 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- DNS resolver with 10-minute cache for reverse-resolving IP addresses to hostnames
 - Connection logger: rolling log of established, deleted, and blocked connections (max 10K entries)
 - CONNECTION_LOG IPC command returns last 100 log entries
 - Blocked events include matching rule name for debugging
