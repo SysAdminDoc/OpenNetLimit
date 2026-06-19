@@ -1,13 +1,15 @@
 <Window x:Class="OpenNetLimit.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OpenNetLimit" Height="600" Width="900"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        Title="OpenNetLimit" Height="700" Width="900"
         WindowStartupLocation="CenterScreen"
         KeyboardNavigation.TabNavigation="Cycle">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="160"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -37,8 +39,16 @@
             </TextBlock>
         </StackPanel>
 
+        <!-- Traffic chart -->
+        <lvc:CartesianChart Grid.Row="2" Margin="0,0,0,8"
+                            Series="{Binding ChartSeries}"
+                            YAxes="{Binding ChartYAxes}"
+                            XAxes="{Binding ChartXAxes}"
+                            AnimationsSpeed="00:00:00.200"
+                            AutomationProperties.Name="Real-time traffic chart"/>
+
         <!-- Process list -->
-        <DataGrid Grid.Row="2" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
+        <DataGrid Grid.Row="3" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
                   AutomationProperties.Name="Process traffic list">
             <DataGrid.ContextMenu>
                 <ContextMenu>
@@ -58,7 +68,7 @@
         </DataGrid>
 
         <!-- Status bar -->
-        <StatusBar Grid.Row="3" Margin="0,8,0,0"
+        <StatusBar Grid.Row="4" Margin="0,8,0,0"
                    AutomationProperties.Name="Status bar">
             <StatusBarItem AutomationProperties.Name="{Binding ActiveConnectionCount, StringFormat='Connections: {0}'}">
                 <TextBlock Text="{Binding ActiveConnectionCount, StringFormat='Connections: {0}'}"/>

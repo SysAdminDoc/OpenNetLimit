@@ -4,6 +4,7 @@ using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.IPC;
+using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service;
 
@@ -18,12 +19,16 @@ public class EngineWorker : BackgroundService
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
     private RuleReconciler? _reconciler;
+    private TrafficStatsDb? _statsDb;
+    private Timer? _statsTimer;
+    private Timer? _purgeTimer;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "OpenNetLimit");
 
     private static readonly string RulesPath = Path.Combine(DataDir, "rules.json");
+    private static readonly string StatsDbPath = Path.Combine(DataDir, "traffic.db");
     private static readonly string LastErrorPath = Path.Combine(DataDir, "last-error.txt");
 
     public EngineWorker(
@@ -82,7 +87,20 @@ public class EngineWorker : BackgroundService
             return;
         }
 
+        try
+        {
+            _statsDb = new TrafficStatsDb(StatsDbPath);
+            _statsTimer = new Timer(_ => RecordStats(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            _purgeTimer = new Timer(_ => _statsDb.PurgeOlderThan(90), null, TimeSpan.FromHours(1), TimeSpan.FromHours(24));
+            _logger.LogInformation("Traffic statistics database initialized at {Path}", StatsDbPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize stats database — statistics will be unavailable");
+        }
+
         _pipeServer.DiagnosticProvider = GetDiagnosticInfo;
+        _pipeServer.StatsProvider = _statsDb;
         if (_interceptor is WinDivertInterceptor wdi2)
             _pipeServer.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
@@ -161,8 +179,24 @@ public class EngineWorker : BackgroundService
         }
     }
 
+    private void RecordStats()
+    {
+        try
+        {
+            var snapshot = _trafficMonitor.TakeSnapshot();
+            _statsDb?.RecordSnapshot(snapshot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to record traffic statistics");
+        }
+    }
+
     private async Task ShutdownGracefully()
     {
+        _statsTimer?.Dispose();
+        _purgeTimer?.Dispose();
+
         try
         {
             await _interceptor.StopAsync();
@@ -173,6 +207,7 @@ public class EngineWorker : BackgroundService
         }
 
         SaveRules();
+        _statsDb?.Dispose();
         _logger.LogInformation("OpenNetLimit engine stopped");
     }
 

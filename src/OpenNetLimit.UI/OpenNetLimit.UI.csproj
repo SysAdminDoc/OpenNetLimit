@@ -15,4 +15,8 @@
     <ProjectReference Include="..\OpenNetLimit.Core\OpenNetLimit.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.0-rc4.5" />
+  </ItemGroup>
+
 </Project>
