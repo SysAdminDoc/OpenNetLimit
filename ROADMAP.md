@@ -175,13 +175,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Acceptance: build output or installer includes the expected WinDivert runtime files with published hashes, admin/service launch path, third-party license notice, and clear error when the driver cannot load.
   Complexity: M
 
-- [ ] P0 — Replace capture-thread sleep with bounded packet scheduling
-  Why: `Thread.Sleep` inside the network receive loop can stall unrelated traffic and hide queue/drop behavior under load.
-  Evidence: `src/OpenNetLimit.Engine/Interception/WinDivertInterceptor.cs`; Portmaster latency issue #1141; WinDivert NETWORK/FLOW layer docs.
-  Touches: `WinDivertInterceptor`, `ProcessRateLimiter`, packet queue abstractions, stress tests.
-  Acceptance: over-limit packets enter bounded per-process queues with cancellation, max-delay/drop policy, delay/drop counters, and throughput/latency tests.
-  Complexity: L
-
 ### P1
 
 - [ ] P1 — Add a rule-to-enforcement reconciler with schema migration
