@@ -99,4 +99,40 @@ public class RuleEngineTests
 
         Assert.Equal(2, engine.GetAllRules().Count);
     }
+
+    [Fact]
+    public void WildcardPath_MatchesAnyDirectory()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessPath = @"*\chrome.exe",
+            DownloadBytesPerSecond = 50_000
+        });
+
+        var match = engine.FindMatchingRule("chrome",
+            @"C:\Program Files\Google\Chrome\Application\chrome.exe");
+        Assert.NotNull(match);
+    }
+
+    [Fact]
+    public void WildcardPath_DoesNotMatchWrongExe()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessPath = @"*\chrome.exe"
+        });
+
+        Assert.Null(engine.FindMatchingRule("firefox",
+            @"C:\Program Files\Mozilla Firefox\firefox.exe"));
+    }
+
+    [Fact]
+    public void QuestionMarkWildcard_MatchesSingleChar()
+    {
+        var rule = new BandwidthRule { ProcessPath = @"C:\app?.exe" };
+        Assert.True(rule.MatchesProcess("app", @"C:\appX.exe"));
+        Assert.False(rule.MatchesProcess("app", @"C:\appXY.exe"));
+    }
 }

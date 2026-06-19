@@ -213,6 +213,43 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return parts.Count > 0 ? string.Join(" ", parts) : "None";
     }
 
+    public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec)
+    {
+        if (_client.State != ConnectionState.Connected) return;
+
+        var rule = new BandwidthRule
+        {
+            ProcessName = processName,
+            DownloadBytesPerSecond = downloadBytesPerSec,
+            UploadBytesPerSecond = uploadBytesPerSec,
+            Action = RuleAction.Limit
+        };
+
+        var json = JsonSerializer.Serialize(rule, JsonOptions);
+        await _client.SendCommandAsync($"ADD_RULE {json}");
+    }
+
+    public async Task RemoveLimitAsync(string processName)
+    {
+        if (_client.State != ConnectionState.Connected) return;
+
+        var rulesJson = await _client.SendCommandAsync("RULES");
+        if (rulesJson is null) return;
+
+        try
+        {
+            var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
+            if (rules is null) return;
+
+            foreach (var rule in rules.Where(r =>
+                r.ProcessName?.Equals(processName, StringComparison.OrdinalIgnoreCase) == true))
+            {
+                await _client.SendCommandAsync($"REMOVE_RULE {rule.Id}");
+            }
+        }
+        catch { }
+    }
+
     private void OnDisconnected()
     {
         _pollTimer.Stop();

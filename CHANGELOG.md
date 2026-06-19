@@ -13,6 +13,9 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Right-click context menu on process list: Set Bandwidth Limit / Remove Limit
+- SetLimitDialog for entering download/upload limits in KB/s
+- Wildcard pattern matching for rule paths (`*\chrome.exe`, `C:\app?.exe`)
 - Accessibility: AutomationProperties on all key UI elements (status, summary, process list, status bar)
 - LiveSetting=Polite on connection status for screen reader announcements
 - Keyboard tab navigation cycle on main window
