@@ -13,6 +13,9 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Accessibility: AutomationProperties on all key UI elements (status, summary, process list, status bar)
+- LiveSetting=Polite on connection status for screen reader announcements
+- Keyboard tab navigation cycle on main window
 - Directory.Build.props with NuGet audit (moderate level, all mode)
 - UI displays permission mode (Administrator / Read-only) in status bar
 - Admin detection on UI startup determines available actions
