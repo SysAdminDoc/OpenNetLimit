@@ -10,8 +10,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 **Goal:** Quotas, scheduling, priorities.
 
-- [ ] Windows service detection (filter by svchost service name)
-- [ ] UWP / Store app detection and filtering
 
 **Deliverable:** Power-user traffic manager rivaling NetLimiter's feature set.
 

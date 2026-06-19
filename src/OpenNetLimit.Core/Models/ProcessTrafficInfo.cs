@@ -5,6 +5,8 @@ public class ProcessTrafficInfo
     public uint ProcessId { get; init; }
     public string ProcessName { get; set; } = string.Empty;
     public string? ProcessPath { get; set; }
+    public string? ServiceName { get; set; }
+    public string? AppxPackage { get; set; }
 
     public long CurrentDownloadBytesPerSecond { get; set; }
     public long CurrentUploadBytesPerSecond { get; set; }

@@ -10,6 +10,9 @@
 - Bandwidth priority system: High/Normal/Low priority on rules
 - Profile system: ProfileName field on BandwidthRule for grouping rules into profiles
 - QUOTAS IPC command returns all quota states with usage percentages
+- Windows service detection: identifies svchost service names via SCM API
+- UWP/Store app detection: identifies AppX package names via GetPackageFullName
+- ServiceName and AppxPackage fields on ProcessTrafficInfo for display
 - SQLite-backed traffic statistics: per-process hourly and daily byte counters
 - TrafficStatsDb with upsert-on-conflict aggregation, WAL mode, 90-day auto-purge
 - STATS_HOURLY, STATS_DAILY, STATS_TOP IPC commands for querying historical data
