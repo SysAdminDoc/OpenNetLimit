@@ -8,7 +8,7 @@ public static class IpcProtocol
     public static readonly HashSet<string> ReadCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "SNAPSHOT", "RULES", "PROCESSES", "STATUS", "CONNECTION_LOG", "EXPORT_RULES",
-        "STATS_HOURLY", "STATS_DAILY", "STATS_TOP"
+        "STATS_HOURLY", "STATS_DAILY", "STATS_TOP", "QUOTAS"
     };
 
     public static readonly HashSet<string> WriteCommands = new(StringComparer.OrdinalIgnoreCase)

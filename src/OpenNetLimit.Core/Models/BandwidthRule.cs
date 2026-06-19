@@ -14,6 +14,13 @@ public enum RuleDirection
     Upload
 }
 
+public enum BandwidthPriority
+{
+    Low = 0,
+    Normal = 1,
+    High = 2
+}
+
 public class BandwidthRule
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -36,6 +43,12 @@ public class BandwidthRule
     public DateTime? ActiveUntil { get; set; }
 
     public RuleSchedule? Schedule { get; set; }
+
+    public QuotaConfig? Quota { get; set; }
+
+    public BandwidthPriority BandwidthPriority { get; set; } = BandwidthPriority.Normal;
+
+    public string? ProfileName { get; set; }
 
     public int Priority { get; set; }
 
@@ -95,6 +108,29 @@ public class BandwidthRule
         if (Schedule is not null && !Schedule.IsActiveAt(now)) return false;
         return true;
     }
+}
+
+public enum QuotaPeriod
+{
+    Daily,
+    Weekly,
+    Monthly
+}
+
+public enum QuotaAction
+{
+    Throttle,
+    Block,
+    WarnOnly
+}
+
+public class QuotaConfig
+{
+    public long LimitBytes { get; set; }
+    public QuotaPeriod Period { get; set; } = QuotaPeriod.Daily;
+    public QuotaAction OnExceeded { get; set; } = QuotaAction.Throttle;
+    public long ThrottleBytesPerSecond { get; set; } = 10 * 1024;
+    public int WarningPercent { get; set; } = 80;
 }
 
 public class RuleSchedule

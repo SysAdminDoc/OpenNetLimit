@@ -6,6 +6,7 @@ using System.Text.Json;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service.IPC;
@@ -19,6 +20,7 @@ public class PipeServer
     public Func<DiagnosticInfo>? DiagnosticProvider { get; set; }
     public Func<IReadOnlyList<object>>? ConnectionLogProvider { get; set; }
     public TrafficStatsDb? StatsProvider { get; set; }
+    public QuotaTracker? QuotaTracker { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -172,6 +174,7 @@ public class PipeServer
             "STATS_HOURLY" => GetStatsHourly(payload),
             "STATS_DAILY" => GetStatsDaily(payload),
             "STATS_TOP" => GetStatsTop(),
+            "QUOTAS" => GetQuotas(),
             "ADD_RULE" => AddRule(payload),
             "REMOVE_RULE" => RemoveRule(payload),
             "UPDATE_RULE" => UpdateRule(payload),
@@ -255,6 +258,12 @@ public class PipeServer
         if (StatsProvider is null) return ErrorResponse("stats unavailable");
         var entries = StatsProvider.GetTopProcesses();
         return JsonSerializer.Serialize(entries, JsonOptions);
+    }
+
+    private string GetQuotas()
+    {
+        var states = QuotaTracker?.GetAllQuotaStates() ?? [];
+        return JsonSerializer.Serialize(states, JsonOptions);
     }
 
     private string GetConnectionLog()

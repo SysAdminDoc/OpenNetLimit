@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- Quota management: daily/weekly/monthly data caps per app with QuotaConfig on rules
+- QuotaTracker monitors usage vs limits, fires warning and exceeded events
+- Auto-throttle or auto-block when quota exceeded (configurable per rule)
+- Warning threshold (default 80%) triggers notification event before quota hit
+- Bandwidth priority system: High/Normal/Low priority on rules
+- Profile system: ProfileName field on BandwidthRule for grouping rules into profiles
+- QUOTAS IPC command returns all quota states with usage percentages
 - SQLite-backed traffic statistics: per-process hourly and daily byte counters
 - TrafficStatsDb with upsert-on-conflict aggregation, WAL mode, 90-day auto-purge
 - STATS_HOURLY, STATS_DAILY, STATS_TOP IPC commands for querying historical data
