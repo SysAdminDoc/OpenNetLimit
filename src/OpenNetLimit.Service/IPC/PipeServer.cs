@@ -16,6 +16,7 @@ public class PipeServer
     private readonly ILogger<PipeServer> _logger;
 
     public Func<DiagnosticInfo>? DiagnosticProvider { get; set; }
+    public Func<IReadOnlyList<object>>? ConnectionLogProvider { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -164,6 +165,7 @@ public class PipeServer
             "RULES" => JsonSerializer.Serialize(_ruleEngine.GetAllRules(), JsonOptions),
             "PROCESSES" => JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions),
             "STATUS" => GetStatusResponse(),
+            "CONNECTION_LOG" => GetConnectionLog(),
             "ADD_RULE" => AddRule(payload),
             "REMOVE_RULE" => RemoveRule(payload),
             "UPDATE_RULE" => UpdateRule(payload),
@@ -210,6 +212,12 @@ public class PipeServer
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
         }
+    }
+
+    private string GetConnectionLog()
+    {
+        var entries = ConnectionLogProvider?.Invoke() ?? [];
+        return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetStatusResponse()

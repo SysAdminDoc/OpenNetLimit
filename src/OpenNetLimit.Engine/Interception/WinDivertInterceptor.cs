@@ -3,6 +3,7 @@ using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 using RuleAction = OpenNetLimit.Core.Models.RuleAction;
+using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using SharpDivert;
 
@@ -15,6 +16,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly IRuleEngine _ruleEngine;
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PacketScheduler _scheduler = new();
+    private readonly ConnectionLogger _connectionLog = new();
     private long _totalBlocked;
 
     private WinDivert? _networkHandle;
@@ -27,6 +29,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     public PacketScheduler Scheduler => _scheduler;
 
     public long TotalBlocked => Volatile.Read(ref _totalBlocked);
+    public ConnectionLogger ConnectionLog => _connectionLog;
 
     public WinDivertInterceptor(
         IFlowTracker flowTracker,
@@ -126,6 +129,15 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     string processName = ResolveProcessName(flowData.ProcessId);
                     string? processPath = ResolveProcessPath(flowData.ProcessId);
                     _flowTracker.RegisterFlow(flowKey, flowData.ProcessId, processName, processPath);
+                    _connectionLog.Log(new ConnectionLogEntry
+                    {
+                        ProcessId = flowData.ProcessId,
+                        ProcessName = processName,
+                        Action = "Established",
+                        Protocol = protocol.ToString(),
+                        LocalEndpoint = $"{localAddr}:{flowData.LocalPort}",
+                        RemoteEndpoint = $"{remoteAddr}:{flowData.RemotePort}"
+                    });
                 }
                 else if (addr.Event == WinDivert.Event.FlowDeleted)
                 {
@@ -186,6 +198,16 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 if (matchingRule?.Action == RuleAction.Block)
                 {
                     Interlocked.Increment(ref _totalBlocked);
+                    _connectionLog.Log(new ConnectionLogEntry
+                    {
+                        ProcessId = processId.Value,
+                        ProcessName = processName,
+                        Action = "Blocked",
+                        Protocol = flowKey.Protocol.ToString(),
+                        LocalEndpoint = $"{flowKey.LocalAddress}:{flowKey.LocalPort}",
+                        RemoteEndpoint = $"{flowKey.RemoteAddress}:{flowKey.RemotePort}",
+                        RuleName = matchingRule.Name
+                    });
                     continue;
                 }
 

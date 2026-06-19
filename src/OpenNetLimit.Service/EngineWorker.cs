@@ -83,6 +83,8 @@ public class EngineWorker : BackgroundService
         }
 
         _pipeServer.DiagnosticProvider = GetDiagnosticInfo;
+        if (_interceptor is WinDivertInterceptor wdi2)
+            _pipeServer.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
         _logger.LogInformation("IPC pipe server started");
 
