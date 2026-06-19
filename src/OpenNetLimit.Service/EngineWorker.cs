@@ -1,5 +1,7 @@
 using System.Security.Principal;
 using OpenNetLimit.Core.Interfaces;
+using OpenNetLimit.Core.IPC;
+using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.IPC;
 
@@ -14,6 +16,7 @@ public class EngineWorker : BackgroundService
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PipeServer _pipeServer;
     private readonly ILogger<EngineWorker> _logger;
+    private readonly DateTime _startedAt = DateTime.UtcNow;
     private RuleReconciler? _reconciler;
 
     private static readonly string DataDir = Path.Combine(
@@ -79,6 +82,7 @@ public class EngineWorker : BackgroundService
             return;
         }
 
+        _pipeServer.DiagnosticProvider = GetDiagnosticInfo;
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
         _logger.LogInformation("IPC pipe server started");
 
@@ -181,6 +185,26 @@ public class EngineWorker : BackgroundService
             _logger.LogError(ex, "IPC pipe server crashed");
             RecordLastError($"IPC pipe server crashed: {ex.Message}");
         }
+    }
+
+    private DiagnosticInfo GetDiagnosticInfo()
+    {
+        var info = new DiagnosticInfo
+        {
+            Running = _interceptor.IsRunning,
+            ActiveFlows = _flowTracker.GetActiveConnections().Count,
+            ActiveRules = _ruleEngine.GetAllRules().Count,
+            StartedAt = _startedAt
+        };
+
+        if (_interceptor is WinDivertInterceptor wdi)
+        {
+            info.PacketsDelayed = wdi.Scheduler.TotalDelayed;
+            info.PacketsDropped = wdi.Scheduler.TotalDropped;
+            info.PacketsSent = wdi.Scheduler.TotalSent;
+        }
+
+        return info;
     }
 
     private void RecordLastError(string message)

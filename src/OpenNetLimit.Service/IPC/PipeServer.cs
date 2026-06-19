@@ -15,6 +15,8 @@ public class PipeServer
     private readonly IRuleEngine _ruleEngine;
     private readonly ILogger<PipeServer> _logger;
 
+    public Func<DiagnosticInfo>? DiagnosticProvider { get; set; }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -161,11 +163,7 @@ public class PipeServer
             "SNAPSHOT" => JsonSerializer.Serialize(_trafficMonitor.TakeSnapshot(), JsonOptions),
             "RULES" => JsonSerializer.Serialize(_ruleEngine.GetAllRules(), JsonOptions),
             "PROCESSES" => JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions),
-            "STATUS" => JsonSerializer.Serialize(new
-            {
-                version = IpcProtocol.ProtocolVersion,
-                running = true
-            }, JsonOptions),
+            "STATUS" => GetStatusResponse(),
             "ADD_RULE" => AddRule(payload),
             "REMOVE_RULE" => RemoveRule(payload),
             "UPDATE_RULE" => UpdateRule(payload),
@@ -212,6 +210,12 @@ public class PipeServer
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
         }
+    }
+
+    private string GetStatusResponse()
+    {
+        var diag = DiagnosticProvider?.Invoke() ?? new DiagnosticInfo { Running = true };
+        return JsonSerializer.Serialize(diag, JsonOptions);
     }
 
     private static string ErrorResponse(string message) =>
