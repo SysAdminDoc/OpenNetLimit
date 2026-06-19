@@ -13,6 +13,9 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Connection blocking: rules with Action=Block drop matching packets silently
+- TotalBlocked counter on interceptor for blocked packet tracking
+- PacketsBlocked exposed via STATUS diagnostic command
 - System tray icon with Show/Exit context menu
 - Minimize-to-tray: window hides when minimized, double-click tray icon to restore
 - Right-click context menu on process list: Set Bandwidth Limit / Remove Limit

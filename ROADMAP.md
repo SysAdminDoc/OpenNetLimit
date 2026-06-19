@@ -6,20 +6,10 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ---
 
-## Phase 2: Service + Basic GUI (v0.2)
-
-**Goal:** Background service with a usable desktop interface.
-
-
-**Deliverable:** Installable app with tray icon showing per-app bandwidth and allowing limits.
-
----
-
 ## Phase 3: Rules, Blocking & Statistics (v0.3)
 
 **Goal:** Persistent rules, connection blocking, historical data.
 
-- [ ] Connection blocking rules (by app path, IP range, port, domain)
 - [ ] Real-time traffic charts (LiveCharts2 or OxyPlot)
 - [ ] SQLite-backed traffic statistics (per-process, per-hour/day)
 - [ ] Historical traffic reports and graphs

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using RuleAction = OpenNetLimit.Core.Models.RuleAction;
 using OpenNetLimit.Engine.RateLimiting;
 using SharpDivert;
 
@@ -11,8 +12,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 {
     private readonly IFlowTracker _flowTracker;
     private readonly IRateLimiter _rateLimiter;
+    private readonly IRuleEngine _ruleEngine;
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PacketScheduler _scheduler = new();
+    private long _totalBlocked;
 
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
@@ -23,13 +26,17 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     public bool IsRunning { get; private set; }
     public PacketScheduler Scheduler => _scheduler;
 
+    public long TotalBlocked => Volatile.Read(ref _totalBlocked);
+
     public WinDivertInterceptor(
         IFlowTracker flowTracker,
         IRateLimiter rateLimiter,
+        IRuleEngine ruleEngine,
         ITrafficMonitor trafficMonitor)
     {
         _flowTracker = flowTracker;
         _rateLimiter = rateLimiter;
+        _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
     }
 
@@ -174,6 +181,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 }
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound);
+
+                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath);
+                if (matchingRule?.Action == RuleAction.Block)
+                {
+                    Interlocked.Increment(ref _totalBlocked);
+                    continue;
+                }
 
                 if (_rateLimiter.HasLimit(processId.Value))
                 {

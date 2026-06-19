@@ -9,5 +9,6 @@ public class DiagnosticInfo
     public long PacketsDelayed { get; set; }
     public long PacketsDropped { get; set; }
     public long PacketsSent { get; set; }
+    public long PacketsBlocked { get; set; }
     public DateTime StartedAt { get; set; }
 }
