@@ -13,6 +13,9 @@
 - Auto-reconnect every 3 seconds when service is not running
 - 1-second polling for traffic snapshots and rule counts
 - Proper ViewModel disposal on window close
+- Per-connection byte tracking with thread-safe AddBytesSent/AddBytesReceived on ConnectionInfo
+- IPv4/IPv6 detection on connections (IsIPv6 property)
+- Network loop records per-connection bytes alongside per-process totals
 - Diagnostic STATUS command returns service uptime, active flows/rules, packet delay/drop/sent counters
 - DiagnosticInfo model in Core for structured status reporting
 - Structured console logging with timestamps in service

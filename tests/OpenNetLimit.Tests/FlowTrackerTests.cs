@@ -86,4 +86,34 @@ public class FlowTrackerTests
         var conns = tracker.GetConnectionsByProcess(1);
         Assert.Equal(2, conns.Count);
     }
+
+    [Fact]
+    public void ConnectionInfo_TracksBytesThreadSafely()
+    {
+        var tracker = new FlowTracker();
+        var key = MakeFlowKey();
+        tracker.RegisterFlow(key, 1234, "chrome", null);
+
+        var conn = tracker.LookupConnection(key);
+        Assert.NotNull(conn);
+
+        conn.AddBytesSent(1000);
+        conn.AddBytesReceived(2000);
+        conn.AddBytesSent(500);
+
+        Assert.Equal(1500, conn.BytesSent);
+        Assert.Equal(2000, conn.BytesReceived);
+    }
+
+    [Fact]
+    public void ConnectionInfo_IsIPv6_CorrectForIPv4()
+    {
+        var tracker = new FlowTracker();
+        var key = MakeFlowKey();
+        tracker.RegisterFlow(key, 1, "test", null);
+
+        var conn = tracker.LookupConnection(key);
+        Assert.NotNull(conn);
+        Assert.False(conn.IsIPv6);
+    }
 }

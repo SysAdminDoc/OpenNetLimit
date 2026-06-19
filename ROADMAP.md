@@ -135,13 +135,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ### P1
 
-- [ ] P1 — Build a connection/accounting model for adapters, IPv4/IPv6, TCP/UDP, and process identity
-  Why: Competitors expose per-app connection detail and adapter-aware traffic; current `ConnectionInfo` byte counters and active connection counts are not updated.
-  Evidence: `src/OpenNetLimit.Core/Models/ConnectionInfo.cs`; `src/OpenNetLimit.Engine/Monitoring/TrafficMonitor.cs`; NetLimiter basic features; NetBalancer feature table; Sniffnet programs docs.
-  Touches: `FlowTracker`, `TrafficMonitor`, packet parser adapter, UI process/connection views, tests.
-  Acceptance: snapshots include protocol, direction, adapter, endpoint, PID/name/path/service where available, bytes sent/received, active connection counts, and sortable/filterable UI data.
-  Complexity: L
-
 ### P2
 
 - [ ] P2 — Add .NET LTS upgrade and NuGet audit strategy
