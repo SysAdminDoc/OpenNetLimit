@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+- Fail-safe service lifecycle: validates admin privileges before starting interceptor
+- Graceful shutdown: interceptor stop and rule save wrapped in try/catch to prevent data loss
+- Last-error recording: writes startup/crash errors to %ProgramData%\OpenNetLimit\last-error.txt
+- Rule load failure recovery: starts with empty rule set instead of crashing
+- Pipe server crash isolation: logged and recorded without taking down the engine
+- Data directory auto-creation on startup
+
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
 - Added client identity checking via impersonation for mutation commands

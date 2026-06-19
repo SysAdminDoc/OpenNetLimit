@@ -175,13 +175,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
   Acceptance: build output or installer includes the expected WinDivert runtime files with published hashes, admin/service launch path, third-party license notice, and clear error when the driver cannot load.
   Complexity: M
 
-- [ ] P0 — Define fail-safe service lifecycle and recovery behavior
-  Why: Users need predictable behavior when the service, driver, or rule store fails; competitor issues show filtering durability and lost diagnostics are trust breakers.
-  Evidence: `src/OpenNetLimit.Service/EngineWorker.cs`; Fort Firewall issue #6; Fort Firewall issue #435; NetLimiter components model.
-  Touches: `EngineWorker`, service install configuration, rule load/save path, logging.
-  Acceptance: startup validates prerequisites before activation, shutdown/crash behavior is documented and configurable, service recovery is configured, last-known startup failure is visible to UI and logs.
-  Complexity: M
-
 - [ ] P0 — Replace capture-thread sleep with bounded packet scheduling
   Why: `Thread.Sleep` inside the network receive loop can stall unrelated traffic and hide queue/drop behavior under load.
   Evidence: `src/OpenNetLimit.Engine/Interception/WinDivertInterceptor.cs`; Portmaster latency issue #1141; WinDivert NETWORK/FLOW layer docs.
