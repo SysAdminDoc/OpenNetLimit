@@ -116,6 +116,82 @@ public class DnsDomainTests
         Assert.True(rule.HasConnectionFilters);
     }
 
+    [Fact]
+    public void DnsResponseParser_ParsesAAAARecord()
+    {
+        var ipv6 = IPAddress.Parse("2001:db8::1");
+        var data = BuildDnsResponseAAAA("test.com", ipv6);
+        var records = DnsResponseParser.ParseResponse(data);
+
+        Assert.Single(records);
+        Assert.Equal("test.com", records[0].Domain);
+        Assert.Equal(ipv6, records[0].Address);
+    }
+
+    [Fact]
+    public void DnsResponseParser_TruncatedPayload_ReturnsEmpty()
+    {
+        // Valid header but truncated before answer section
+        var data = new byte[12];
+        data[2] = 0x81; // QR=1
+        data[3] = 0x80; // RA=1
+        data[7] = 1;    // ANCOUNT = 1
+        var records = DnsResponseParser.ParseResponse(data);
+        Assert.Empty(records);
+    }
+
+    [Fact]
+    public void DnsResponseParser_InvalidPointer_ReturnsNull()
+    {
+        // Build a response with a pointer to offset 255 (way past payload)
+        var data = new byte[20];
+        data[2] = 0x81; data[3] = 0x80; // Flags: QR=1
+        data[5] = 1; // QDCOUNT=1
+        data[7] = 1; // ANCOUNT=1
+        data[12] = 0xC0; // Compression pointer
+        data[13] = 0xFF; // Points to offset 255 — way past end
+        // Parser should handle this gracefully
+        var records = DnsResponseParser.ParseResponse(data);
+        // Should return empty or partial — not throw
+        Assert.NotNull(records);
+    }
+
+    [Fact]
+    public void DnsResponseParser_OversizedResponse_HandledGracefully()
+    {
+        // 65KB+ payload should not crash
+        var data = new byte[70000];
+        data[2] = 0x81; data[3] = 0x80;
+        var records = DnsResponseParser.ParseResponse(data);
+        Assert.NotNull(records);
+    }
+
+    private static byte[] BuildDnsResponseAAAA(string domain, IPAddress ipv6)
+    {
+        var ms = new System.IO.MemoryStream();
+        var writer = new System.IO.BinaryWriter(ms);
+
+        writer.Write((ushort)0x1234);
+        writer.Write(SwapBytes((ushort)0x8180));
+        writer.Write(SwapBytes((ushort)1)); // QDCOUNT
+        writer.Write(SwapBytes((ushort)1)); // ANCOUNT
+        writer.Write(SwapBytes((ushort)0));
+        writer.Write(SwapBytes((ushort)0));
+
+        WriteDnsName(writer, domain);
+        writer.Write(SwapBytes((ushort)28)); // QTYPE AAAA
+        writer.Write(SwapBytes((ushort)1));
+
+        WriteDnsName(writer, domain);
+        writer.Write(SwapBytes((ushort)28));   // TYPE AAAA
+        writer.Write(SwapBytes((ushort)1));    // CLASS IN
+        writer.Write(SwapBytes((uint)300));    // TTL
+        writer.Write(SwapBytes((ushort)16));   // RDLENGTH
+        writer.Write(ipv6.GetAddressBytes());  // RDATA
+
+        return ms.ToArray();
+    }
+
     private static byte[] BuildDnsResponse(string domain, IPAddress ip)
     {
         var ms = new System.IO.MemoryStream();

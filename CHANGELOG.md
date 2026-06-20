@@ -149,6 +149,9 @@
 - Fixed WinDivert handle leak: StartAsync disposes partially-opened handles on failure
 - Fixed HistoryViewModel concurrent LoadDataAsync: cancels previous load on new request
 - Prune BandwidthAlertTracker _lastTriggered: entries older than 300s removed at start of each Update sweep
+- Added RuleSchedule tests: daytime/overnight wrapping, day-of-week, boundary conditions
+- Added DnsResponseParser tests: AAAA records, truncated payloads, invalid pointers, oversized responses
+- Added IPv6 CIDR matching tests: /64 and /128 prefixes
 
 ### Fixed
 - Enabled TreatWarningsAsErrors in Directory.Build.props — nullable analysis and CS-series warnings now break the build
