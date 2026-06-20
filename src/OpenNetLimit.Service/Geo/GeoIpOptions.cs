@@ -1,3 +1,5 @@
+using OpenNetLimit.Core;
+
 namespace OpenNetLimit.Service.Geo;
 
 public sealed class GeoIpOptions
@@ -20,16 +22,9 @@ public sealed class GeoIpOptions
 
         return new GeoIpOptions
         {
-            Enabled = IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_GEOIP_ENABLED")),
+            Enabled = EnvHelper.IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_GEOIP_ENABLED")),
             Endpoint = endpoint,
             CacheDuration = TimeSpan.FromHours(cacheHours)
         };
     }
-
-    private static bool IsEnabled(string? value) =>
-        value is not null
-        && (value.Equals("1", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("on", StringComparison.OrdinalIgnoreCase));
 }

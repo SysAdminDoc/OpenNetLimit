@@ -157,11 +157,29 @@ public static class Program
 
     private static async Task<int> ImportRules(string[] args)
     {
+        const int MaxImportBytes = 1024 * 1024; // 1 MB limit matching REST API
         string json;
         if (args.Length > 0 && File.Exists(args[0]))
+        {
+            var fileInfo = new FileInfo(args[0]);
+            if (fileInfo.Length > MaxImportBytes)
+            {
+                Console.Error.WriteLine($"Error: import file exceeds {MaxImportBytes / 1024}KB limit");
+                return 1;
+            }
             json = await File.ReadAllTextAsync(args[0]);
+        }
         else
-            json = await Console.In.ReadToEndAsync();
+        {
+            var buffer = new char[MaxImportBytes + 1];
+            int totalRead = await Console.In.ReadBlockAsync(buffer, 0, buffer.Length);
+            if (totalRead > MaxImportBytes)
+            {
+                Console.Error.WriteLine($"Error: stdin input exceeds {MaxImportBytes / 1024}KB limit");
+                return 1;
+            }
+            json = new string(buffer, 0, totalRead);
+        }
 
         var replace = args.Contains("--replace");
         return await PostJson($"/api/v1/rules/import?replace={replace}", json);
