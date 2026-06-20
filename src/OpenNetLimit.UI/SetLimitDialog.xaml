@@ -4,7 +4,7 @@
         Title="Set Bandwidth Limit" Height="220" Width="360"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         WindowStyle="ToolWindow">
-    <Grid Margin="16">
+    <Grid Margin="16" Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -33,7 +33,7 @@
                  AutomationProperties.Name="Upload limit in KB/s"/>
         <TextBlock Grid.Row="2" Grid.Column="2" Text="KB/s" VerticalAlignment="Center" Margin="0,0,0,4"/>
 
-        <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="Set to 0 to remove limit." Foreground="Gray" Margin="0,4,0,0" FontSize="11"/>
+        <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="Set to 0 to remove limit." Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,0" FontSize="11"/>
 
         <StackPanel Grid.Row="5" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True" Click="OnOk"/>

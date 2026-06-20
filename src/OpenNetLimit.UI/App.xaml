@@ -3,17 +3,153 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Startup="OnStartup">
     <Application.Resources>
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#121417"/>
+        <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#1B1F24"/>
+        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#252B33"/>
+        <SolidColorBrush x:Key="ControlHoverBrush" Color="#303843"/>
+        <SolidColorBrush x:Key="ControlPressedBrush" Color="#3A444F"/>
+        <SolidColorBrush x:Key="InputBackgroundBrush" Color="#15191F"/>
+        <SolidColorBrush x:Key="InputBorderBrush" Color="#4A535F"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F0F3F6"/>
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#A7B0BA"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3A414B"/>
+        <SolidColorBrush x:Key="GridBackgroundBrush" Color="#171A1F"/>
+        <SolidColorBrush x:Key="GridHeaderBrush" Color="#232931"/>
+        <SolidColorBrush x:Key="GridAltRowBrush" Color="#20262D"/>
+        <SolidColorBrush x:Key="GridLineBrush" Color="#343B45"/>
+        <SolidColorBrush x:Key="SelectionBrush" Color="#0E4C73"/>
+        <SolidColorBrush x:Key="SelectionTextBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="DisabledTextBrush" Color="#707984"/>
+        <SolidColorBrush x:Key="StatusBarBackgroundBrush" Color="#181C21"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#2D8FD5"/>
+
+        <Style TargetType="Window">
+            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource ControlHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource ControlPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}"/>
+                                <Setter TargetName="Border" Property="Opacity" Value="0.65"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="SelectionBrush" Value="{DynamicResource SelectionBrush}"/>
+            <Setter Property="SelectionTextBrush" Value="{DynamicResource SelectionTextBrush}"/>
+            <Setter Property="Padding" Value="4,2"/>
+        </Style>
+
         <Style x:Key="HeaderText" TargetType="TextBlock">
             <Setter Property="FontSize" Value="16"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         </Style>
+
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        </Style>
+
+        <Style TargetType="MenuItem">
+            <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+
+        <Style TargetType="StatusBar">
+            <Setter Property="Background" Value="{DynamicResource StatusBarBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1,1,1,0"/>
+        </Style>
+
+        <Style TargetType="StatusBarItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+
         <Style x:Key="DataGridStyle" TargetType="DataGrid">
             <Setter Property="AutoGenerateColumns" Value="False"/>
             <Setter Property="IsReadOnly" Value="True"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="AlternatingRowBackground" Value="#F8F8F8"/>
+            <Setter Property="Background" Value="{DynamicResource GridBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource GridLineBrush}"/>
+            <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource GridLineBrush}"/>
+            <Setter Property="RowBackground" Value="{DynamicResource GridBackgroundBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource GridAltRowBrush}"/>
+            <Setter Property="SelectionUnit" Value="FullRow"/>
+            <Setter Property="SelectionMode" Value="Single"/>
             <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="ColumnHeaderStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="{DynamicResource GridHeaderBrush}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource GridLineBrush}"/>
+                        <Setter Property="Padding" Value="8,6"/>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="CellStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource GridLineBrush}"/>
+                        <Setter Property="Padding" Value="6,2"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource SelectionTextBrush}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

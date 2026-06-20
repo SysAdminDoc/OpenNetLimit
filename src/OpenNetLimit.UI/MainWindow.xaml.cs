@@ -100,4 +100,9 @@ public partial class MainWindow : Window
         if (ProcessGrid.SelectedItem is not ProcessViewModel process) return;
         await _viewModel.RemoveLimitAsync(process.ProcessName);
     }
+
+    private void OnToggleTheme(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ToggleTheme();
+    }
 }
