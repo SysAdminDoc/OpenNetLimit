@@ -45,6 +45,39 @@ OpenNetLimit uses the [WinDivert](https://reqrypt.org/windivert.html) user-mode 
 - Hypervisor-Protected Code Integrity (HVCI) may prevent the driver from loading on some systems. See [LOLDrivers entry](https://www.loldrivers.io/drivers/45a31a17-f78d-48ec-beba-74f6bfc5f96e/) for details.
 - WinDivert is licensed under LGPL-3.0 / GPL-2.0. See [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
+### Enterprise Deployment (WDAC/EDR)
+
+WinDivert's signed driver is tracked by [LOLDrivers](https://www.loldrivers.io/drivers/45a31a17-f78d-48ec-beba-74f6bfc5f96e/) as a dual-use driver and may trigger alerts in enterprise EDR products (CrowdStrike, Defender for Endpoint, etc.). The [SigmaHQ detection rule](https://detection.fyi/sigmahq/sigma/windows/driver_load/driver_load_win_windivert/) `driver_load_win_windivert` fires at HIGH severity on driver load. This is expected for legitimate bandwidth management use — WinDivert is not malware but has been used by adversary tooling in the past.
+
+**Bundled binary hashes (WinDivert 2.2.2 via Native.WinDivert NuGet):**
+
+| File | SHA-256 |
+|---|---|
+| `WinDivert.dll` (x64) | `C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2` |
+| `WinDivert64.sys` (x64) | `8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2` |
+
+**WDAC allowlist policy (Windows Defender Application Control):**
+
+To allow WinDivert on WDAC-enforced systems, add the file hashes to your supplemental policy:
+
+```xml
+<FileRules>
+  <Allow ID="ID_ALLOW_WINDIVERT_DLL" FriendlyName="WinDivert.dll"
+         Hash="C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2" />
+  <Allow ID="ID_ALLOW_WINDIVERT_SYS" FriendlyName="WinDivert64.sys"
+         Hash="8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2" />
+</FileRules>
+```
+
+**EDR allowlist steps (common products):**
+
+- **Microsoft Defender for Endpoint:** Add WinDivert64.sys path or hash to *Indicators > Allow* in the Defender Security Center.
+- **CrowdStrike Falcon:** Create a Machine Learning exclusion for the WinDivert64.sys hash or path under *IOC Management*.
+- **SentinelOne:** Add the WinDivert file hashes to the *Exclusions > Hashes* allowlist in the management console.
+- **Carbon Black:** Add a bypass rule for the WinDivert driver hash in the *Reputation* tab.
+
+Verify hashes match the values above before adding allowlist entries. If you build WinDivert from source or use a different version, recompute hashes with `certutil -hashfile WinDivert64.sys SHA256`.
+
 ## Getting Started
 
 ### Building
