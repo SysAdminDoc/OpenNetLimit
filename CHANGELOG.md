@@ -133,6 +133,8 @@
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
+- Enabled TreatWarningsAsErrors in Directory.Build.props — nullable analysis and CS-series warnings now break the build
+- Added WinDivert driver signature validation at startup: logs warning if binary certificate is expired, with link to WinDivert#397 and cross-signing policy context
 - Fixed ConnectionLogger counter drift: replaced Interlocked.Increment/_count with lock-based trim using ConcurrentQueue.Count directly
 - Eliminated ParsePacket IPAddress string roundtrip: IP addresses now constructed from bytes via stackalloc spans — zero string allocation in the hot packet-processing loop
 - Added TrafficStatsDb purge transaction: hourly and daily DELETEs now wrapped in a transaction for atomicity

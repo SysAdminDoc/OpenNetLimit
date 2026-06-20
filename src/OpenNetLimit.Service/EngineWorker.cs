@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
@@ -118,6 +119,7 @@ public class EngineWorker : BackgroundService
         {
             await _interceptor.StartAsync(stoppingToken);
             _logger.LogInformation("Packet interceptor started");
+            CheckWinDivertDriverSignature();
         }
         catch (Exception ex)
         {
@@ -128,6 +130,7 @@ public class EngineWorker : BackgroundService
                        "  - Antivirus/EDR is blocking WinDivert64.sys\n" +
                        "  - Windows kernel driver signing policy may reject cross-signed drivers (Windows 11 24H2+)\n" +
                        "  - Service is not running with administrator privileges\n" +
+                       "See: https://github.com/basil00/WinDivert/issues/397\n" +
                        $"Error: {ex.Message}";
             RecordLastError(hint);
             _logger.LogCritical(ex, "Failed to start packet interceptor — check {ErrorFile} for troubleshooting steps", LastErrorPath);
@@ -181,6 +184,54 @@ public class EngineWorker : BackgroundService
         }
 
         return valid;
+    }
+
+    private void CheckWinDivertDriverSignature()
+    {
+        try
+        {
+            var assemblyDir = Path.GetDirectoryName(typeof(SharpDivert.WinDivert).Assembly.Location);
+            if (assemblyDir is null) return;
+
+            var driverPath = Path.Combine(assemblyDir, "WinDivert64.sys");
+            if (!File.Exists(driverPath))
+                driverPath = Path.Combine(assemblyDir, "WinDivert.sys");
+            if (!File.Exists(driverPath))
+            {
+                _logger.LogWarning("WinDivert driver binary not found for signature check");
+                return;
+            }
+
+            try
+            {
+                using var baseCert = X509Certificate.CreateFromSignedFile(driverPath);
+                using var cert = new X509Certificate2(baseCert);
+                if (cert.NotAfter < DateTime.Now)
+                {
+                    _logger.LogWarning(
+                        "WinDivert driver signature EXPIRED on {ExpiryDate}. " +
+                        "Windows 11 24H2+ may reject this driver under the cross-signed driver deprecation policy. " +
+                        "See: https://github.com/basil00/WinDivert/issues/397",
+                        cert.NotAfter);
+                }
+                else
+                {
+                    _logger.LogInformation("WinDivert driver signature valid until {ExpiryDate}", cert.NotAfter);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not verify WinDivert driver signature. " +
+                    "If the driver is unsigned or has an expired certificate, " +
+                    "it may be blocked on Windows 11 24H2+. " +
+                    "See: https://github.com/basil00/WinDivert/issues/397");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WinDivert signature check skipped");
+        }
     }
 
     private static bool IsRunningAsAdmin()

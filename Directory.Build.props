@@ -3,7 +3,8 @@
   <PropertyGroup>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>NU1701</NoWarn>
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditLevel>moderate</NuGetAuditLevel>
     <NuGetAuditMode>all</NuGetAuditMode>
