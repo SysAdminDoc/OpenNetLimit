@@ -26,32 +26,31 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         else
             Interlocked.Add(ref counter.DownloadBytes, byteCount);
 
-        _processes.AddOrUpdate(processId,
-            _ =>
+        var info = _processes.GetOrAdd(processId, _ =>
+        {
+            var p = new ProcessTrafficInfo
             {
-                var info = new ProcessTrafficInfo
-                {
-                    ProcessId = processId,
-                    ProcessName = processName,
-                    ProcessPath = processPath,
-                    TotalBytesReceived = isUpload ? 0 : byteCount,
-                    TotalBytesSent = isUpload ? byteCount : 0,
-                    LastActivityAt = DateTime.UtcNow
-                };
-                EnrichProcessInfo(info);
-                return info;
-            },
-            (_, existing) =>
-            {
-                if (!string.IsNullOrWhiteSpace(processPath))
-                    existing.ProcessPath = processPath;
-                if (isUpload)
-                    existing.AddBytesSent(byteCount);
-                else
-                    existing.AddBytesReceived(byteCount);
-                existing.LastActivityAt = DateTime.UtcNow;
-                return existing;
-            });
+                ProcessId = processId,
+                ProcessName = processName,
+                ProcessPath = processPath,
+                LastActivityAt = DateTime.UtcNow
+            };
+            EnrichProcessInfo(p);
+            return p;
+        });
+
+        // Always use atomic AddBytes to prevent first-packet race —
+        // two threads can both call GetOrAdd's factory, the loser's
+        // factory result is discarded but AddBytes still runs correctly
+        // on the winning instance.
+        if (isUpload)
+            info.AddBytesSent(byteCount);
+        else
+            info.AddBytesReceived(byteCount);
+
+        if (!string.IsNullOrWhiteSpace(processPath))
+            info.ProcessPath = processPath;
+        info.LastActivityAt = DateTime.UtcNow;
     }
 
     private static void EnrichProcessInfo(ProcessTrafficInfo info)

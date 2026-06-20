@@ -38,7 +38,9 @@ public static class ThemeManager
         ["SelectionTextBrush"] = "#FFFFFF",
         ["DisabledTextBrush"] = "#707984",
         ["StatusBarBackgroundBrush"] = "#181C21",
-        ["AccentBrush"] = "#2D8FD5"
+        ["AccentBrush"] = "#2D8FD5",
+        ["DownloadBrush"] = "#5CB3F5",
+        ["UploadBrush"] = "#6BCF7F"
     };
 
     private static readonly IReadOnlyDictionary<string, string> LightPalette = new Dictionary<string, string>
@@ -61,7 +63,9 @@ public static class ThemeManager
         ["SelectionTextBrush"] = "#17202A",
         ["DisabledTextBrush"] = "#8A949F",
         ["StatusBarBackgroundBrush"] = "#F1F3F5",
-        ["AccentBrush"] = "#0B73B8"
+        ["AccentBrush"] = "#0B73B8",
+        ["DownloadBrush"] = "#1976D2",
+        ["UploadBrush"] = "#388E3C"
     };
 
     public static AppTheme CurrentTheme { get; private set; } = AppTheme.Dark;

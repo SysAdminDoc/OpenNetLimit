@@ -22,6 +22,8 @@
         <SolidColorBrush x:Key="DisabledTextBrush" Color="#707984"/>
         <SolidColorBrush x:Key="StatusBarBackgroundBrush" Color="#181C21"/>
         <SolidColorBrush x:Key="AccentBrush" Color="#2D8FD5"/>
+        <SolidColorBrush x:Key="DownloadBrush" Color="#5CB3F5"/>
+        <SolidColorBrush x:Key="UploadBrush" Color="#6BCF7F"/>
 
         <Style TargetType="Window">
             <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}"/>

@@ -45,6 +45,7 @@
   <data name="Limit_None" xml:space="preserve"><value>None</value></data>
   <data name="Main_Title" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
+  <data name="Menu_AdminRequired" xml:space="preserve"><value>Administrator privileges required</value></data>
   <data name="Menu_RemoveLimit" xml:space="preserve"><value>Remove Limit</value></data>
   <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Set Bandwidth Limit...</value></data>
   <data name="Mode_Administrator" xml:space="preserve"><value>Administrator</value></data>
