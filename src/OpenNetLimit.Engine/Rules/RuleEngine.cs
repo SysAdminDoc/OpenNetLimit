@@ -91,6 +91,30 @@ public class RuleEngine : IRuleEngine
         }
     }
 
+    public IReadOnlyList<BandwidthRule> GetRulesByGroup(string groupName)
+    {
+        lock (_lock)
+        {
+            return _rules
+                .Where(r => r.GroupName is not null &&
+                            r.GroupName.Equals(groupName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<string> GetGroupNames()
+    {
+        lock (_lock)
+        {
+            return _rules
+                .Where(r => r.GroupName is not null)
+                .Select(r => r.GroupName!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g)
+                .ToList();
+        }
+    }
+
     public void LoadRules(string filePath)
     {
         if (!File.Exists(filePath)) return;

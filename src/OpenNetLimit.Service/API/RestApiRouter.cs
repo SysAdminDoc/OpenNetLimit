@@ -103,13 +103,17 @@ public sealed class RestApiRouter
                 AddAlertRule(request.Body),
             "/api/v1/alerts/events" when method == "GET" =>
                 RestApiResponse.Json(200, _alertTracker.GetRecentEvents(GetInt(query, "limit", 100, 1, 500)), JsonOptions),
+            "/api/v1/groups" when method == "GET" =>
+                RestApiResponse.Json(200, _ruleEngine.GetGroupNames(), JsonOptions),
             "/api/v1/plugins" when method == "GET" =>
                 RestApiResponse.Json(200, _pluginManager.GetPlugins(), JsonOptions),
             "/api/v1/plugins/reload" when method == "POST" =>
                 RestApiResponse.Json(200, _pluginManager.Reload(), JsonOptions),
-            _ => path.StartsWith("/api/v1/alerts/rules/", StringComparison.OrdinalIgnoreCase)
-                ? HandleAlertRuleById(method, path, request.Body)
-                : HandleRuleById(method, path, request.Body)
+            _ => path.StartsWith("/api/v1/groups/", StringComparison.OrdinalIgnoreCase) && method == "GET"
+                ? HandleGroupByName(path)
+                : path.StartsWith("/api/v1/alerts/rules/", StringComparison.OrdinalIgnoreCase)
+                    ? HandleAlertRuleById(method, path, request.Body)
+                    : HandleRuleById(method, path, request.Body)
         };
     }
 
@@ -236,6 +240,15 @@ public sealed class RestApiRouter
             "DELETE" => DeleteRule(id),
             _ => RestApiResponse.Error(405, "method not allowed", JsonOptions)
         };
+    }
+
+    private RestApiResponse HandleGroupByName(string path)
+    {
+        const string prefix = "/api/v1/groups/";
+        var name = Uri.UnescapeDataString(path[prefix.Length..].Trim('/'));
+        if (string.IsNullOrEmpty(name))
+            return RestApiResponse.Error(400, "group name required", JsonOptions);
+        return RestApiResponse.Json(200, _ruleEngine.GetRulesByGroup(name), JsonOptions);
     }
 
     private RestApiResponse HandleAlertRuleById(string method, string path, string body)

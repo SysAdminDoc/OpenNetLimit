@@ -54,6 +54,8 @@ public class BandwidthRule
 
     public string? ProfileName { get; set; }
 
+    public string? GroupName { get; set; }
+
     public int Priority { get; set; }
 
     public bool MatchesProcess(string processName, string? processPath)
