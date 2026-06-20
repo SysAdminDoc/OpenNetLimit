@@ -22,7 +22,9 @@ public class ConnectionLogger
 
     public IReadOnlyList<ConnectionLogEntry> GetRecent(int maxCount = 100)
     {
-        return _entries.Reverse().Take(maxCount).ToList();
+        var snapshot = _entries.ToArray();
+        var start = Math.Max(0, snapshot.Length - maxCount);
+        return new ArraySegment<ConnectionLogEntry>(snapshot, start, snapshot.Length - start);
     }
 
     public int Count => Volatile.Read(ref _count);

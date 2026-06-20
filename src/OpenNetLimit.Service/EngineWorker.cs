@@ -120,8 +120,16 @@ public class EngineWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            RecordLastError($"Failed to start packet interceptor: {ex.Message}");
-            _logger.LogCritical(ex, "Failed to start packet interceptor — is WinDivert installed and accessible?");
+            var hint = "Failed to start packet interceptor.\n" +
+                       "Possible causes:\n" +
+                       "  - WinDivert driver not found or inaccessible\n" +
+                       "  - HVCI (Memory Integrity) is enabled and blocking the driver\n" +
+                       "  - Antivirus/EDR is blocking WinDivert64.sys\n" +
+                       "  - Windows kernel driver signing policy may reject cross-signed drivers (Windows 11 24H2+)\n" +
+                       "  - Service is not running with administrator privileges\n" +
+                       $"Error: {ex.Message}";
+            RecordLastError(hint);
+            _logger.LogCritical(ex, "Failed to start packet interceptor — check {ErrorFile} for troubleshooting steps", LastErrorPath);
             return;
         }
 
@@ -322,14 +330,28 @@ public class EngineWorker : BackgroundService
 
     private async Task RunPipeServer(CancellationToken ct)
     {
-        try
+        int consecutiveFailures = 0;
+        while (!ct.IsCancellationRequested)
         {
-            await _pipeServer.StartAsync(ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogError(ex, "IPC pipe server crashed");
-            RecordLastError($"IPC pipe server crashed: {ex.Message}");
+            try
+            {
+                await _pipeServer.StartAsync(ct);
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                consecutiveFailures++;
+                var delay = Math.Min(1000 * (1 << Math.Min(consecutiveFailures - 1, 5)), 30_000);
+                _logger.LogError(ex, "IPC pipe server crashed (attempt {Attempt}), restarting in {Delay}ms",
+                    consecutiveFailures, delay);
+                RecordLastError($"IPC pipe server crashed: {ex.Message}");
+                try { await Task.Delay(delay, ct); }
+                catch (OperationCanceledException) { break; }
+            }
         }
     }
 

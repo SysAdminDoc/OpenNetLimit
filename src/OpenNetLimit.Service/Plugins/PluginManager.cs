@@ -188,6 +188,12 @@ public sealed class PluginManager : IDisposable
             if (bytes[0] == 169 && bytes[1] == 254) return true;
         }
 
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 && bytes.Length == 16)
+        {
+            if ((bytes[0] & 0xFE) == 0xFC) return true;
+            if (bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80) return true;
+        }
+
         return false;
     }
 
