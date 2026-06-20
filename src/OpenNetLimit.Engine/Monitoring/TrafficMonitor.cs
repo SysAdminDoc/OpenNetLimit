@@ -85,14 +85,36 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
 
         foreach (var (pid, info) in _processes)
         {
+            long downSpeed = 0, upSpeed = 0;
             if (_counters.TryGetValue(pid, out var counter))
             {
-                info.CurrentDownloadBytesPerSecond = Interlocked.Exchange(ref counter.DownloadBytes, 0);
-                info.CurrentUploadBytesPerSecond = Interlocked.Exchange(ref counter.UploadBytes, 0);
+                downSpeed = Interlocked.Exchange(ref counter.DownloadBytes, 0);
+                upSpeed = Interlocked.Exchange(ref counter.UploadBytes, 0);
+                info.CurrentDownloadBytesPerSecond = downSpeed;
+                info.CurrentUploadBytesPerSecond = upSpeed;
             }
-            totalDown += info.CurrentDownloadBytesPerSecond;
-            totalUp += info.CurrentUploadBytesPerSecond;
-            processes.Add(info);
+            totalDown += downSpeed;
+            totalUp += upSpeed;
+
+            // Return a snapshot copy to prevent consumers from observing
+            // concurrent mutations to LastActivityAt, ProcessPath, etc.
+            processes.Add(new ProcessTrafficInfo
+            {
+                ProcessId = info.ProcessId,
+                ProcessName = info.ProcessName,
+                ProcessPath = info.ProcessPath,
+                ServiceName = info.ServiceName,
+                AppxPackage = info.AppxPackage,
+                CurrentDownloadBytesPerSecond = downSpeed,
+                CurrentUploadBytesPerSecond = upSpeed,
+                TotalBytesReceived = info.TotalBytesReceived,
+                TotalBytesSent = info.TotalBytesSent,
+                DownloadLimitBytesPerSecond = info.DownloadLimitBytesPerSecond,
+                UploadLimitBytesPerSecond = info.UploadLimitBytesPerSecond,
+                ActiveConnectionCount = info.ActiveConnectionCount,
+                FirstSeenAt = info.FirstSeenAt,
+                LastActivityAt = info.LastActivityAt
+            });
         }
 
         return new TrafficSnapshot

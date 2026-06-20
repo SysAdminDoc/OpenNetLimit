@@ -105,6 +105,7 @@ public static class DnsResponseParser
                 if (offset + 1 >= data.Length) return null;
                 if (savedOffset < 0) savedOffset = offset + 2;
                 offset = ((len & 0x3F) << 8) | data[offset + 1];
+                if (offset >= data.Length) return null;
                 jumps++;
                 continue;
             }

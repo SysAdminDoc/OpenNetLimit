@@ -63,8 +63,20 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        _flowHandle = new WinDivert("true", WinDivert.Layer.Flow, 0, WinDivert.Flag.Sniff);
-        _networkHandle = new WinDivert("true", WinDivert.Layer.Network, 0, default);
+        try
+        {
+            _flowHandle = new WinDivert("true", WinDivert.Layer.Flow, 0, WinDivert.Flag.Sniff);
+            _networkHandle = new WinDivert("true", WinDivert.Layer.Network, 0, default);
+        }
+        catch
+        {
+            _flowHandle?.Dispose();
+            _flowHandle = null;
+            _networkHandle?.Dispose();
+            _networkHandle = null;
+            throw;
+        }
+
         _scheduler.SetHandle(_networkHandle);
 
         _flowTask = Task.Factory.StartNew(
@@ -353,9 +365,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         return null;
     }
 
-    private static IPAddress ParseIPv6Addr(IPv6Addr addr)
+    private static unsafe IPAddress ParseIPv6Addr(IPv6Addr addr)
     {
-        return IPAddress.Parse(addr.ToString());
+        Span<byte> bytes = stackalloc byte[16];
+        byte* ptr = (byte*)&addr;
+        for (int i = 0; i < 16; i++)
+            bytes[i] = ptr[i];
+        return new IPAddress(bytes);
     }
 
     private static string ResolveProcessName(uint processId)

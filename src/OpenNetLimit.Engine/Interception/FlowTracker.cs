@@ -19,18 +19,37 @@ public class FlowTracker : IFlowTracker
         };
         _flows.AddOrUpdate(flowKey, connection, (_, existing) =>
         {
-            existing.ProcessName = processName;
-            existing.ProcessPath = processPath;
-            return existing;
+            // Create a new ConnectionInfo to avoid mutating the shared object
+            // that NetworkLoop may be concurrently reading.
+            // Preserve accumulated byte counters from the existing instance.
+            var updated = new ConnectionInfo
+            {
+                FlowKey = flowKey,
+                ProcessId = processId,
+                ProcessName = processName,
+                ProcessPath = processPath,
+                ClosedAt = existing.ClosedAt
+            };
+            updated.AddBytesSent(existing.BytesSent);
+            updated.AddBytesReceived(existing.BytesReceived);
+            return updated;
         });
     }
 
     public void UnregisterFlow(FlowKey flowKey)
     {
-        if (_flows.TryGetValue(flowKey, out var connection))
-        {
-            connection.ClosedAt = DateTime.UtcNow;
-        }
+        // Replace with a new ConnectionInfo that has ClosedAt set,
+        // avoiding torn DateTime? reads by PurgeStale on the timer thread
+        _flows.AddOrUpdate(flowKey,
+            _ => new ConnectionInfo { FlowKey = flowKey, ClosedAt = DateTime.UtcNow },
+            (_, existing) => new ConnectionInfo
+            {
+                FlowKey = existing.FlowKey,
+                ProcessId = existing.ProcessId,
+                ProcessName = existing.ProcessName,
+                ProcessPath = existing.ProcessPath,
+                ClosedAt = DateTime.UtcNow
+            });
     }
 
     public uint? LookupProcessId(FlowKey flowKey)

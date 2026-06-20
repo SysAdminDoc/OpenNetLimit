@@ -14,6 +14,7 @@ namespace OpenNetLimit.UI.ViewModels;
 public class HistoryViewModel : INotifyPropertyChanged
 {
     private readonly PipeClient _client;
+    private CancellationTokenSource? _loadCts;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -102,18 +103,22 @@ public class HistoryViewModel : INotifyPropertyChanged
 
     public async Task LoadDataAsync()
     {
+        // Cancel any previous in-flight load to prevent interleaved chart updates
+        _loadCts?.Cancel();
+        var cts = _loadCts = new CancellationTokenSource();
+
         if (_client.State != ConnectionState.Connected)
             return;
 
         var command = _isHourly ? "STATS_HOURLY" : "STATS_DAILY";
         var processFilter = _selectedProcess == "ALL" ? "" : $" {_selectedProcess}";
         var response = await _client.SendCommandAsync($"{command}{processFilter}");
-        if (response is null) return;
+        if (response is null || cts.Token.IsCancellationRequested) return;
 
         try
         {
             var entries = JsonSerializer.Deserialize<List<HistoryEntry>>(response, JsonOptions);
-            if (entries is null) return;
+            if (entries is null || cts.Token.IsCancellationRequested) return;
 
             _receivedPoints.Clear();
             _sentPoints.Clear();
@@ -132,7 +137,8 @@ public class HistoryViewModel : INotifyPropertyChanged
             // Invalid response — ignore
         }
 
-        await LoadProcessListAsync();
+        if (!cts.Token.IsCancellationRequested)
+            await LoadProcessListAsync();
     }
 
     private async Task LoadProcessListAsync()

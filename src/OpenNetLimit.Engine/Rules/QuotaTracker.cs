@@ -73,12 +73,37 @@ public class QuotaTracker
 
     public QuotaState? GetQuotaState(string processName)
     {
-        _quotas.TryGetValue(processName, out var state);
-        return state;
+        if (!_quotas.TryGetValue(processName, out var state))
+            return null;
+        lock (state)
+            return CopyState(state);
     }
 
-    public IReadOnlyList<QuotaState> GetAllQuotaStates() =>
-        _quotas.Values.ToList();
+    public IReadOnlyList<QuotaState> GetAllQuotaStates()
+    {
+        var result = new List<QuotaState>();
+        foreach (var state in _quotas.Values)
+        {
+            lock (state)
+                result.Add(CopyState(state));
+        }
+        return result;
+    }
+
+    private static QuotaState CopyState(QuotaState s) => new()
+    {
+        RuleId = s.RuleId,
+        ProcessName = s.ProcessName,
+        LimitBytes = s.LimitBytes,
+        UsedBytes = s.UsedBytes,
+        BaselineBytes = s.BaselineBytes,
+        Period = s.Period,
+        Action = s.Action,
+        WarningPercent = s.WarningPercent,
+        IsExceeded = s.IsExceeded,
+        WarningNotified = s.WarningNotified,
+        ExceededNotified = s.ExceededNotified
+    };
 
     public void ResetPeriod(QuotaPeriod period)
     {
