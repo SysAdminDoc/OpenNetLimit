@@ -179,6 +179,9 @@ public sealed class PluginManager : IDisposable
         if (System.Net.IPAddress.IsLoopback(ip))
             return true;
 
+        if (ip.IsIPv4MappedToIPv6)
+            return IsPrivateOrLoopback(ip.MapToIPv4().ToString());
+
         var bytes = ip.GetAddressBytes();
         if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && bytes.Length == 4)
         {

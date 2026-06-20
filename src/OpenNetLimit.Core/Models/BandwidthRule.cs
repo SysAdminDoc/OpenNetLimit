@@ -223,12 +223,14 @@ public class RuleSchedule
 
     public bool IsActiveAt(DateTime utcNow)
     {
-        if (ActiveDays is { Length: > 0 } && !ActiveDays.Contains(utcNow.DayOfWeek))
+        var localNow = utcNow.Kind == DateTimeKind.Utc ? utcNow.ToLocalTime() : utcNow;
+
+        if (ActiveDays is { Length: > 0 } && !ActiveDays.Contains(localNow.DayOfWeek))
             return false;
 
         if (StartTime.HasValue && EndTime.HasValue)
         {
-            var timeNow = TimeOnly.FromDateTime(utcNow);
+            var timeNow = TimeOnly.FromDateTime(localNow);
             if (StartTime.Value <= EndTime.Value)
                 return timeNow >= StartTime.Value && timeNow <= EndTime.Value;
             return timeNow >= StartTime.Value || timeNow <= EndTime.Value;

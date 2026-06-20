@@ -7,6 +7,7 @@ public class DnsResolver
 {
     private readonly ConcurrentDictionary<IPAddress, CacheEntry> _cache = new();
     private readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(10);
+    private const int MaxCacheSize = 10_000;
 
     public string? Resolve(IPAddress address)
     {
@@ -26,6 +27,7 @@ public class DnsResolver
             var hostEntry = await Dns.GetHostEntryAsync(address);
             var hostname = hostEntry.HostName;
             _cache[address] = new CacheEntry(hostname, DateTime.UtcNow + _cacheDuration);
+            EvictIfNeeded();
             return hostname;
         }
         catch (OperationCanceledException)
@@ -39,7 +41,32 @@ public class DnsResolver
         }
     }
 
+    public void PruneExpired()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var kvp in _cache)
+        {
+            if (now >= kvp.Value.ExpiresAt)
+                _cache.TryRemove(kvp.Key, out _);
+        }
+    }
+
+    private void EvictIfNeeded()
+    {
+        if (_cache.Count <= MaxCacheSize)
+            return;
+
+        var now = DateTime.UtcNow;
+        foreach (var kvp in _cache)
+        {
+            if (_cache.Count <= MaxCacheSize * 3 / 4)
+                break;
+            if (now >= kvp.Value.ExpiresAt)
+                _cache.TryRemove(kvp.Key, out _);
+        }
+    }
+
     public int CacheSize => _cache.Count;
 
-    private readonly record struct CacheEntry(string? Hostname, DateTime ExpiresAt);
+    internal readonly record struct CacheEntry(string? Hostname, DateTime ExpiresAt);
 }

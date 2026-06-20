@@ -160,7 +160,7 @@ public class RuleEngineTests
             ProcessName = "chrome",
             Schedule = new RuleSchedule
             {
-                ActiveDays = [DateTime.UtcNow.DayOfWeek]
+                ActiveDays = [DateTime.Now.DayOfWeek]
             }
         };
         Assert.True(rule.IsActiveNow());
@@ -169,7 +169,7 @@ public class RuleEngineTests
     [Fact]
     public void Schedule_WrongDay_IsInactive()
     {
-        var wrongDay = (DayOfWeek)(((int)DateTime.UtcNow.DayOfWeek + 1) % 7);
+        var wrongDay = (DayOfWeek)(((int)DateTime.Now.DayOfWeek + 1) % 7);
         var rule = new BandwidthRule
         {
             ProcessName = "chrome",
