@@ -32,3 +32,4 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - SharpDivert 1.1.0 API: enums are nested (`WinDivert.Layer`, `WinDivert.Flag`, `WinDivert.Event`), `RecvEx` returns `(uint recvLen, uint addrLen)` tuple, flow data accessed via `addr.Flow.ProcessId`, outbound check via `addr.Outbound` bool property.
 - Thread-safe counters in ProcessTrafficInfo use explicit backing fields with `AddBytesSent`/`AddBytesReceived` methods.
 - REST API defaults to `http://127.0.0.1:47719/`; writes require `OPENNETLIMIT_API_KEY`, and remote binds require both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`.
+- VirusTotal verification is opt-in with `OPENNETLIMIT_VIRUSTOTAL_API_KEY`; it hashes local files only and does not upload executables.

@@ -20,6 +20,7 @@ public class IpcProtocolTests
     [InlineData("ADD_RULE")]
     [InlineData("REMOVE_RULE")]
     [InlineData("UPDATE_RULE")]
+    [InlineData("VERIFY_PROCESS")]
     public void WriteCommands_AreValid_AndRequireAdmin(string command)
     {
         Assert.True(IpcProtocol.IsValidCommand(command));

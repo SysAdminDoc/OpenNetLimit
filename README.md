@@ -21,6 +21,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **UWP/Store app detection** — identifies AppX package names
 - **Secure IPC** — ACL-protected named pipe, admin required for rule changes
 - **REST API / remote administration** — localhost API by default, optional keyed remote bind
+- **VirusTotal process verification** — optional hash-only executable reputation checks
 
 ## Requirements
 
@@ -82,6 +83,7 @@ The UI will auto-connect to the service and display live traffic data. On first 
 - **HVCI preventing driver load:** WinDivert may be blocked on systems with Hypervisor-Protected Code Integrity enabled.
 - **REST API mutation returns 403:** Set `OPENNETLIMIT_API_KEY` and send it with `X-OpenNetLimit-Key`.
 - **Remote API does not listen on LAN:** Set both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`, then provide a non-loopback `OPENNETLIMIT_API_URLS` prefix.
+- **Process verification says NotConfigured:** Set `OPENNETLIMIT_VIRUSTOTAL_API_KEY`. OpenNetLimit sends only SHA-256 hashes to VirusTotal; it does not upload files.
 
 ## Architecture
 
@@ -122,6 +124,7 @@ The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands
 | `REMOVE_RULE {guid}` | Admin | Remove a rule by ID |
 | `UPDATE_RULE {json}` | Admin | Update an existing rule |
 | `IMPORT_RULES {json}` | Admin | Import rules (merge mode) |
+| `VERIFY_PROCESS {path}` | Admin | Hash an executable and query VirusTotal if configured |
 
 ### REST API
 
@@ -134,6 +137,9 @@ By default it listens only on `http://127.0.0.1:47719/`.
 | `OPENNETLIMIT_API_KEY` | Required for all REST mutations and all remote requests. Send as `X-OpenNetLimit-Key` or `Authorization: Bearer <key>`. |
 | `OPENNETLIMIT_ENABLE_REMOTE_API=1` | Allows non-loopback listener prefixes only when `OPENNETLIMIT_API_KEY` is also set. |
 | `OPENNETLIMIT_API_DISABLED=1` | Disables the REST listener. |
+| `OPENNETLIMIT_VIRUSTOTAL_API_KEY` | Enables hash-only VirusTotal process verification. |
+| `OPENNETLIMIT_VIRUSTOTAL_CACHE_HOURS` | Verification cache duration. Defaults to 12 hours. |
+| `OPENNETLIMIT_VIRUSTOTAL_DISABLED=1` | Disables VirusTotal verification even when a key exists. |
 
 Remote administration is intentionally fail-closed: non-loopback prefixes are ignored unless both
 `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY` are configured.
@@ -155,6 +161,8 @@ Remote administration is intentionally fail-closed: non-loopback prefixes are ig
 | `GET /api/v1/stats/top?days=7&limit=20` | Local read / keyed remote | Top processes by traffic |
 | `GET /api/v1/quotas` | Local read / keyed remote | Quota states |
 | `GET /api/v1/connections` | Local read / keyed remote | Recent connection log |
+| `GET /api/v1/verification?path=C:\Windows\System32\notepad.exe` | Key required | Hash a file and query VirusTotal |
+| `GET /api/v1/verification/cache` | Key required | Cached verification results |
 
 ## License
 

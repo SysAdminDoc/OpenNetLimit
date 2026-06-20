@@ -8,6 +8,7 @@ using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Security;
 using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service.IPC;
@@ -17,6 +18,7 @@ public class PipeServer
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly IRuleEngine _ruleEngine;
     private readonly ControlPlaneState _controlPlane;
+    private readonly IProcessVerifier _processVerifier;
     private readonly ILogger<PipeServer> _logger;
 
     public Func<DiagnosticInfo>? DiagnosticProvider
@@ -52,11 +54,13 @@ public class PipeServer
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
         ControlPlaneState controlPlane,
+        IProcessVerifier processVerifier,
         ILogger<PipeServer> logger)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
         _controlPlane = controlPlane;
+        _processVerifier = processVerifier;
         _logger = logger;
     }
 
@@ -146,7 +150,7 @@ public class PipeServer
                     }
 
                     var payload = parts.Length > 1 ? parts[1] : string.Empty;
-                    var response = ProcessCommand(action, payload);
+                    var response = await ProcessCommandAsync(action, payload, ct);
                     await writer.WriteLineAsync(response);
                 }
             }
@@ -184,26 +188,36 @@ public class PipeServer
         }
     }
 
-    private string ProcessCommand(string action, string payload)
+    private Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
     {
         return action switch
         {
-            "SNAPSHOT" => JsonSerializer.Serialize(_trafficMonitor.TakeSnapshot(), JsonOptions),
-            "RULES" => JsonSerializer.Serialize(_ruleEngine.GetAllRules(), JsonOptions),
-            "PROCESSES" => JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions),
-            "STATUS" => GetStatusResponse(),
-            "CONNECTION_LOG" => GetConnectionLog(),
-            "EXPORT_RULES" => _ruleEngine.ExportRules(),
-            "STATS_HOURLY" => GetStatsHourly(payload),
-            "STATS_DAILY" => GetStatsDaily(payload),
-            "STATS_TOP" => GetStatsTop(),
-            "QUOTAS" => GetQuotas(),
-            "ADD_RULE" => AddRule(payload),
-            "REMOVE_RULE" => RemoveRule(payload),
-            "UPDATE_RULE" => UpdateRule(payload),
-            "IMPORT_RULES" => ImportRules(payload),
-            _ => ErrorResponse("unknown command")
+            "SNAPSHOT" => Task.FromResult(JsonSerializer.Serialize(_trafficMonitor.TakeSnapshot(), JsonOptions)),
+            "RULES" => Task.FromResult(JsonSerializer.Serialize(_ruleEngine.GetAllRules(), JsonOptions)),
+            "PROCESSES" => Task.FromResult(JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions)),
+            "STATUS" => Task.FromResult(GetStatusResponse()),
+            "CONNECTION_LOG" => Task.FromResult(GetConnectionLog()),
+            "EXPORT_RULES" => Task.FromResult(_ruleEngine.ExportRules()),
+            "STATS_HOURLY" => Task.FromResult(GetStatsHourly(payload)),
+            "STATS_DAILY" => Task.FromResult(GetStatsDaily(payload)),
+            "STATS_TOP" => Task.FromResult(GetStatsTop()),
+            "QUOTAS" => Task.FromResult(GetQuotas()),
+            "ADD_RULE" => Task.FromResult(AddRule(payload)),
+            "REMOVE_RULE" => Task.FromResult(RemoveRule(payload)),
+            "UPDATE_RULE" => Task.FromResult(UpdateRule(payload)),
+            "IMPORT_RULES" => Task.FromResult(ImportRules(payload)),
+            "VERIFY_PROCESS" => VerifyProcess(payload, ct),
+            _ => Task.FromResult(ErrorResponse("unknown command"))
         };
+    }
+
+    private async Task<string> VerifyProcess(string payload, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return ErrorResponse("process path is required");
+
+        var result = await _processVerifier.VerifyFileAsync(payload.Trim(), ct);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     private string AddRule(string payload)

@@ -18,7 +18,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         _snapshotTimer = new Timer(OnSnapshotTick, null, interval, interval);
     }
 
-    public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload)
+    public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null)
     {
         var counter = _counters.GetOrAdd(processId, _ => new TrafficCounter());
         if (isUpload)
@@ -33,6 +33,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
                 {
                     ProcessId = processId,
                     ProcessName = processName,
+                    ProcessPath = processPath,
                     TotalBytesReceived = isUpload ? 0 : byteCount,
                     TotalBytesSent = isUpload ? byteCount : 0,
                     LastActivityAt = DateTime.UtcNow
@@ -42,6 +43,8 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             },
             (_, existing) =>
             {
+                if (!string.IsNullOrWhiteSpace(processPath))
+                    existing.ProcessPath = processPath;
                 if (isUpload)
                     existing.AddBytesSent(byteCount);
                 else
