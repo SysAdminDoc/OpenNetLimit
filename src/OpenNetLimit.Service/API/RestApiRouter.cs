@@ -5,6 +5,7 @@ using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Security;
 
 namespace OpenNetLimit.Service.API;
 
@@ -14,6 +15,7 @@ public sealed class RestApiRouter
     private readonly IRuleEngine _ruleEngine;
     private readonly ControlPlaneState _controlPlane;
     private readonly RestApiOptions _options;
+    private readonly IProcessVerifier _processVerifier;
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -25,19 +27,21 @@ public sealed class RestApiRouter
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
         ControlPlaneState controlPlane,
-        RestApiOptions options)
+        RestApiOptions options,
+        IProcessVerifier processVerifier)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
         _controlPlane = controlPlane;
         _options = options;
+        _processVerifier = processVerifier;
     }
 
-    public RestApiResponse Handle(RestApiRequest request)
+    public async Task<RestApiResponse> HandleAsync(RestApiRequest request, CancellationToken ct = default)
     {
         var method = request.Method.ToUpperInvariant();
         var path = NormalizePath(request.Path);
-        var authFailure = Authorize(request, method);
+        var authFailure = Authorize(request, method, path);
         if (authFailure is not null)
             return authFailure;
 
@@ -73,13 +77,17 @@ public sealed class RestApiRouter
                 RestApiResponse.Json(200, _controlPlane.GetQuotaStates(), JsonOptions),
             "/api/v1/connections" when method == "GET" =>
                 RestApiResponse.Json(200, _controlPlane.GetConnectionLog(), JsonOptions),
+            "/api/v1/verification" when method == "GET" =>
+                await VerifyProcessAsync(query, ct),
+            "/api/v1/verification/cache" when method == "GET" =>
+                RestApiResponse.Json(200, _processVerifier.GetCachedResults(), JsonOptions),
             _ => HandleRuleById(method, path, request.Body)
         };
     }
 
-    private RestApiResponse? Authorize(RestApiRequest request, string method)
+    private RestApiResponse? Authorize(RestApiRequest request, string method, string path)
     {
-        if (request.IsLoopback && !IsMutation(method))
+        if (request.IsLoopback && !RequiresApiKey(method, path))
             return null;
 
         if (!_options.HasApiKey)
@@ -104,6 +112,11 @@ public sealed class RestApiRouter
 
     private static bool IsMutation(string method) =>
         method is "POST" or "PUT" or "PATCH" or "DELETE";
+
+    private static bool RequiresApiKey(string method, string path) =>
+        IsMutation(method)
+        || path.Equals("/api/v1/verification", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/api/v1/verification/cache", StringComparison.OrdinalIgnoreCase);
 
     private RestApiResponse AddRule(string body)
     {
@@ -214,6 +227,15 @@ public sealed class RestApiRouter
         var days = GetInt(query, "days", 7, 1, 3650);
         var limit = GetInt(query, "limit", 20, 1, 200);
         return RestApiResponse.Json(200, _controlPlane.StatsProvider.GetTopProcesses(days, limit), JsonOptions);
+    }
+
+    private async Task<RestApiResponse> VerifyProcessAsync(IReadOnlyDictionary<string, string> query, CancellationToken ct)
+    {
+        if (!query.TryGetValue("path", out var processPath) || string.IsNullOrWhiteSpace(processPath))
+            return RestApiResponse.Error(400, "path query parameter is required", JsonOptions);
+
+        var result = await _processVerifier.VerifyFileAsync(processPath, ct).ConfigureAwait(false);
+        return RestApiResponse.Json(200, result, JsonOptions);
     }
 
     private static string NormalizePath(string path)

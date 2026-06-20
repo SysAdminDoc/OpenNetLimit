@@ -192,7 +192,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                         connection.AddBytesReceived(payloadLength);
                 }
 
-                _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound);
+                _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath);
                 if (matchingRule?.Action == RuleAction.Block)

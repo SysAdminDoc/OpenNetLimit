@@ -77,6 +77,8 @@
 - REST API for local automation and third-party integration (`/api/v1/status`, snapshots, processes, rules, stats, quotas, connection log)
 - Optional remote administration via explicit non-loopback REST bind and API key
 - Keyed REST rule mutation endpoints for add/update/delete/import
+- Optional VirusTotal process verification using local SHA-256 hashes and cached file reports
+- `VERIFY_PROCESS` IPC command and REST verification endpoints for executable reputation checks
 
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
@@ -88,6 +90,7 @@
 - Fixed REMOVE_RULE bug that was calling RemoveAll() instead of removing only the specified rule
 - REST API is loopback-only by default; non-loopback listener prefixes require `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`
 - REST mutations require `X-OpenNetLimit-Key` or bearer token authentication
+- VirusTotal verification is opt-in via `OPENNETLIMIT_VIRUSTOTAL_API_KEY`, sends hashes only, and requires admin/keyed access
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
@@ -97,3 +100,4 @@
 - Fixed PipeServer using-statement nesting syntax error
 - Added missing `using Xunit;` directives in all test files
 - Pinned .NET SDK to 8.0.x via global.json to avoid broken .NET 9 SDK test runner
+- Traffic snapshots now preserve executable paths when available, enabling process verification and path-aware integrations

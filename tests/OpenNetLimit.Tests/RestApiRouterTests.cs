@@ -6,6 +6,7 @@ using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.API;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Security;
 using Xunit;
 
 namespace OpenNetLimit.Tests;
@@ -18,11 +19,11 @@ public class RestApiRouterTests
     };
 
     [Fact]
-    public void LocalRead_AllowsStatusWithoutApiKey()
+    public async Task LocalRead_AllowsStatusWithoutApiKey()
     {
         var (_, _, router) = CreateRouter();
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "GET",
             "/api/v1/status",
             string.Empty,
@@ -35,11 +36,11 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void RemoteRead_RequiresConfiguredApiKey()
+    public async Task RemoteRead_RequiresConfiguredApiKey()
     {
         var (_, _, router) = CreateRouter();
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "GET",
             "/api/v1/status",
             string.Empty,
@@ -52,12 +53,12 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void LocalMutation_RequiresApiKey()
+    public async Task LocalMutation_RequiresApiKey()
     {
         var (_, _, router) = CreateRouter();
         var body = JsonSerializer.Serialize(new BandwidthRule { ProcessName = "chrome" }, JsonOptions);
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "POST",
             "/api/v1/rules",
             string.Empty,
@@ -69,7 +70,7 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void MutationWithKey_AddsRule()
+    public async Task MutationWithKey_AddsRule()
     {
         var (_, rules, router) = CreateRouter("secret");
         var body = JsonSerializer.Serialize(new BandwidthRule
@@ -78,7 +79,7 @@ public class RestApiRouterTests
             DownloadBytesPerSecond = 100_000
         }, JsonOptions);
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "POST",
             "/api/v1/rules",
             string.Empty,
@@ -92,7 +93,7 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void PutRule_UsesPathId()
+    public async Task PutRule_UsesPathId()
     {
         var (_, rules, router) = CreateRouter("secret");
         var id = Guid.NewGuid();
@@ -104,7 +105,7 @@ public class RestApiRouterTests
             UploadBytesPerSecond = 50_000
         }, JsonOptions);
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "PUT",
             $"/api/v1/rules/{id}",
             string.Empty,
@@ -120,13 +121,13 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void DeleteRule_RemovesRule()
+    public async Task DeleteRule_RemovesRule()
     {
         var (_, rules, router) = CreateRouter("secret");
         var rule = new BandwidthRule { ProcessName = "chrome" };
         rules.AddRule(rule);
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "DELETE",
             $"/api/v1/rules/{rule.Id}",
             string.Empty,
@@ -139,11 +140,11 @@ public class RestApiRouterTests
     }
 
     [Fact]
-    public void StatsUnavailable_ReturnsServiceUnavailable()
+    public async Task StatsUnavailable_ReturnsServiceUnavailable()
     {
         var (_, _, router) = CreateRouter();
 
-        var response = router.Handle(new RestApiRequest(
+        var response = await router.HandleAsync(new RestApiRequest(
             "GET",
             "/api/v1/stats/top",
             string.Empty,
@@ -152,6 +153,41 @@ public class RestApiRouterTests
             ApiKey: null));
 
         Assert.Equal(503, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Verification_RequiresKeyEvenOnLoopback()
+    {
+        var (_, _, router) = CreateRouter();
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "GET",
+            "/api/v1/verification",
+            "?path=C%3A%5CTools%5Capp.exe",
+            string.Empty,
+            IsLoopback: true,
+            ApiKey: null));
+
+        Assert.Equal(403, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Verification_WithKeyReturnsVerifierResult()
+    {
+        var verifier = new StubVerifier();
+        var (_, _, router) = CreateRouter("secret", verifier);
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "GET",
+            "/api/v1/verification",
+            "?path=C%3A%5CTools%5Capp.exe",
+            string.Empty,
+            IsLoopback: true,
+            ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(@"C:\Tools\app.exe", verifier.LastPath);
+        Assert.Contains("\"status\":4", response.Body);
     }
 
     [Fact]
@@ -180,7 +216,9 @@ public class RestApiRouterTests
         Assert.Equal(RestApiOptions.DefaultUrl, Assert.Single(options.Urls));
     }
 
-    private static (ITrafficMonitor Monitor, RuleEngine Rules, RestApiRouter Router) CreateRouter(string? apiKey = null)
+    private static (ITrafficMonitor Monitor, RuleEngine Rules, RestApiRouter Router) CreateRouter(
+        string? apiKey = null,
+        IProcessVerifier? verifier = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
@@ -194,6 +232,25 @@ public class RestApiRouterTests
             }
         };
         var options = new RestApiOptions { ApiKey = apiKey };
-        return (monitor, rules, new RestApiRouter(monitor, rules, controlPlane, options));
+        return (monitor, rules, new RestApiRouter(monitor, rules, controlPlane, options, verifier ?? new StubVerifier()));
+    }
+
+    private sealed class StubVerifier : IProcessVerifier
+    {
+        public string? LastPath { get; private set; }
+
+        public Task<ProcessVerificationInfo> VerifyFileAsync(string processPath, CancellationToken ct = default)
+        {
+            LastPath = processPath;
+            return Task.FromResult(new ProcessVerificationInfo
+            {
+                ProcessPath = processPath,
+                Sha256 = "abc",
+                Status = ProcessVerificationStatus.Clean,
+                Harmless = 1
+            });
+        }
+
+        public IReadOnlyList<ProcessVerificationInfo> GetCachedResults() => [];
     }
 }

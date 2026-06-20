@@ -77,7 +77,7 @@ public sealed class RestApiServer : BackgroundService
                 IsLoopback(context),
                 GetApiKey(context.Request));
 
-            result = _router.Handle(request);
+            result = await _router.HandleAsync(request, ct);
         }
         catch (InvalidOperationException ex)
         {
