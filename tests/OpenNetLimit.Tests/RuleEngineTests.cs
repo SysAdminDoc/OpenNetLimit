@@ -295,4 +295,40 @@ public class RuleEngineTests
         Assert.True(rule.MatchesConnection(IPAddress.Parse("1.2.3.4"), 443, "Tcp"));
         Assert.False(rule.HasConnectionFilters);
     }
+
+    [Fact]
+    public void FindMatchingRule_WithIPv6Cidr64_FiltersCorrectly()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "app",
+            RemoteAddressFilter = "2001:db8::/64",
+            DownloadBytesPerSecond = 10_000
+        });
+
+        var match = engine.FindMatchingRule("app", null, IPAddress.Parse("2001:db8::1"), null, null);
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("app", null, IPAddress.Parse("2001:db9::1"), null, null);
+        Assert.Null(noMatch);
+    }
+
+    [Fact]
+    public void FindMatchingRule_WithIPv6Cidr128_MatchesExact()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "app",
+            RemoteAddressFilter = "::1/128",
+            DownloadBytesPerSecond = 10_000
+        });
+
+        var match = engine.FindMatchingRule("app", null, IPAddress.Parse("::1"), null, null);
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("app", null, IPAddress.Parse("::2"), null, null);
+        Assert.Null(noMatch);
+    }
 }
