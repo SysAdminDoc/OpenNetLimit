@@ -129,6 +129,8 @@
 - Added 10-second HTTP timeout on plugin webhook dispatch to prevent indefinite hangs
 - DPAPI-protected API key storage: service checks `%ProgramData%\OpenNetLimit\apikey.protected` (encrypted with LocalMachine scope) when `OPENNETLIMIT_API_KEY` env var is not set
 - Rules support `CountryFilter` array for country-code-based connection filtering using the existing GeoIP infrastructure
+- RESX-based localization: replaced hardcoded string dictionaries with `Strings.resx` (English) and `Strings.es.resx` (Spanish) resource files via `ResourceManager`. New languages can be added by dropping satellite assemblies without code changes
+- RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
