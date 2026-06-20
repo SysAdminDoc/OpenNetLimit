@@ -108,9 +108,19 @@
 - Fixed QuotaTracker period reset: quotas now track a baseline so `ResetPeriod()` correctly counts only bytes since the reset, not cumulative totals
 - Fixed PipeServer admin impersonation: `IsClientAdmin` now captures client identity inside the `RunAsClient` callback instead of reading the service's own token afterward
 - Fixed TrafficStatsDb thread safety: all SQLite operations now serialized via lock to prevent corruption from concurrent stats/purge timer threads
+- Fixed payloadLength calculation: uses WinDivert `Data.Length` (actual payload) instead of `packet.Length` (full packet including IP/TCP/UDP headers)
+- Fixed SetLimitAsync: updates existing rule for a process instead of creating duplicates on repeated limit changes
+- Fixed PipeClient thread safety: SemaphoreSlim serializes concurrent send/receive pairs to prevent interleaved pipe I/O
+- Fixed DnsResolver TOCTOU: merged separate cache and expiry dictionaries into a single ConcurrentDictionary with a record struct entry
+- Bounded MainViewModel._seenAlertIds to prevent unbounded memory growth in long-running UI sessions
+- Extracted shared WildcardMatcher utility in Core, replacing three duplicate implementations in BandwidthRule, BandwidthAlertRule, and BandwidthAlertTracker
+- Cached ProcessIdentifier service name lookups with 60-second TTL to avoid enumerating all Windows services on every svchost flow
+- Upgraded LiveCharts2 from pre-release 2.0.0-rc4.5 to stable 2.0.5
 
 ### Security
 - Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)
+- Added PluginManager SSRF protection: webhook URLs targeting loopback, private RFC1918, or link-local addresses are rejected at manifest validation
+- Added 10-second HTTP timeout on plugin webhook dispatch to prevent indefinite hangs
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully

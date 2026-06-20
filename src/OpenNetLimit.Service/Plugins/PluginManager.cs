@@ -28,8 +28,16 @@ public sealed class PluginManager : IDisposable
     {
         _options = options;
         _logger = logger;
-        _httpClient = httpClient ?? new HttpClient();
-        _ownsHttpClient = httpClient is null;
+        if (httpClient is not null)
+        {
+            _httpClient = httpClient;
+            _ownsHttpClient = false;
+        }
+        else
+        {
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            _ownsHttpClient = true;
+        }
     }
 
     public IReadOnlyList<PluginManifest> GetPlugins()
@@ -150,8 +158,37 @@ public sealed class PluginManager : IDisposable
             return false;
         }
 
+        if (IsPrivateOrLoopback(uri.Host))
+        {
+            reason = "webhookUrl must not target loopback, private, or link-local addresses";
+            return false;
+        }
+
         reason = string.Empty;
         return true;
+    }
+
+    internal static bool IsPrivateOrLoopback(string host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!System.Net.IPAddress.TryParse(host, out var ip))
+            return false;
+
+        if (System.Net.IPAddress.IsLoopback(ip))
+            return true;
+
+        var bytes = ip.GetAddressBytes();
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && bytes.Length == 4)
+        {
+            if (bytes[0] == 10) return true;
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+            if (bytes[0] == 192 && bytes[1] == 168) return true;
+            if (bytes[0] == 169 && bytes[1] == 254) return true;
+        }
+
+        return false;
     }
 
     private static PluginManifest Normalize(PluginManifest manifest) =>

@@ -255,7 +255,6 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
             TransportProtocol protocol;
             ushort srcPort, dstPort;
-            int payloadLength = packet.Length;
 
             if (result.TCPHdr != null)
             {
@@ -273,6 +272,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             {
                 return null;
             }
+
+            int payloadLength = result.Data.Length;
 
             var flowKey = new FlowKey(protocol, srcAddr, srcPort, dstAddr, dstPort);
             return (flowKey, payloadLength);

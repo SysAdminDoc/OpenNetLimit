@@ -1,3 +1,5 @@
+using OpenNetLimit.Core;
+
 namespace OpenNetLimit.Core.Models;
 
 public enum RuleAction
@@ -57,7 +59,7 @@ public class BandwidthRule
         if (ProcessPath is not null && processPath is not null)
         {
             if (ProcessPath.Contains('*') || ProcessPath.Contains('?'))
-                return WildcardMatch(processPath, ProcessPath);
+                return WildcardMatcher.IsMatch(processPath, ProcessPath);
             return processPath.Equals(ProcessPath, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -65,38 +67,6 @@ public class BandwidthRule
             return processName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase);
 
         return false;
-    }
-
-    private static bool WildcardMatch(string input, string pattern)
-    {
-        int i = 0, j = 0;
-        int starI = -1, starJ = -1;
-
-        while (i < input.Length)
-        {
-            if (j < pattern.Length && (char.ToLowerInvariant(pattern[j]) == char.ToLowerInvariant(input[i]) || pattern[j] == '?'))
-            {
-                i++;
-                j++;
-            }
-            else if (j < pattern.Length && pattern[j] == '*')
-            {
-                starI = i;
-                starJ = j++;
-            }
-            else if (starJ >= 0)
-            {
-                i = ++starI;
-                j = starJ + 1;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        while (j < pattern.Length && pattern[j] == '*') j++;
-        return j == pattern.Length;
     }
 
     public bool IsActiveNow()

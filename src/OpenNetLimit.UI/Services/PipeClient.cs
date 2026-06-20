@@ -19,6 +19,7 @@ public sealed class PipeClient : IDisposable
     private StreamReader? _reader;
     private StreamWriter? _writer;
     private readonly object _lock = new();
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
     public string? LastError { get; private set; }
@@ -57,17 +58,18 @@ public sealed class PipeClient : IDisposable
 
     public async Task<string?> SendCommandAsync(string command)
     {
-        lock (_lock)
-        {
-            if (_pipe is null || !_pipe.IsConnected || _writer is null || _reader is null)
-            {
-                State = ConnectionState.Disconnected;
-                return null;
-            }
-        }
-
+        await _sendLock.WaitAsync();
         try
         {
+            lock (_lock)
+            {
+                if (_pipe is null || !_pipe.IsConnected || _writer is null || _reader is null)
+                {
+                    State = ConnectionState.Disconnected;
+                    return null;
+                }
+            }
+
             await _writer!.WriteLineAsync(command);
             var response = await _reader!.ReadLineAsync();
             return response;
@@ -77,6 +79,10 @@ public sealed class PipeClient : IDisposable
             State = ConnectionState.Disconnected;
             Disconnect();
             return null;
+        }
+        finally
+        {
+            _sendLock.Release();
         }
     }
 
