@@ -42,6 +42,7 @@ public sealed class PacketScheduler : IDisposable
         }
 
         var queue = _queues.GetOrAdd(processId, _ => new ProcessPacketQueue(MaxQueuePerProcess));
+        Volatile.Write(ref queue.LastActivityTicks, Environment.TickCount64);
 
         var packet = new QueuedPacket(
             packetData.ToArray(),
@@ -70,7 +71,7 @@ public sealed class PacketScheduler : IDisposable
             long now = Environment.TickCount64;
 
             Span<WinDivertAddress> addrSpan = stackalloc WinDivertAddress[1];
-            foreach (var (_, queue) in _queues)
+            foreach (var (pid, queue) in _queues)
             {
                 while (queue.TryPeek(out var pkt) && pkt.SendAtTicks <= now)
                 {
@@ -88,6 +89,10 @@ public sealed class PacketScheduler : IDisposable
                         }
                     }
                 }
+
+                // Prune empty queues idle for >5 minutes
+                if (queue.Count == 0 && now - Volatile.Read(ref queue.LastActivityTicks) > 300_000)
+                    _queues.TryRemove(pid, out _);
             }
         }
         finally
@@ -151,6 +156,7 @@ internal sealed class ProcessPacketQueue
     private readonly object _lock = new();
     private readonly Queue<QueuedPacket> _queue = new();
     private readonly int _maxSize;
+    public long LastActivityTicks = Environment.TickCount64;
 
     public ProcessPacketQueue(int maxSize)
     {
@@ -166,6 +172,11 @@ internal sealed class ProcessPacketQueue
             _queue.Enqueue(packet);
             return true;
         }
+    }
+
+    public int Count
+    {
+        get { lock (_lock) return _queue.Count; }
     }
 
     public bool TryPeek(out QueuedPacket packet)

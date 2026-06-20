@@ -173,8 +173,10 @@ public sealed class PluginManager : IDisposable
         if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // Reject hostnames (anything that isn't a valid IP address) to prevent
+        // SSRF via DNS resolution to internal services at dispatch time
         if (!System.Net.IPAddress.TryParse(host, out var ip))
-            return false;
+            return true;
 
         if (System.Net.IPAddress.IsLoopback(ip))
             return true;

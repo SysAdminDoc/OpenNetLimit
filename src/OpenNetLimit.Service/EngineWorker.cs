@@ -32,7 +32,7 @@ public class EngineWorker : BackgroundService
     private Timer? _quotaTimer;
     private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
-    private DateTime _lastQuotaResetCheck = DateTime.Now.Date;
+    private long _lastQuotaResetCheckTicks = DateTime.Now.Date.Ticks;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -103,6 +103,37 @@ public class EngineWorker : BackgroundService
             _logger.LogWarning("Quota exceeded for {Process}: {Used}/{Limit} bytes — action: {Action}",
                 name, state.UsedBytes, state.LimitBytes, state.Action);
             DispatchPluginEvent("quota.exceeded", state, stoppingToken);
+
+            // Enforce the configured quota action
+            switch (state.Action)
+            {
+                case OpenNetLimit.Core.Models.QuotaAction.Throttle:
+                    var rule = _ruleEngine.GetAllRules()
+                        .FirstOrDefault(r => r.ProcessName?.Equals(name, StringComparison.OrdinalIgnoreCase) == true && r.Quota is not null);
+                    if (rule?.Quota is not null)
+                    {
+                        var throttleRate = rule.Quota.ThrottleBytesPerSecond;
+                        foreach (var proc in _trafficMonitor.GetAllProcesses()
+                            .Where(p => rule.MatchesProcess(p.ProcessName, p.ProcessPath)))
+                        {
+                            _rateLimiter.SetLimit(proc.ProcessId, throttleRate, throttleRate);
+                        }
+                        _logger.LogInformation("Quota throttle applied for {Process}: {Rate} B/s", name, throttleRate);
+                    }
+                    break;
+
+                case OpenNetLimit.Core.Models.QuotaAction.Block:
+                    foreach (var proc in _trafficMonitor.GetAllProcesses()
+                        .Where(p => p.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _rateLimiter.SetLimit(proc.ProcessId, 0, 0);
+                    }
+                    _logger.LogInformation("Quota block applied for {Process}: traffic dropped", name);
+                    break;
+
+                case OpenNetLimit.Core.Models.QuotaAction.WarnOnly:
+                    break;
+            }
         };
         _alertTracker.OnAlert += alert =>
         {
@@ -339,7 +370,8 @@ public class EngineWorker : BackgroundService
             var now = DateTime.Now;
             var today = now.Date;
 
-            if (today <= _lastQuotaResetCheck)
+            var lastCheck = new DateTime(Interlocked.Read(ref _lastQuotaResetCheckTicks));
+            if (today <= lastCheck)
                 return;
 
             _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Daily);
@@ -357,7 +389,10 @@ public class EngineWorker : BackgroundService
                 _logger.LogInformation("Monthly quota period reset");
             }
 
-            _lastQuotaResetCheck = today;
+            // Revert any quota-imposed rate limits by reconciling with base rules
+            _reconciler?.Reconcile();
+
+            Interlocked.Exchange(ref _lastQuotaResetCheckTicks, today.Ticks);
         }
         catch (Exception ex)
         {

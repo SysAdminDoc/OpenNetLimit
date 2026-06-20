@@ -134,6 +134,21 @@
 
 - DNS-based rule matching: rules can specify `DnsDomainFilter` to match traffic by resolved domain name. Supports exact domains (`cdn.example.com`) and wildcard subdomains (`*.example.com`). DNS responses (UDP port 53) are parsed in real-time to build an IP→domain correlation cache used during rule evaluation. DnsDomainCache holds up to 50K entries with TTL-based expiry.
 - Historical bandwidth timeline: new History tab with scrollable column chart showing per-process hourly/daily bandwidth from SQLite stats database; process filter dropdown and hourly/daily granularity toggle; localized in English and Spanish
+- Quota enforcement: quotas with OnExceeded=Throttle now reduce process rate to ThrottleBytesPerSecond; OnExceeded=Block drops traffic to zero. Limits revert on quota period reset via rule reconciliation.
+- Fixed FlowTracker data race: RegisterFlow creates new ConnectionInfo instead of mutating shared object; UnregisterFlow replaces entry to avoid torn DateTime? reads by PurgeStale
+- Fixed DnsResponseParser out-of-bounds: compressed DNS pointer targets are now bounds-checked
+- Fixed BandwidthAlertTracker event trimming race: uses lock-based approach matching ConnectionLogger
+- Fixed BandwidthAlertTracker.GetRecentEvents: array snapshot + slice from end instead of O(n) Reverse()
+- Fixed PluginManager SSRF: webhook URLs with hostnames (non-IP) are now rejected at manifest validation
+- Fixed QuotaTracker mutable state leak: GetAllQuotaStates/GetQuotaState return defensive copies
+- Fixed EngineWorker quota reset timer race: _lastQuotaResetCheck uses Interlocked long ticks
+- Fixed ParseIPv6Addr hot-path allocation: constructs IPAddress from 16-byte stackalloc span
+- Fixed TrafficMonitor snapshot TOCTOU: exchanged values captured in locals, totals computed from locals
+- Fixed TrafficMonitor TakeSnapshot returning live mutable references: creates shallow copy per ProcessTrafficInfo
+- Fixed PacketScheduler stale queue accumulation: empty queues idle >5 minutes pruned in DrainReady
+- Fixed WinDivert handle leak: StartAsync disposes partially-opened handles on failure
+- Fixed HistoryViewModel concurrent LoadDataAsync: cancels previous load on new request
+- Prune BandwidthAlertTracker _lastTriggered: entries older than 300s removed at start of each Update sweep
 
 ### Fixed
 - Enabled TreatWarningsAsErrors in Directory.Build.props — nullable analysis and CS-series warnings now break the build

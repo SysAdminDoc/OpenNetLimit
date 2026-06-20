@@ -12,6 +12,7 @@ public class BandwidthAlertTracker
     private readonly ConcurrentQueue<BandwidthAlertEvent> _events = new();
     private readonly Dictionary<string, DateTime> _lastTriggered = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
+    private readonly object _trimLock = new();
 
     public const int MaxEvents = 500;
 
@@ -59,11 +60,27 @@ public class BandwidthAlertTracker
             _rules.RemoveAll(r => r.Id == id);
     }
 
-    public IReadOnlyList<BandwidthAlertEvent> GetRecentEvents(int maxCount = 100) =>
-        _events.Reverse().Take(maxCount).Select(CopyEvent).ToList();
+    public IReadOnlyList<BandwidthAlertEvent> GetRecentEvents(int maxCount = 100)
+    {
+        var snapshot = _events.ToArray();
+        var start = Math.Max(0, snapshot.Length - maxCount);
+        return snapshot[start..].Select(CopyEvent).ToList();
+    }
 
     public void Update()
     {
+        // Prune stale _lastTriggered entries to prevent unbounded growth
+        lock (_lock)
+        {
+            var cutoff = DateTime.UtcNow.AddSeconds(-300);
+            var staleKeys = _lastTriggered
+                .Where(kvp => kvp.Value < cutoff)
+                .Select(kvp => kvp.Key)
+                .ToList();
+            foreach (var key in staleKeys)
+                _lastTriggered.Remove(key);
+        }
+
         var processes = _trafficMonitor.GetAllProcesses();
         List<BandwidthAlertRule> rules;
         lock (_lock)
@@ -107,7 +124,10 @@ public class BandwidthAlertTracker
                 };
 
                 _events.Enqueue(alert);
-                while (_events.Count > MaxEvents && _events.TryDequeue(out _)) { }
+                lock (_trimLock)
+                {
+                    while (_events.Count > MaxEvents && _events.TryDequeue(out _)) { }
+                }
                 OnAlert?.Invoke(alert);
             }
         }

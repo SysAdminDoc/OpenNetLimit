@@ -108,7 +108,7 @@ public class PluginManagerTests : IDisposable
           "version": "1.0.0",
           "enabled": true,
           "eventSubscriptions": [ "alert.triggered" ],
-          "webhookUrl": "https://example.test/hook"
+          "webhookUrl": "https://203.0.113.1/hook"
         }
         """;
 
