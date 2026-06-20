@@ -43,6 +43,7 @@ public class BandwidthRule
     public int? RemotePortFilter { get; set; }
     public string? ProtocolFilter { get; set; }
     public string[]? CountryFilter { get; set; }
+    public string? DnsDomainFilter { get; set; }
 
     public DateTime? ActiveFrom { get; set; }
     public DateTime? ActiveUntil { get; set; }
@@ -103,7 +104,25 @@ public class BandwidthRule
 
     public bool HasConnectionFilters =>
         RemoteAddressFilter is not null || RemotePortFilter.HasValue ||
-        ProtocolFilter is not null || CountryFilter is { Length: > 0 };
+        ProtocolFilter is not null || CountryFilter is { Length: > 0 } ||
+        DnsDomainFilter is not null;
+
+    public bool MatchesDomain(string? resolvedDomain)
+    {
+        if (DnsDomainFilter is null)
+            return true;
+        if (resolvedDomain is null)
+            return false;
+
+        if (DnsDomainFilter.StartsWith("*."))
+        {
+            var suffix = DnsDomainFilter[1..]; // ".example.com"
+            return resolvedDomain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ||
+                   resolvedDomain.Equals(DnsDomainFilter[2..], StringComparison.OrdinalIgnoreCase);
+        }
+
+        return resolvedDomain.Equals(DnsDomainFilter, StringComparison.OrdinalIgnoreCase);
+    }
 
     public bool MatchesCountry(string? countryCode)
     {
@@ -159,6 +178,7 @@ public class BandwidthRule
         RemotePortFilter = RemotePortFilter,
         ProtocolFilter = ProtocolFilter,
         CountryFilter = CountryFilter?.ToArray(),
+        DnsDomainFilter = DnsDomainFilter,
         ActiveFrom = ActiveFrom,
         ActiveUntil = ActiveUntil,
         Schedule = Schedule is null ? null : new RuleSchedule

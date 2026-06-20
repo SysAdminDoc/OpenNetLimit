@@ -17,6 +17,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PacketScheduler _scheduler = new();
     private readonly ConnectionLogger _connectionLog = new();
+    private readonly DnsDomainCache _dnsCache = new();
     private long _totalBlocked;
 
     private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
@@ -200,7 +201,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     continue;
                 }
 
-                var (flowKey, payloadLength) = parsed.Value;
+                var (flowKey, payloadLength, _) = parsed.Value;
                 bool isOutbound = addr.Outbound;
 
                 var processId = _flowTracker.LookupProcessId(flowKey);
@@ -223,11 +224,27 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
+                // Detect DNS responses (UDP from port 53) and cache domain→IP mappings
+                if (!isOutbound && flowKey.Protocol == TransportProtocol.Udp && flowKey.RemotePort == 53 && payloadLength > 12)
+                {
+                    try
+                    {
+                        var dnsRecords = DnsResponseParser.ParseResponse(parsed.Value.payloadData.Span);
+                        foreach (var record in dnsRecords)
+                            _dnsCache.RecordMapping(record.Address, record.Domain, record.Ttl);
+                    }
+                    catch
+                    {
+                        // Best-effort DNS parsing — don't disrupt packet flow
+                    }
+                }
+
                 var remoteAddr = isOutbound ? flowKey.RemoteAddress : flowKey.LocalAddress;
                 var remotePort = isOutbound ? (int)flowKey.RemotePort : (int)flowKey.LocalPort;
                 var protocolStr = flowKey.Protocol.ToString();
+                var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
-                    remoteAddr, remotePort, protocolStr);
+                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain);
                 if (matchingRule?.Action == RuleAction.Block && !ProtectedProcesses.Contains(processName))
                 {
                     Interlocked.Increment(ref _totalBlocked);
@@ -277,7 +294,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
     }
 
-    private static unsafe (FlowKey flowKey, int payloadLength)? ParsePacket(Memory<byte> packet)
+    private static unsafe (FlowKey flowKey, int payloadLength, Memory<byte> payloadData)? ParsePacket(Memory<byte> packet)
     {
         var parser = new WinDivertPacketParser(packet);
         foreach (var result in parser)
@@ -327,9 +344,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             }
 
             int payloadLength = result.Data.Length;
+            var payloadData = result.Data;
 
             var flowKey = new FlowKey(protocol, srcAddr, srcPort, dstAddr, dstPort);
-            return (flowKey, payloadLength);
+            return (flowKey, payloadLength, payloadData);
         }
 
         return null;
