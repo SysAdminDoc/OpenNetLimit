@@ -61,6 +61,9 @@ public sealed class PipeClient : IDisposable
         await _sendLock.WaitAsync();
         try
         {
+            StreamWriter? writer;
+            StreamReader? reader;
+
             lock (_lock)
             {
                 if (_pipe is null || !_pipe.IsConnected || _writer is null || _reader is null)
@@ -68,10 +71,15 @@ public sealed class PipeClient : IDisposable
                     State = ConnectionState.Disconnected;
                     return null;
                 }
+
+                // Capture references under lock to prevent Disconnect() from
+                // nulling them between check and use
+                writer = _writer;
+                reader = _reader;
             }
 
-            await _writer!.WriteLineAsync(command);
-            var response = await _reader!.ReadLineAsync();
+            await writer.WriteLineAsync(command);
+            var response = await reader.ReadLineAsync();
             return response;
         }
         catch
@@ -88,12 +96,15 @@ public sealed class PipeClient : IDisposable
 
     public void Disconnect()
     {
-        try { _writer?.Dispose(); } catch { }
-        try { _reader?.Dispose(); } catch { }
-        try { _pipe?.Dispose(); } catch { }
-        _writer = null;
-        _reader = null;
-        _pipe = null;
+        lock (_lock)
+        {
+            try { _writer?.Dispose(); } catch { }
+            try { _reader?.Dispose(); } catch { }
+            try { _pipe?.Dispose(); } catch { }
+            _writer = null;
+            _reader = null;
+            _pipe = null;
+        }
         State = ConnectionState.Disconnected;
     }
 

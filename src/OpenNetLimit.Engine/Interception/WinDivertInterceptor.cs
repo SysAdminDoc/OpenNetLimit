@@ -61,6 +61,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     {
         if (IsRunning) return Task.CompletedTask;
 
+        // Set _isRunning before launching tasks to prevent a racing StopAsync
+        // from seeing IsRunning == false and returning early while tasks are starting
+        _isRunning = true;
+
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
@@ -70,6 +74,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
         catch
         {
+            _isRunning = false;
             _flowHandle?.Dispose();
             _flowHandle = null;
             _networkHandle?.Dispose();
@@ -91,7 +96,6 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
-        _isRunning = true;
         return Task.CompletedTask;
     }
 
@@ -402,7 +406,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
     public void Dispose()
     {
-        StopAsync().GetAwaiter().GetResult();
+        // Use ConfigureAwait(false) throughout StopAsync to avoid deadlock
+        // when Dispose is called from a synchronization context
+        var task = StopAsync();
+        if (!task.IsCompleted)
+            task.ConfigureAwait(false).GetAwaiter().GetResult();
         _cts?.Dispose();
     }
 }

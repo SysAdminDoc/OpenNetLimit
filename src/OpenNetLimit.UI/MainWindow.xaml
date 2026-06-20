@@ -93,7 +93,8 @@
                                   MinWidth="180" Margin="0,0,12,0"/>
                         <RadioButton Content="{loc:Loc History_Hourly}" IsChecked="{Binding IsHourly}"
                                      VerticalAlignment="Center" Margin="0,0,12,0" GroupName="HistoryGranularity"/>
-                        <RadioButton Content="{loc:Loc History_Daily}" VerticalAlignment="Center" Margin="0,0,12,0"
+                        <RadioButton Content="{loc:Loc History_Daily}" IsChecked="{Binding IsDaily}"
+                                     VerticalAlignment="Center" Margin="0,0,12,0"
                                      GroupName="HistoryGranularity"/>
                         <Button Content="{loc:Loc History_Refresh}" Click="OnHistoryRefresh" MinWidth="80"/>
                     </StackPanel>

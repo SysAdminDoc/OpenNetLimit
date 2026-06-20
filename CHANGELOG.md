@@ -134,9 +134,20 @@
 
 - DNS-based rule matching: rules can specify `DnsDomainFilter` to match traffic by resolved domain name. Supports exact domains (`cdn.example.com`) and wildcard subdomains (`*.example.com`). DNS responses (UDP port 53) are parsed in real-time to build an IP→domain correlation cache used during rule evaluation. DnsDomainCache holds up to 50K entries with TTL-based expiry.
 - Historical bandwidth timeline: new History tab with scrollable column chart showing per-process hourly/daily bandwidth from SQLite stats database; process filter dropdown and hourly/daily granularity toggle; localized in English and Spanish
+- Fixed History tab Daily radio button: clicking "Daily" now correctly switches chart to daily granularity (was unbound, chart always showed hourly data regardless of selection)
 - Quota enforcement: quotas with OnExceeded=Throttle now reduce process rate to ThrottleBytesPerSecond; OnExceeded=Block drops traffic to zero. Limits revert on quota period reset via rule reconciliation.
 - Fixed FlowTracker data race: RegisterFlow creates new ConnectionInfo instead of mutating shared object; UnregisterFlow replaces entry to avoid torn DateTime? reads by PurgeStale
 - Fixed DnsResponseParser out-of-bounds: compressed DNS pointer targets are now bounds-checked
+- Fixed WinDivertInterceptor StartAsync race: `_isRunning` set before task launch to prevent concurrent StopAsync from missing running tasks
+- Fixed WinDivertInterceptor Dispose deadlock: uses ConfigureAwait(false) to avoid synchronization context deadlock
+- Fixed PipeClient Disconnect/SendCommandAsync race: stream references captured under lock before I/O; Disconnect acquires same lock
+- Fixed ConnectionLogger/BandwidthAlertTracker trim TOCTOU: Count check moved inside lock to prevent over-trimming under contention
+- Fixed BandwidthAlertTracker stale-entry prune: uses maximum rule CooldownSeconds instead of hardcoded 300s, so long-cooldown alerts are not re-fired early
+- Fixed RestApiServer body-read DoS: reads with hard byte cap on the stream instead of reading entire body before checking size, preventing chunked-encoding OOM attacks
+- Fixed DnsResolver cache eviction: when all entries are fresh and cache exceeds capacity, evicts oldest entries instead of silently growing past limit
+- Fixed HistoryViewModel CancellationTokenSource leak: old CTS disposed before replacement
+- Fixed RuleEngine.ImportRules: imported rules now validated (must have ProcessName or ProcessPath), matching AddRule/UpdateRule behavior
+- Fixed QuotaTracker.Update: uses QuotaState.PercentUsed property instead of duplicating the percentage formula
 - Fixed BandwidthAlertTracker event trimming race: uses lock-based approach matching ConnectionLogger
 - Fixed BandwidthAlertTracker.GetRecentEvents: array snapshot + slice from end instead of O(n) Reverse()
 - Fixed PluginManager SSRF: webhook URLs with hostnames (non-IP) are now rejected at manifest validation

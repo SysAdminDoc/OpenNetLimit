@@ -69,10 +69,15 @@ public class BandwidthAlertTracker
 
     public void Update()
     {
-        // Prune stale _lastTriggered entries to prevent unbounded growth
+        // Prune stale _lastTriggered entries to prevent unbounded growth.
+        // Use the maximum cooldown across all rules (with a floor of 300s)
+        // so entries aren't pruned before their cooldown expires.
         lock (_lock)
         {
-            var cutoff = DateTime.UtcNow.AddSeconds(-300);
+            var maxCooldown = _rules.Count > 0
+                ? Math.Max(300, _rules.Max(r => r.CooldownSeconds))
+                : 300;
+            var cutoff = DateTime.UtcNow.AddSeconds(-maxCooldown);
             var staleKeys = _lastTriggered
                 .Where(kvp => kvp.Value < cutoff)
                 .Select(kvp => kvp.Key)

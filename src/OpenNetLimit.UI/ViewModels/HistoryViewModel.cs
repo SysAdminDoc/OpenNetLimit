@@ -64,7 +64,22 @@ public class HistoryViewModel : INotifyPropertyChanged
         set
         {
             if (SetField(ref _isHourly, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDaily)));
                 _ = LoadDataAsync();
+            }
+        }
+    }
+
+    public bool IsDaily
+    {
+        get => !_isHourly;
+        set
+        {
+            if (value != !_isHourly)
+            {
+                IsHourly = !value;
+            }
         }
     }
 
@@ -103,8 +118,11 @@ public class HistoryViewModel : INotifyPropertyChanged
 
     public async Task LoadDataAsync()
     {
-        // Cancel any previous in-flight load to prevent interleaved chart updates
-        _loadCts?.Cancel();
+        // Cancel and dispose any previous in-flight load to prevent
+        // interleaved chart updates and avoid leaking WaitHandles
+        var oldCts = _loadCts;
+        oldCts?.Cancel();
+        oldCts?.Dispose();
         var cts = _loadCts = new CancellationTokenSource();
 
         if (_client.State != ConnectionState.Connected)
