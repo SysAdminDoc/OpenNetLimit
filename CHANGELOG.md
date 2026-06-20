@@ -118,6 +118,8 @@
 - Upgraded LiveCharts2 from pre-release 2.0.0-rc4.5 to stable 2.0.5
 - Protected system processes (svchost, lsass, csrss, dns, etc.) are now exempt from rate limiting and blocking to prevent network starvation from overly broad wildcard rules
 - Added WDAC/EDR enterprise deployment documentation to README with WinDivert SHA-256 hashes, WDAC allowlist XML, and EDR allowlist steps for common products
+- Rule conditions: rules can now filter by remote IP address (exact or CIDR subnet), remote port, and protocol (TCP/UDP). Interceptor evaluates connection-level conditions per packet via `FindMatchingRule` overload
+- Added `ProtocolFilter`, `MatchesConnection`, and `HasConnectionFilters` to `BandwidthRule` model; existing `RemoteAddressFilter`/`RemotePortFilter` fields now active in rule evaluation
 
 ### Security
 - Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)

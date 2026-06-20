@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using OpenNetLimit.Core.Interfaces;
@@ -73,6 +74,19 @@ public class RuleEngine : IRuleEngine
         {
             return _rules
                 .Where(r => r.IsActiveNow() && r.MatchesProcess(processName, processPath))
+                .FirstOrDefault();
+        }
+    }
+
+    public BandwidthRule? FindMatchingRule(string processName, string? processPath,
+        IPAddress? remoteAddress, int? remotePort, string? protocol)
+    {
+        lock (_lock)
+        {
+            return _rules
+                .Where(r => r.IsActiveNow() &&
+                            r.MatchesProcess(processName, processPath) &&
+                            r.MatchesConnection(remoteAddress, remotePort, protocol))
                 .FirstOrDefault();
         }
     }

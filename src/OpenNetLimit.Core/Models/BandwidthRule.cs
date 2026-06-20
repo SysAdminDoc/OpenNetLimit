@@ -1,3 +1,4 @@
+using System.Net;
 using OpenNetLimit.Core;
 
 namespace OpenNetLimit.Core.Models;
@@ -40,6 +41,7 @@ public class BandwidthRule
 
     public string? RemoteAddressFilter { get; set; }
     public int? RemotePortFilter { get; set; }
+    public string? ProtocolFilter { get; set; }
 
     public DateTime? ActiveFrom { get; set; }
     public DateTime? ActiveUntil { get; set; }
@@ -67,6 +69,66 @@ public class BandwidthRule
             return processName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase);
 
         return false;
+    }
+
+    public bool MatchesConnection(IPAddress? remoteAddress, int? remotePort, string? protocol)
+    {
+        if (ProtocolFilter is not null && protocol is not null &&
+            !ProtocolFilter.Equals(protocol, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (RemotePortFilter.HasValue && remotePort.HasValue && RemotePortFilter.Value != remotePort.Value)
+            return false;
+
+        if (RemoteAddressFilter is not null && remoteAddress is not null)
+        {
+            if (RemoteAddressFilter.Contains('/'))
+            {
+                if (!MatchesCidr(remoteAddress, RemoteAddressFilter))
+                    return false;
+            }
+            else
+            {
+                if (!IPAddress.TryParse(RemoteAddressFilter, out var filterIp) ||
+                    !filterIp.Equals(remoteAddress))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    public bool HasConnectionFilters =>
+        RemoteAddressFilter is not null || RemotePortFilter.HasValue || ProtocolFilter is not null;
+
+    private static bool MatchesCidr(IPAddress address, string cidr)
+    {
+        var parts = cidr.Split('/');
+        if (parts.Length != 2 || !IPAddress.TryParse(parts[0], out var network) || !int.TryParse(parts[1], out var prefixLen))
+            return false;
+
+        var networkBytes = network.GetAddressBytes();
+        var addressBytes = address.GetAddressBytes();
+        if (networkBytes.Length != addressBytes.Length)
+            return false;
+
+        var fullBytes = prefixLen / 8;
+        var remainingBits = prefixLen % 8;
+
+        for (int i = 0; i < fullBytes && i < networkBytes.Length; i++)
+        {
+            if (networkBytes[i] != addressBytes[i])
+                return false;
+        }
+
+        if (remainingBits > 0 && fullBytes < networkBytes.Length)
+        {
+            var mask = (byte)(0xFF << (8 - remainingBits));
+            if ((networkBytes[fullBytes] & mask) != (addressBytes[fullBytes] & mask))
+                return false;
+        }
+
+        return true;
     }
 
     public bool IsActiveNow()

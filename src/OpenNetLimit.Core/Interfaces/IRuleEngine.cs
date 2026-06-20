@@ -1,3 +1,4 @@
+using System.Net;
 using OpenNetLimit.Core.Models;
 
 namespace OpenNetLimit.Core.Interfaces;
@@ -10,6 +11,7 @@ public interface IRuleEngine
     BandwidthRule? GetRule(Guid ruleId);
     IReadOnlyList<BandwidthRule> GetAllRules();
     BandwidthRule? FindMatchingRule(string processName, string? processPath);
+    BandwidthRule? FindMatchingRule(string processName, string? processPath, IPAddress? remoteAddress, int? remotePort, string? protocol);
     void LoadRules(string filePath);
     void SaveRules(string filePath);
     string ExportRules();
