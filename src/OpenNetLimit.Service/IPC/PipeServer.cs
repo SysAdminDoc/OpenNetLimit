@@ -221,6 +221,8 @@ public class PipeServer
             "ALERT_RULES" => Task.FromResult(JsonSerializer.Serialize(_alertTracker.GetRules(), JsonOptions)),
             "ALERT_EVENTS" => Task.FromResult(JsonSerializer.Serialize(_alertTracker.GetRecentEvents(), JsonOptions)),
             "PLUGINS" => Task.FromResult(JsonSerializer.Serialize(_pluginManager.GetPlugins(), JsonOptions)),
+            "GROUPS" => Task.FromResult(JsonSerializer.Serialize(_ruleEngine.GetGroupNames(), JsonOptions)),
+            "GROUP_RULES" => Task.FromResult(GetGroupRules(payload)),
             "ADD_RULE" => Task.FromResult(AddRule(payload)),
             "REMOVE_RULE" => Task.FromResult(RemoveRule(payload)),
             "UPDATE_RULE" => Task.FromResult(UpdateRule(payload)),
@@ -375,6 +377,14 @@ public class PipeServer
     {
         var states = _controlPlane.GetQuotaStates();
         return JsonSerializer.Serialize(states, JsonOptions);
+    }
+
+    private string GetGroupRules(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return ErrorResponse("group name is required");
+        var rules = _ruleEngine.GetRulesByGroup(payload.Trim());
+        return JsonSerializer.Serialize(rules, JsonOptions);
     }
 
     private string GetConnectionLog()

@@ -12,6 +12,8 @@ public interface IRuleEngine
     IReadOnlyList<BandwidthRule> GetAllRules();
     BandwidthRule? FindMatchingRule(string processName, string? processPath);
     BandwidthRule? FindMatchingRule(string processName, string? processPath, IPAddress? remoteAddress, int? remotePort, string? protocol);
+    IReadOnlyList<BandwidthRule> GetRulesByGroup(string groupName);
+    IReadOnlyList<string> GetGroupNames();
     void LoadRules(string filePath);
     void SaveRules(string filePath);
     string ExportRules();
