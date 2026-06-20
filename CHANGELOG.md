@@ -145,6 +145,9 @@
 - Made WinDivertInterceptor.IsRunning thread-safe via volatile backing field
 - Enhanced driver load failure diagnostics: last-error.txt now includes HVCI, EDR, and driver signing troubleshooting steps
 - Added Windows Event Log integration: service events written to Application log under "OpenNetLimit" source
+- RuleEngine now returns defensive copies from GetRule, GetAllRules, FindMatchingRule, and GetRulesByGroup — callers can no longer mutate internal state
+- Added REST API rate limiting: 10 requests per 10-second window per caller IP; returns 429 when exceeded
+- Exposed IPacketInterceptor diagnostics (TotalBlocked, TotalDelayed, TotalDropped, TotalSent, GetRecentConnectionLog) through the interface — EngineWorker no longer downcasts to WinDivertInterceptor
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
 - Fixed TrafficMonitor thread-safe byte counters (Interlocked.Add on ProcessTrafficInfo backing fields)

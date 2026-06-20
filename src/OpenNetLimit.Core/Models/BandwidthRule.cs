@@ -144,6 +144,43 @@ public class BandwidthRule
         return true;
     }
 
+    public BandwidthRule Clone() => new()
+    {
+        Id = Id,
+        Name = Name,
+        Enabled = Enabled,
+        ProcessName = ProcessName,
+        ProcessPath = ProcessPath,
+        Action = Action,
+        Direction = Direction,
+        DownloadBytesPerSecond = DownloadBytesPerSecond,
+        UploadBytesPerSecond = UploadBytesPerSecond,
+        RemoteAddressFilter = RemoteAddressFilter,
+        RemotePortFilter = RemotePortFilter,
+        ProtocolFilter = ProtocolFilter,
+        CountryFilter = CountryFilter?.ToArray(),
+        ActiveFrom = ActiveFrom,
+        ActiveUntil = ActiveUntil,
+        Schedule = Schedule is null ? null : new RuleSchedule
+        {
+            StartTime = Schedule.StartTime,
+            EndTime = Schedule.EndTime,
+            ActiveDays = Schedule.ActiveDays?.ToArray()
+        },
+        Quota = Quota is null ? null : new QuotaConfig
+        {
+            LimitBytes = Quota.LimitBytes,
+            Period = Quota.Period,
+            OnExceeded = Quota.OnExceeded,
+            ThrottleBytesPerSecond = Quota.ThrottleBytesPerSecond,
+            WarningPercent = Quota.WarningPercent
+        },
+        BandwidthPriority = BandwidthPriority,
+        ProfileName = ProfileName,
+        GroupName = GroupName,
+        Priority = Priority
+    };
+
     public bool IsActiveNow()
     {
         if (!Enabled) return false;

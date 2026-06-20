@@ -1,7 +1,6 @@
 using System.Security.Principal;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
-using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.IPC;
@@ -151,8 +150,7 @@ public class EngineWorker : BackgroundService
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
         _controlPlane.QuotaTracker = _quotaTracker;
-        if (_interceptor is WinDivertInterceptor wdi2)
-            _controlPlane.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
+        _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
         _logger.LogInformation("IPC pipe server started");
 
@@ -357,23 +355,17 @@ public class EngineWorker : BackgroundService
 
     private DiagnosticInfo GetDiagnosticInfo()
     {
-        var info = new DiagnosticInfo
+        return new DiagnosticInfo
         {
             Running = _interceptor.IsRunning,
             ActiveFlows = _flowTracker.GetActiveConnections().Count,
             ActiveRules = _ruleEngine.GetAllRules().Count,
-            StartedAt = _startedAt
+            StartedAt = _startedAt,
+            PacketsDelayed = _interceptor.TotalDelayed,
+            PacketsDropped = _interceptor.TotalDropped,
+            PacketsSent = _interceptor.TotalSent,
+            PacketsBlocked = _interceptor.TotalBlocked
         };
-
-        if (_interceptor is WinDivertInterceptor wdi)
-        {
-            info.PacketsDelayed = wdi.Scheduler.TotalDelayed;
-            info.PacketsDropped = wdi.Scheduler.TotalDropped;
-            info.PacketsSent = wdi.Scheduler.TotalSent;
-            info.PacketsBlocked = wdi.TotalBlocked;
-        }
-
-        return info;
     }
 
     private void RecordLastError(string message)

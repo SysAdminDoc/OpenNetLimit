@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Threading.RateLimiting;
 
 namespace OpenNetLimit.Service.API;
 
@@ -9,6 +11,7 @@ public sealed class RestApiServer : BackgroundService
     private readonly RestApiRouter _router;
     private readonly RestApiOptions _options;
     private readonly ILogger<RestApiServer> _logger;
+    private readonly ConcurrentDictionary<string, RateLimiter> _rateLimiters = new();
 
     public RestApiServer(RestApiRouter router, RestApiOptions options, ILogger<RestApiServer> logger)
     {
@@ -68,6 +71,23 @@ public sealed class RestApiServer : BackgroundService
         RestApiResponse result;
         try
         {
+            var clientKey = context.Request.RemoteEndPoint?.Address?.ToString() ?? "unknown";
+            var limiter = _rateLimiters.GetOrAdd(clientKey, _ => new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = 10,
+                ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                TokensPerPeriod = 10,
+                QueueLimit = 0
+            }));
+
+            using var lease = await limiter.AcquireAsync(1, ct);
+            if (!lease.IsAcquired)
+            {
+                result = RestApiResponse.Error(429, "rate limit exceeded", RestApiRouter.JsonOptions);
+                await WriteResponseAsync(context.Response, result, ct);
+                return;
+            }
+
             var body = await ReadBodyAsync(context.Request, ct);
             var request = new RestApiRequest(
                 context.Request.HttpMethod,
