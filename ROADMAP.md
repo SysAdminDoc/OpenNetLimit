@@ -73,10 +73,3 @@ An open-source, per-application bandwidth limiter and network monitor for Window
                  Windows Network Stack
 ```
 
-## Research-Driven Additions
-
-### P1
-
-### P2
-
-
