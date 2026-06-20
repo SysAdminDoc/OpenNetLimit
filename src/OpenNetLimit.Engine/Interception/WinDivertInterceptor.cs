@@ -36,7 +36,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     public PacketScheduler Scheduler => _scheduler;
 
     public long TotalBlocked => Volatile.Read(ref _totalBlocked);
+    public long TotalDelayed => _scheduler.TotalDelayed;
+    public long TotalDropped => _scheduler.TotalDropped;
+    public long TotalSent => _scheduler.TotalSent;
     public ConnectionLogger ConnectionLog => _connectionLog;
+
+    public IReadOnlyList<object> GetRecentConnectionLog(int maxCount) =>
+        _connectionLog.GetRecent(maxCount).Cast<object>().ToList();
 
     public WinDivertInterceptor(
         IFlowTracker flowTracker,

@@ -56,7 +56,7 @@ public class RuleEngine : IRuleEngine
     {
         lock (_lock)
         {
-            return _rules.FirstOrDefault(r => r.Id == ruleId);
+            return _rules.FirstOrDefault(r => r.Id == ruleId)?.Clone();
         }
     }
 
@@ -64,7 +64,7 @@ public class RuleEngine : IRuleEngine
     {
         lock (_lock)
         {
-            return _rules.ToList();
+            return _rules.Select(r => r.Clone()).ToList();
         }
     }
 
@@ -74,7 +74,7 @@ public class RuleEngine : IRuleEngine
         {
             return _rules
                 .Where(r => r.IsActiveNow() && r.MatchesProcess(processName, processPath))
-                .FirstOrDefault();
+                .FirstOrDefault()?.Clone();
         }
     }
 
@@ -88,7 +88,7 @@ public class RuleEngine : IRuleEngine
                             r.MatchesProcess(processName, processPath) &&
                             r.MatchesConnection(remoteAddress, remotePort, protocol) &&
                             r.MatchesCountry(countryCode))
-                .FirstOrDefault();
+                .FirstOrDefault()?.Clone();
         }
     }
 
@@ -99,6 +99,7 @@ public class RuleEngine : IRuleEngine
             return _rules
                 .Where(r => r.GroupName is not null &&
                             r.GroupName.Equals(groupName, StringComparison.OrdinalIgnoreCase))
+                .Select(r => r.Clone())
                 .ToList();
         }
     }
