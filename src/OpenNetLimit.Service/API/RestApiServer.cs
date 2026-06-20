@@ -137,16 +137,23 @@ public sealed class RestApiServer : BackgroundService
         if (request.ContentLength64 > MaxBodyBytes)
             throw new InvalidOperationException("request body too large");
 
-        using var reader = new StreamReader(
-            request.InputStream,
-            request.ContentEncoding ?? Encoding.UTF8,
-            detectEncodingFromByteOrderMarks: true,
-            bufferSize: 4096,
-            leaveOpen: false);
-        var body = await reader.ReadToEndAsync(ct);
-        if (Encoding.UTF8.GetByteCount(body) > MaxBodyBytes)
+        // Read with a hard byte cap to prevent DoS via chunked transfer-encoding
+        // bodies that bypass the Content-Length check above
+        var buffer = new byte[MaxBodyBytes + 1];
+        int totalRead = 0;
+        int bytesRead;
+        while (totalRead < buffer.Length &&
+               (bytesRead = await request.InputStream.ReadAsync(
+                   buffer, totalRead, buffer.Length - totalRead, ct)) > 0)
+        {
+            totalRead += bytesRead;
+        }
+
+        if (totalRead > MaxBodyBytes)
             throw new InvalidOperationException("request body too large");
-        return body;
+
+        var encoding = request.ContentEncoding ?? Encoding.UTF8;
+        return encoding.GetString(buffer, 0, totalRead);
     }
 
     private static async Task WriteResponseAsync(HttpListenerResponse response, RestApiResponse result, CancellationToken ct)

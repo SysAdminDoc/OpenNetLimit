@@ -217,6 +217,17 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void ImportRules_RejectsRulesWithoutProcessIdentifier()
+    {
+        var engine = new RuleEngine();
+
+        // Rule with neither ProcessName nor ProcessPath should throw
+        var ex = Assert.Throws<ArgumentException>(() =>
+            engine.ImportRules("""[{"downloadBytesPerSecond":1000}]"""));
+        Assert.Contains("ProcessName", ex.Message);
+    }
+
+    [Fact]
     public void FindMatchingRule_WithRemotePort_FiltersCorrectly()
     {
         var engine = new RuleEngine();

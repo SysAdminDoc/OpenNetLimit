@@ -48,16 +48,14 @@ public class QuotaTracker
                 state.WarningPercent = rule.Quota.WarningPercent;
                 state.Action = rule.Quota.OnExceeded;
 
-                var percentUsed = rule.Quota.LimitBytes > 0
-                    ? (int)(state.UsedBytes * 100 / rule.Quota.LimitBytes) : 0;
-
-                if (percentUsed >= 100 && !state.ExceededNotified)
+                // Use the computed PercentUsed property instead of duplicating the formula
+                if (state.PercentUsed >= 100 && !state.ExceededNotified)
                 {
                     state.IsExceeded = true;
                     state.ExceededNotified = true;
                     fireExceeded = true;
                 }
-                else if (percentUsed >= rule.Quota.WarningPercent && !state.WarningNotified)
+                else if (state.PercentUsed >= rule.Quota.WarningPercent && !state.WarningNotified)
                 {
                     state.WarningNotified = true;
                     fireWarning = true;

@@ -194,6 +194,10 @@ public class RuleEngine : IRuleEngine
         var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(json, JsonOptions);
         if (rules is null) return;
 
+        // Validate each imported rule to prevent invalid entries from polluting the rule list
+        foreach (var rule in rules)
+            ValidateRule(rule);
+
         lock (_lock)
         {
             if (replace)

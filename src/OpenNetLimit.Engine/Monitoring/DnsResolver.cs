@@ -56,13 +56,27 @@ public class DnsResolver
         if (_cache.Count <= MaxCacheSize)
             return;
 
+        // First pass: remove expired entries
         var now = DateTime.UtcNow;
         foreach (var kvp in _cache)
         {
             if (_cache.Count <= MaxCacheSize * 3 / 4)
-                break;
+                return;
             if (now >= kvp.Value.ExpiresAt)
                 _cache.TryRemove(kvp.Key, out _);
+        }
+
+        // Second pass: if cache is still over capacity (all entries are fresh),
+        // evict oldest entries to prevent unbounded growth
+        if (_cache.Count > MaxCacheSize)
+        {
+            var toEvict = _cache
+                .OrderBy(kvp => kvp.Value.ExpiresAt)
+                .Take(_cache.Count - MaxCacheSize * 3 / 4)
+                .Select(kvp => kvp.Key)
+                .ToList();
+            foreach (var key in toEvict)
+                _cache.TryRemove(key, out _);
         }
     }
 

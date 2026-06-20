@@ -13,12 +13,11 @@ public class ConnectionLogger
     {
         _entries.Enqueue(entry);
 
-        if (_entries.Count > MaxEntries)
+        // Move the Count check inside the lock to prevent TOCTOU over-trimming
+        // under high concurrent throughput
+        lock (_trimLock)
         {
-            lock (_trimLock)
-            {
-                while (_entries.Count > MaxEntries && _entries.TryDequeue(out _)) { }
-            }
+            while (_entries.Count > MaxEntries && _entries.TryDequeue(out _)) { }
         }
     }
 
