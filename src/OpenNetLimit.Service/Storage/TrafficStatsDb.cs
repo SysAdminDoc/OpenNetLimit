@@ -223,14 +223,28 @@ public sealed class TrafficStatsDb : IDisposable
             var hourCutoff = cutoff.ToString("yyyy-MM-ddTHH");
             var dateCutoff = cutoff.ToString("yyyy-MM-dd");
 
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = """
-                DELETE FROM traffic_hourly WHERE hour_utc < @hourCutoff;
-                DELETE FROM traffic_daily WHERE date_utc < @dateCutoff;
-                """;
-            cmd.Parameters.AddWithValue("@hourCutoff", hourCutoff);
-            cmd.Parameters.AddWithValue("@dateCutoff", dateCutoff);
-            cmd.ExecuteNonQuery();
+            using var transaction = _connection.BeginTransaction();
+            try
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = transaction;
+                cmd.CommandText = "DELETE FROM traffic_hourly WHERE hour_utc < @hourCutoff";
+                cmd.Parameters.AddWithValue("@hourCutoff", hourCutoff);
+                cmd.ExecuteNonQuery();
+
+                using var cmd2 = _connection.CreateCommand();
+                cmd2.Transaction = transaction;
+                cmd2.CommandText = "DELETE FROM traffic_daily WHERE date_utc < @dateCutoff";
+                cmd2.Parameters.AddWithValue("@dateCutoff", dateCutoff);
+                cmd2.ExecuteNonQuery();
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
     }
 

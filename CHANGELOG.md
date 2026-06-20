@@ -133,6 +133,10 @@
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
+- Fixed ConnectionLogger counter drift: replaced Interlocked.Increment/_count with lock-based trim using ConcurrentQueue.Count directly
+- Eliminated ParsePacket IPAddress string roundtrip: IP addresses now constructed from bytes via stackalloc spans — zero string allocation in the hot packet-processing loop
+- Added TrafficStatsDb purge transaction: hourly and daily DELETEs now wrapped in a transaction for atomicity
+- Validated BandwidthRule requires ProcessName or ProcessPath: AddRule/UpdateRule throw ArgumentException for rules that cannot match any process
 - Added quota period auto-reset: daily quotas reset at midnight, weekly on Monday midnight, monthly on 1st midnight via timer in EngineWorker
 - Added DnsResolver cache eviction: max 10,000 entries with periodic pruning of expired entries
 - Added DnsResolver and ConnectionLogger unit tests covering cache behavior, entry trimming, and recent retrieval

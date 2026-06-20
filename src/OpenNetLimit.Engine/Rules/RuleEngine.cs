@@ -21,6 +21,7 @@ public class RuleEngine : IRuleEngine
 
     public void AddRule(BandwidthRule rule)
     {
+        ValidateRule(rule);
         lock (_lock)
         {
             _rules.Add(rule);
@@ -40,6 +41,7 @@ public class RuleEngine : IRuleEngine
 
     public void UpdateRule(BandwidthRule rule)
     {
+        ValidateRule(rule);
         lock (_lock)
         {
             var index = _rules.FindIndex(r => r.Id == rule.Id);
@@ -199,6 +201,12 @@ public class RuleEngine : IRuleEngine
             _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         }
         OnRulesChanged?.Invoke();
+    }
+
+    private static void ValidateRule(BandwidthRule rule)
+    {
+        if (string.IsNullOrWhiteSpace(rule.ProcessName) && string.IsNullOrWhiteSpace(rule.ProcessPath))
+            throw new ArgumentException("Rule must specify at least ProcessName or ProcessPath.");
     }
 
     private sealed class RuleFileEnvelope
