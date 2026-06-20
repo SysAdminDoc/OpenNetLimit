@@ -79,14 +79,15 @@ public class RuleEngine : IRuleEngine
     }
 
     public BandwidthRule? FindMatchingRule(string processName, string? processPath,
-        IPAddress? remoteAddress, int? remotePort, string? protocol)
+        IPAddress? remoteAddress, int? remotePort, string? protocol, string? countryCode = null)
     {
         lock (_lock)
         {
             return _rules
                 .Where(r => r.IsActiveNow() &&
                             r.MatchesProcess(processName, processPath) &&
-                            r.MatchesConnection(remoteAddress, remotePort, protocol))
+                            r.MatchesConnection(remoteAddress, remotePort, protocol) &&
+                            r.MatchesCountry(countryCode))
                 .FirstOrDefault();
         }
     }

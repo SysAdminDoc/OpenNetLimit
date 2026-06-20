@@ -13,9 +13,12 @@ public sealed class RestApiOptions
 
     public static RestApiOptions FromEnvironment()
     {
+        var apiKey = Environment.GetEnvironmentVariable("OPENNETLIMIT_API_KEY")
+                     ?? ProtectedKeyStore.LoadKey();
+
         return Create(
             Environment.GetEnvironmentVariable("OPENNETLIMIT_API_URLS"),
-            Environment.GetEnvironmentVariable("OPENNETLIMIT_API_KEY"),
+            apiKey,
             IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_ENABLE_REMOTE_API")),
             IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_API_DISABLED")));
     }

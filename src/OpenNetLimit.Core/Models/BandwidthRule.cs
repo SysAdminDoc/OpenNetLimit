@@ -42,6 +42,7 @@ public class BandwidthRule
     public string? RemoteAddressFilter { get; set; }
     public int? RemotePortFilter { get; set; }
     public string? ProtocolFilter { get; set; }
+    public string[]? CountryFilter { get; set; }
 
     public DateTime? ActiveFrom { get; set; }
     public DateTime? ActiveUntil { get; set; }
@@ -101,7 +102,17 @@ public class BandwidthRule
     }
 
     public bool HasConnectionFilters =>
-        RemoteAddressFilter is not null || RemotePortFilter.HasValue || ProtocolFilter is not null;
+        RemoteAddressFilter is not null || RemotePortFilter.HasValue ||
+        ProtocolFilter is not null || CountryFilter is { Length: > 0 };
+
+    public bool MatchesCountry(string? countryCode)
+    {
+        if (CountryFilter is not { Length: > 0 })
+            return true;
+        if (countryCode is null)
+            return false;
+        return CountryFilter.Any(c => c.Equals(countryCode, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static bool MatchesCidr(IPAddress address, string cidr)
     {
