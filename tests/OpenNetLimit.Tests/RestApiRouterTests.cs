@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
@@ -7,6 +8,7 @@ using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.API;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
+using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Security;
 using Xunit;
 
@@ -277,7 +279,8 @@ public class RestApiRouterTests
             controlPlane,
             options,
             verifier ?? new StubVerifier(),
-            geoIpResolver ?? new StubGeoIpResolver()));
+            geoIpResolver ?? new StubGeoIpResolver(),
+            new PluginManager(new PluginOptions(), NullLogger<PluginManager>.Instance)));
     }
 
     private sealed class StubVerifier : IProcessVerifier

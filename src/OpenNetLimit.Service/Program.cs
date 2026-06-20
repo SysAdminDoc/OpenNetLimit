@@ -8,6 +8,7 @@ using OpenNetLimit.Service.API;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.IPC;
+using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Security;
 
 var dataDir = Path.Combine(
@@ -34,11 +35,13 @@ builder.Services.AddSingleton<BandwidthAlertTracker>();
 builder.Services.AddSingleton(RestApiOptions.FromEnvironment());
 builder.Services.AddSingleton(VirusTotalOptions.FromEnvironment());
 builder.Services.AddSingleton(GeoIpOptions.FromEnvironment());
+builder.Services.AddSingleton(PluginOptions.FromEnvironment());
 builder.Services.AddSingleton<ControlPlaneState>();
 builder.Services.AddSingleton<PipeServer>();
 builder.Services.AddSingleton<RestApiRouter>();
 builder.Services.AddSingleton<IProcessVerifier, VirusTotalVerifier>();
 builder.Services.AddSingleton<IGeoIpResolver, FreeIpApiGeoIpResolver>();
+builder.Services.AddSingleton<PluginManager>();
 builder.Services.AddHostedService<EngineWorker>();
 builder.Services.AddHostedService<RestApiServer>();
 

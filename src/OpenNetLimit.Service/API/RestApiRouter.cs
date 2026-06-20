@@ -7,6 +7,7 @@ using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
+using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Security;
 
 namespace OpenNetLimit.Service.API;
@@ -20,6 +21,7 @@ public sealed class RestApiRouter
     private readonly RestApiOptions _options;
     private readonly IProcessVerifier _processVerifier;
     private readonly IGeoIpResolver _geoIpResolver;
+    private readonly PluginManager _pluginManager;
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -34,7 +36,8 @@ public sealed class RestApiRouter
         ControlPlaneState controlPlane,
         RestApiOptions options,
         IProcessVerifier processVerifier,
-        IGeoIpResolver geoIpResolver)
+        IGeoIpResolver geoIpResolver,
+        PluginManager pluginManager)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
@@ -43,6 +46,7 @@ public sealed class RestApiRouter
         _options = options;
         _processVerifier = processVerifier;
         _geoIpResolver = geoIpResolver;
+        _pluginManager = pluginManager;
     }
 
     public async Task<RestApiResponse> HandleAsync(RestApiRequest request, CancellationToken ct = default)
@@ -99,6 +103,10 @@ public sealed class RestApiRouter
                 AddAlertRule(request.Body),
             "/api/v1/alerts/events" when method == "GET" =>
                 RestApiResponse.Json(200, _alertTracker.GetRecentEvents(GetInt(query, "limit", 100, 1, 500)), JsonOptions),
+            "/api/v1/plugins" when method == "GET" =>
+                RestApiResponse.Json(200, _pluginManager.GetPlugins(), JsonOptions),
+            "/api/v1/plugins/reload" when method == "POST" =>
+                RestApiResponse.Json(200, _pluginManager.Reload(), JsonOptions),
             _ => path.StartsWith("/api/v1/alerts/rules/", StringComparison.OrdinalIgnoreCase)
                 ? HandleAlertRuleById(method, path, request.Body)
                 : HandleRuleById(method, path, request.Body)

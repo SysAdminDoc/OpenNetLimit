@@ -8,13 +8,14 @@ public static class IpcProtocol
     public static readonly HashSet<string> ReadCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "SNAPSHOT", "RULES", "PROCESSES", "STATUS", "CONNECTION_LOG", "EXPORT_RULES",
-        "STATS_HOURLY", "STATS_DAILY", "STATS_TOP", "QUOTAS", "ALERT_RULES", "ALERT_EVENTS"
+        "STATS_HOURLY", "STATS_DAILY", "STATS_TOP", "QUOTAS", "ALERT_RULES", "ALERT_EVENTS",
+        "PLUGINS"
     };
 
     public static readonly HashSet<string> WriteCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "VERIFY_PROCESS", "GEOIP",
-        "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE"
+        "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE", "RELOAD_PLUGINS"
     };
 
     public static bool IsValidCommand(string command) =>

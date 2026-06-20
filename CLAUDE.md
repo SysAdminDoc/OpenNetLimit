@@ -35,3 +35,4 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - VirusTotal verification is opt-in with `OPENNETLIMIT_VIRUSTOTAL_API_KEY`; it hashes local files only and does not upload executables.
 - GeoIP lookup is opt-in with `OPENNETLIMIT_GEOIP_ENABLED=1`; public IPs go to the configured provider, while private/local ranges are suppressed.
 - Bandwidth alert rules persist to `%ProgramData%\OpenNetLimit\alerts.json`; UI tray notifications are driven by `ALERT_EVENTS`.
+- Plugins are opt-in manifest webhooks under `%ProgramData%\OpenNetLimit\plugins` (or `OPENNETLIMIT_PLUGIN_DIR`); do not load untrusted code in-process.
