@@ -15,6 +15,7 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - `src/OpenNetLimit.Engine` — WinDivert integration, flow tracking, rate limiting (requires SharpDivert, unsafe code)
 - `src/OpenNetLimit.Service` — Windows background service hosting the engine
 - `src/OpenNetLimit.UI` — WPF desktop GUI
+- `src/OpenNetLimit.CLI` — Command-line interface (`onl`) for REST API scripting
 - `tests/OpenNetLimit.Tests` — xUnit tests
 
 ## File Hygiene
