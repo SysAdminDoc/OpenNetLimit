@@ -24,6 +24,12 @@ builder.Logging.AddSimpleConsole(options =>
     options.SingleLine = true;
 });
 
+builder.Logging.AddEventLog(settings =>
+{
+    settings.SourceName = "OpenNetLimit";
+    settings.LogName = "Application";
+});
+
 try { Directory.CreateDirectory(logDir); } catch { }
 
 builder.Services.AddSingleton<IFlowTracker, FlowTracker>();

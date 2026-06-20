@@ -138,6 +138,13 @@
 - Fixed DnsResolver swallowing OperationCanceledException: shutdown cancellation is now properly propagated instead of being caught and cached as null
 - Fixed QuotaTracker unsynchronized state mutation: per-state lock prevents torn reads and double-fire of warning/exceeded events under concurrent timer ticks
 - Fixed CLI crash on invalid numeric input: --download, --upload, and --port now validate with TryParse and show user-friendly error messages
+- Pinned floating NuGet versions (Microsoft.Data.Sqlite 8.0.11, ProtectedData 8.0.0) for reproducible builds
+- Added pipe server auto-restart with exponential backoff (1s → 30s) on crash — IPC recovers without service restart
+- Fixed PluginManager SSRF gap for IPv6 ULA (`fc00::/7`) and link-local (`fe80::/10`) addresses
+- Fixed ConnectionLogger.GetRecent O(n) performance — replaced Reverse().Take() with array slice from end
+- Made WinDivertInterceptor.IsRunning thread-safe via volatile backing field
+- Enhanced driver load failure diagnostics: last-error.txt now includes HVCI, EDR, and driver signing troubleshooting steps
+- Added Windows Event Log integration: service events written to Application log under "OpenNetLimit" source
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
 - Fixed TrafficMonitor thread-safe byte counters (Interlocked.Add on ProcessTrafficInfo backing fields)

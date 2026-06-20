@@ -31,7 +31,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private Task? _networkTask;
     private Task? _flowTask;
 
-    public bool IsRunning { get; private set; }
+    private volatile bool _isRunning;
+    public bool IsRunning => _isRunning;
     public PacketScheduler Scheduler => _scheduler;
 
     public long TotalBlocked => Volatile.Read(ref _totalBlocked);
@@ -71,7 +72,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
-        IsRunning = true;
+        _isRunning = true;
         return Task.CompletedTask;
     }
 
@@ -101,7 +102,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _networkHandle = null;
         _flowHandle = null;
 
-        IsRunning = false;
+        _isRunning = false;
     }
 
     private void FlowLoop(CancellationToken ct)
