@@ -116,6 +116,36 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void ResetPeriod_UsageCountsOnlyBytesSinceReset()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+
+        ruleEngine.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig
+            {
+                LimitBytes = 1000,
+                Period = QuotaPeriod.Daily
+            }
+        });
+
+        monitor.RecordBytes(1, "chrome", 800, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+        Assert.Equal(800, tracker.GetQuotaState("chrome")!.UsedBytes);
+
+        tracker.ResetPeriod(QuotaPeriod.Daily);
+        tracker.Update();
+        Assert.Equal(0, tracker.GetQuotaState("chrome")!.UsedBytes);
+
+        monitor.RecordBytes(1, "chrome", 200, false);
+        tracker.Update();
+        Assert.Equal(200, tracker.GetQuotaState("chrome")!.UsedBytes);
+    }
+
+    [Fact]
     public void GetAllQuotaStates_ReturnsAll()
     {
         var ruleEngine = new RuleEngine();

@@ -37,13 +37,13 @@ public class QuotaTracker
             state.RuleId = rule.Id;
             state.ProcessName = rule.ProcessName;
             state.LimitBytes = rule.Quota.LimitBytes;
-            state.UsedBytes = totalBytes;
+            state.UsedBytes = totalBytes - state.BaselineBytes;
             state.Period = rule.Quota.Period;
             state.WarningPercent = rule.Quota.WarningPercent;
             state.Action = rule.Quota.OnExceeded;
 
             var percentUsed = rule.Quota.LimitBytes > 0
-                ? (int)(totalBytes * 100 / rule.Quota.LimitBytes) : 0;
+                ? (int)(state.UsedBytes * 100 / rule.Quota.LimitBytes) : 0;
 
             if (percentUsed >= 100 && !state.ExceededNotified)
             {
@@ -70,8 +70,24 @@ public class QuotaTracker
 
     public void ResetPeriod(QuotaPeriod period)
     {
+        var processes = _trafficMonitor.GetAllProcesses();
+        var rules = _ruleEngine.GetAllRules();
+
         foreach (var state in _quotas.Values.Where(s => s.Period == period))
         {
+            var rule = rules.FirstOrDefault(r =>
+                r.ProcessName is not null &&
+                r.ProcessName.Equals(state.ProcessName, StringComparison.OrdinalIgnoreCase));
+
+            long currentTotal = 0;
+            if (rule is not null)
+            {
+                currentTotal = processes
+                    .Where(p => rule.MatchesProcess(p.ProcessName, p.ProcessPath))
+                    .Sum(p => p.TotalBytesReceived + p.TotalBytesSent);
+            }
+
+            state.BaselineBytes = currentTotal;
             state.UsedBytes = 0;
             state.IsExceeded = false;
             state.WarningNotified = false;
@@ -86,6 +102,7 @@ public class QuotaState
     public string ProcessName { get; set; } = string.Empty;
     public long LimitBytes { get; set; }
     public long UsedBytes { get; set; }
+    public long BaselineBytes { get; set; }
     public QuotaPeriod Period { get; set; }
     public QuotaAction Action { get; set; }
     public int WarningPercent { get; set; }
