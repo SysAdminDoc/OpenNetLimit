@@ -8,8 +8,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ## Future (Post-1.0)
 
-- Remote administration (manage other machines)
-- REST/gRPC API for third-party integration
 - VirusTotal integration for process verification
 - Geographic IP location display
 - Bandwidth usage alerts and notifications
@@ -72,4 +70,3 @@ An open-source, per-application bandwidth limiter and network monitor for Window
                         │
                  Windows Network Stack
 ```
-

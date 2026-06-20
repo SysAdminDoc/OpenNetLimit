@@ -4,6 +4,8 @@ using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service;
+using OpenNetLimit.Service.API;
+using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.IPC;
 
 var dataDir = Path.Combine(
@@ -26,8 +28,12 @@ builder.Services.AddSingleton<IRateLimiter, ProcessRateLimiter>();
 builder.Services.AddSingleton<ITrafficMonitor, TrafficMonitor>();
 builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
 builder.Services.AddSingleton<IPacketInterceptor, WinDivertInterceptor>();
+builder.Services.AddSingleton(RestApiOptions.FromEnvironment());
+builder.Services.AddSingleton<ControlPlaneState>();
 builder.Services.AddSingleton<PipeServer>();
+builder.Services.AddSingleton<RestApiRouter>();
 builder.Services.AddHostedService<EngineWorker>();
+builder.Services.AddHostedService<RestApiServer>();
 
 builder.Services.AddWindowsService(options =>
 {

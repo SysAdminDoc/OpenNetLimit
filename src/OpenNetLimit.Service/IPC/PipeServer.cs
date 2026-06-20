@@ -7,6 +7,7 @@ using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
+using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service.IPC;
@@ -15,12 +16,32 @@ public class PipeServer
 {
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly IRuleEngine _ruleEngine;
+    private readonly ControlPlaneState _controlPlane;
     private readonly ILogger<PipeServer> _logger;
 
-    public Func<DiagnosticInfo>? DiagnosticProvider { get; set; }
-    public Func<IReadOnlyList<object>>? ConnectionLogProvider { get; set; }
-    public TrafficStatsDb? StatsProvider { get; set; }
-    public QuotaTracker? QuotaTracker { get; set; }
+    public Func<DiagnosticInfo>? DiagnosticProvider
+    {
+        get => _controlPlane.DiagnosticProvider;
+        set => _controlPlane.DiagnosticProvider = value;
+    }
+
+    public Func<IReadOnlyList<object>>? ConnectionLogProvider
+    {
+        get => _controlPlane.ConnectionLogProvider;
+        set => _controlPlane.ConnectionLogProvider = value;
+    }
+
+    public TrafficStatsDb? StatsProvider
+    {
+        get => _controlPlane.StatsProvider;
+        set => _controlPlane.StatsProvider = value;
+    }
+
+    public QuotaTracker? QuotaTracker
+    {
+        get => _controlPlane.QuotaTracker;
+        set => _controlPlane.QuotaTracker = value;
+    }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -30,10 +51,12 @@ public class PipeServer
     public PipeServer(
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
+        ControlPlaneState controlPlane,
         ILogger<PipeServer> logger)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
+        _controlPlane = controlPlane;
         _logger = logger;
     }
 
@@ -239,42 +262,42 @@ public class PipeServer
 
     private string GetStatsHourly(string payload)
     {
-        if (StatsProvider is null) return ErrorResponse("stats unavailable");
+        if (_controlPlane.StatsProvider is null) return ErrorResponse("stats unavailable");
         var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
-        var entries = StatsProvider.GetHourlyStats(processName);
+        var entries = _controlPlane.StatsProvider.GetHourlyStats(processName);
         return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetStatsDaily(string payload)
     {
-        if (StatsProvider is null) return ErrorResponse("stats unavailable");
+        if (_controlPlane.StatsProvider is null) return ErrorResponse("stats unavailable");
         var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
-        var entries = StatsProvider.GetDailyStats(processName);
+        var entries = _controlPlane.StatsProvider.GetDailyStats(processName);
         return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetStatsTop()
     {
-        if (StatsProvider is null) return ErrorResponse("stats unavailable");
-        var entries = StatsProvider.GetTopProcesses();
+        if (_controlPlane.StatsProvider is null) return ErrorResponse("stats unavailable");
+        var entries = _controlPlane.StatsProvider.GetTopProcesses();
         return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetQuotas()
     {
-        var states = QuotaTracker?.GetAllQuotaStates() ?? [];
+        var states = _controlPlane.GetQuotaStates();
         return JsonSerializer.Serialize(states, JsonOptions);
     }
 
     private string GetConnectionLog()
     {
-        var entries = ConnectionLogProvider?.Invoke() ?? [];
+        var entries = _controlPlane.GetConnectionLog();
         return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
     private string GetStatusResponse()
     {
-        var diag = DiagnosticProvider?.Invoke() ?? new DiagnosticInfo { Running = true };
+        var diag = _controlPlane.GetDiagnostics();
         return JsonSerializer.Serialize(diag, JsonOptions);
     }
 

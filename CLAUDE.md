@@ -22,6 +22,7 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - Only allowed markdown files: README.md, CLAUDE.md, CHANGELOG.md, ROADMAP.md, RESEARCH.md, Roadmap_Blocked.md
 - ROADMAP.md contains only actionable items. Delete completed items (don't check off with [x]).
 - Move blocked items to Roadmap_Blocked.md with a note explaining the blocker.
+- Any newly blocked roadmap item must be removed from ROADMAP.md and added to Roadmap_Blocked.md so ROADMAP.md stays actionable-only.
 - Do not create TODO.md, COMPLETED.md, SESSION_SUMMARY.md, or any other tracking markdown files.
 - Completed work lives in git history and CHANGELOG.md, not in the roadmap.
 
@@ -30,3 +31,4 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - Engine code using SharpDivert requires `AllowUnsafeBlocks` (pointer-based packet headers).
 - SharpDivert 1.1.0 API: enums are nested (`WinDivert.Layer`, `WinDivert.Flag`, `WinDivert.Event`), `RecvEx` returns `(uint recvLen, uint addrLen)` tuple, flow data accessed via `addr.Flow.ProcessId`, outbound check via `addr.Outbound` bool property.
 - Thread-safe counters in ProcessTrafficInfo use explicit backing fields with `AddBytesSent`/`AddBytesReceived` methods.
+- REST API defaults to `http://127.0.0.1:47719/`; writes require `OPENNETLIMIT_API_KEY`, and remote binds require both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`.

@@ -20,6 +20,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **Windows service detection** — identifies svchost-hosted service names
 - **UWP/Store app detection** — identifies AppX package names
 - **Secure IPC** — ACL-protected named pipe, admin required for rule changes
+- **REST API / remote administration** — localhost API by default, optional keyed remote bind
 
 ## Requirements
 
@@ -79,6 +80,8 @@ The UI will auto-connect to the service and display live traffic data. On first 
 - **UI shows "Disconnected":** The background service isn't running. Start it first.
 - **Driver blocked by AV/EDR:** Add WinDivert64.sys to your security software's allow list.
 - **HVCI preventing driver load:** WinDivert may be blocked on systems with Hypervisor-Protected Code Integrity enabled.
+- **REST API mutation returns 403:** Set `OPENNETLIMIT_API_KEY` and send it with `X-OpenNetLimit-Key`.
+- **Remote API does not listen on LAN:** Set both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`, then provide a non-loopback `OPENNETLIMIT_API_URLS` prefix.
 
 ## Architecture
 
@@ -119,6 +122,39 @@ The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands
 | `REMOVE_RULE {guid}` | Admin | Remove a rule by ID |
 | `UPDATE_RULE {json}` | Admin | Update an existing rule |
 | `IMPORT_RULES {json}` | Admin | Import rules (merge mode) |
+
+### REST API
+
+The service also exposes a small REST API for local automation and optional remote administration.
+By default it listens only on `http://127.0.0.1:47719/`.
+
+| Setting | Description |
+|---|---|
+| `OPENNETLIMIT_API_URLS` | Semicolon- or comma-separated listener prefixes. Defaults to `http://127.0.0.1:47719/`. |
+| `OPENNETLIMIT_API_KEY` | Required for all REST mutations and all remote requests. Send as `X-OpenNetLimit-Key` or `Authorization: Bearer <key>`. |
+| `OPENNETLIMIT_ENABLE_REMOTE_API=1` | Allows non-loopback listener prefixes only when `OPENNETLIMIT_API_KEY` is also set. |
+| `OPENNETLIMIT_API_DISABLED=1` | Disables the REST listener. |
+
+Remote administration is intentionally fail-closed: non-loopback prefixes are ignored unless both
+`OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY` are configured.
+
+| Endpoint | Access | Description |
+|---|---|---|
+| `GET /health` | Local read / keyed remote | Liveness check |
+| `GET /api/v1/status` | Local read / keyed remote | Service diagnostics |
+| `GET /api/v1/snapshot` | Local read / keyed remote | Current traffic snapshot |
+| `GET /api/v1/processes` | Local read / keyed remote | Tracked processes |
+| `GET /api/v1/rules` | Local read / keyed remote | All bandwidth rules |
+| `GET /api/v1/rules/{id}` | Local read / keyed remote | One bandwidth rule |
+| `POST /api/v1/rules` | Key required | Add a bandwidth rule |
+| `PUT /api/v1/rules/{id}` | Key required | Update a bandwidth rule |
+| `DELETE /api/v1/rules/{id}` | Key required | Remove a bandwidth rule |
+| `POST /api/v1/rules/import?replace=true` | Key required | Import rule JSON |
+| `GET /api/v1/stats/hourly?processName=chrome&hours=24` | Local read / keyed remote | Hourly stats |
+| `GET /api/v1/stats/daily?processName=chrome&days=30` | Local read / keyed remote | Daily stats |
+| `GET /api/v1/stats/top?days=7&limit=20` | Local read / keyed remote | Top processes by traffic |
+| `GET /api/v1/quotas` | Local read / keyed remote | Quota states |
+| `GET /api/v1/connections` | Local read / keyed remote | Recent connection log |
 
 ## License
 
