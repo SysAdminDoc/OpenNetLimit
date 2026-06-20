@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Net;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
@@ -8,6 +9,7 @@ using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.Security;
 using OpenNetLimit.Service.Storage;
 
@@ -19,6 +21,7 @@ public class PipeServer
     private readonly IRuleEngine _ruleEngine;
     private readonly ControlPlaneState _controlPlane;
     private readonly IProcessVerifier _processVerifier;
+    private readonly IGeoIpResolver _geoIpResolver;
     private readonly ILogger<PipeServer> _logger;
 
     public Func<DiagnosticInfo>? DiagnosticProvider
@@ -55,12 +58,14 @@ public class PipeServer
         IRuleEngine ruleEngine,
         ControlPlaneState controlPlane,
         IProcessVerifier processVerifier,
+        IGeoIpResolver geoIpResolver,
         ILogger<PipeServer> logger)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
         _controlPlane = controlPlane;
         _processVerifier = processVerifier;
+        _geoIpResolver = geoIpResolver;
         _logger = logger;
     }
 
@@ -207,6 +212,7 @@ public class PipeServer
             "UPDATE_RULE" => Task.FromResult(UpdateRule(payload)),
             "IMPORT_RULES" => Task.FromResult(ImportRules(payload)),
             "VERIFY_PROCESS" => VerifyProcess(payload, ct),
+            "GEOIP" => ResolveGeoIp(payload, ct),
             _ => Task.FromResult(ErrorResponse("unknown command"))
         };
     }
@@ -217,6 +223,15 @@ public class PipeServer
             return ErrorResponse("process path is required");
 
         var result = await _processVerifier.VerifyFileAsync(payload.Trim(), ct);
+        return JsonSerializer.Serialize(result, JsonOptions);
+    }
+
+    private async Task<string> ResolveGeoIp(string payload, CancellationToken ct)
+    {
+        if (!IPAddress.TryParse(payload.Trim(), out var ipAddress))
+            return ErrorResponse("valid IP address is required");
+
+        var result = await _geoIpResolver.ResolveAsync(ipAddress, ct);
         return JsonSerializer.Serialize(result, JsonOptions);
     }
 

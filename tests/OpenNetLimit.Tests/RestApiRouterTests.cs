@@ -6,6 +6,7 @@ using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.API;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.Security;
 using Xunit;
 
@@ -191,6 +192,41 @@ public class RestApiRouterTests
     }
 
     [Fact]
+    public async Task GeoIp_RequiresKeyEvenOnLoopback()
+    {
+        var (_, _, router) = CreateRouter();
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "GET",
+            "/api/v1/geoip",
+            "?ip=8.8.8.8",
+            string.Empty,
+            IsLoopback: true,
+            ApiKey: null));
+
+        Assert.Equal(403, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GeoIp_WithKeyReturnsResolverResult()
+    {
+        var geo = new StubGeoIpResolver();
+        var (_, _, router) = CreateRouter("secret", geoIpResolver: geo);
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "GET",
+            "/api/v1/geoip",
+            "?ip=8.8.8.8",
+            string.Empty,
+            IsLoopback: true,
+            ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("8.8.8.8", geo.LastIp);
+        Assert.Contains("\"countryCode\":\"US\"", response.Body);
+    }
+
+    [Fact]
     public void Options_RemoteModeKeepsWildcardListenerPrefix()
     {
         var options = RestApiOptions.Create(
@@ -218,7 +254,8 @@ public class RestApiRouterTests
 
     private static (ITrafficMonitor Monitor, RuleEngine Rules, RestApiRouter Router) CreateRouter(
         string? apiKey = null,
-        IProcessVerifier? verifier = null)
+        IProcessVerifier? verifier = null,
+        IGeoIpResolver? geoIpResolver = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
@@ -232,7 +269,13 @@ public class RestApiRouterTests
             }
         };
         var options = new RestApiOptions { ApiKey = apiKey };
-        return (monitor, rules, new RestApiRouter(monitor, rules, controlPlane, options, verifier ?? new StubVerifier()));
+        return (monitor, rules, new RestApiRouter(
+            monitor,
+            rules,
+            controlPlane,
+            options,
+            verifier ?? new StubVerifier(),
+            geoIpResolver ?? new StubGeoIpResolver()));
     }
 
     private sealed class StubVerifier : IProcessVerifier
@@ -252,5 +295,27 @@ public class RestApiRouterTests
         }
 
         public IReadOnlyList<ProcessVerificationInfo> GetCachedResults() => [];
+    }
+
+    private sealed class StubGeoIpResolver : IGeoIpResolver
+    {
+        public string? LastIp { get; private set; }
+
+        public Task<GeoIpInfo> ResolveAsync(System.Net.IPAddress ipAddress, CancellationToken ct = default)
+        {
+            LastIp = ipAddress.ToString();
+            return Task.FromResult(new GeoIpInfo
+            {
+                IpAddress = LastIp,
+                Status = GeoIpStatus.Located,
+                CountryName = "United States",
+                CountryCode = "US",
+                CityName = "Mountain View"
+            });
+        }
+
+        public GeoIpInfo? GetCached(System.Net.IPAddress ipAddress) => null;
+
+        public IReadOnlyList<GeoIpInfo> GetCachedResults() => [];
     }
 }

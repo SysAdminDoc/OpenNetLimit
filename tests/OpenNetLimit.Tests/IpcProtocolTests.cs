@@ -21,6 +21,7 @@ public class IpcProtocolTests
     [InlineData("REMOVE_RULE")]
     [InlineData("UPDATE_RULE")]
     [InlineData("VERIFY_PROCESS")]
+    [InlineData("GEOIP")]
     public void WriteCommands_AreValid_AndRequireAdmin(string command)
     {
         Assert.True(IpcProtocol.IsValidCommand(command));
