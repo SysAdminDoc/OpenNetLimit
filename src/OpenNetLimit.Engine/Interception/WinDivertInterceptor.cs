@@ -19,6 +19,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly ConnectionLogger _connectionLog = new();
     private long _totalBlocked;
 
+    private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "svchost", "services", "lsass", "csrss", "wininit", "smss",
+        "dns", "dhcp", "dnscache", "System", "ntoskrnl"
+    };
+
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
     private CancellationTokenSource? _cts;
@@ -195,7 +201,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath);
-                if (matchingRule?.Action == RuleAction.Block)
+                if (matchingRule?.Action == RuleAction.Block && !ProtectedProcesses.Contains(processName))
                 {
                     Interlocked.Increment(ref _totalBlocked);
                     _connectionLog.Log(new ConnectionLogEntry
@@ -211,7 +217,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     continue;
                 }
 
-                if (_rateLimiter.HasLimit(processId.Value))
+                if (_rateLimiter.HasLimit(processId.Value) && !ProtectedProcesses.Contains(processName))
                 {
                     var delay = _rateLimiter.GetDelay(processId.Value, payloadLength, isOutbound);
                     if (delay > TimeSpan.Zero)
