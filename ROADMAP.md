@@ -8,7 +8,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ## Future (Post-1.0)
 
-- Geographic IP location display
 - Bandwidth usage alerts and notifications
 - Plugin system for extensibility
 - Dark mode / theme support

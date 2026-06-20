@@ -22,6 +22,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **Secure IPC** — ACL-protected named pipe, admin required for rule changes
 - **REST API / remote administration** — localhost API by default, optional keyed remote bind
 - **VirusTotal process verification** — optional hash-only executable reputation checks
+- **Geographic IP lookup** — optional cached remote IP country/city lookup
 
 ## Requirements
 
@@ -84,6 +85,7 @@ The UI will auto-connect to the service and display live traffic data. On first 
 - **REST API mutation returns 403:** Set `OPENNETLIMIT_API_KEY` and send it with `X-OpenNetLimit-Key`.
 - **Remote API does not listen on LAN:** Set both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`, then provide a non-loopback `OPENNETLIMIT_API_URLS` prefix.
 - **Process verification says NotConfigured:** Set `OPENNETLIMIT_VIRUSTOTAL_API_KEY`. OpenNetLimit sends only SHA-256 hashes to VirusTotal; it does not upload files.
+- **GeoIP lookup says Disabled:** Set `OPENNETLIMIT_GEOIP_ENABLED=1`. Public remote IPs are sent to the configured GeoIP provider and cached; private, loopback, link-local, and multicast addresses are not queried.
 
 ## Architecture
 
@@ -125,6 +127,7 @@ The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands
 | `UPDATE_RULE {json}` | Admin | Update an existing rule |
 | `IMPORT_RULES {json}` | Admin | Import rules (merge mode) |
 | `VERIFY_PROCESS {path}` | Admin | Hash an executable and query VirusTotal if configured |
+| `GEOIP {ip}` | Admin | Resolve a public IP address to approximate country/city if enabled |
 
 ### REST API
 
@@ -140,6 +143,9 @@ By default it listens only on `http://127.0.0.1:47719/`.
 | `OPENNETLIMIT_VIRUSTOTAL_API_KEY` | Enables hash-only VirusTotal process verification. |
 | `OPENNETLIMIT_VIRUSTOTAL_CACHE_HOURS` | Verification cache duration. Defaults to 12 hours. |
 | `OPENNETLIMIT_VIRUSTOTAL_DISABLED=1` | Disables VirusTotal verification even when a key exists. |
+| `OPENNETLIMIT_GEOIP_ENABLED=1` | Enables public-IP geolocation lookups. Disabled by default. |
+| `OPENNETLIMIT_GEOIP_ENDPOINT` | GeoIP provider base URL. Defaults to `https://free.freeipapi.com/api/json/`. |
+| `OPENNETLIMIT_GEOIP_CACHE_HOURS` | GeoIP cache duration. Defaults to 24 hours. |
 
 Remote administration is intentionally fail-closed: non-loopback prefixes are ignored unless both
 `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY` are configured.
@@ -163,6 +169,8 @@ Remote administration is intentionally fail-closed: non-loopback prefixes are ig
 | `GET /api/v1/connections` | Local read / keyed remote | Recent connection log |
 | `GET /api/v1/verification?path=C:\Windows\System32\notepad.exe` | Key required | Hash a file and query VirusTotal |
 | `GET /api/v1/verification/cache` | Key required | Cached verification results |
+| `GET /api/v1/geoip?ip=8.8.8.8` | Key required | Resolve a public IP address to approximate location |
+| `GET /api/v1/geoip/cache` | Key required | Cached GeoIP results |
 
 ## License
 

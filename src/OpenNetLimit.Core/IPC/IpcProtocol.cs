@@ -13,7 +13,7 @@ public static class IpcProtocol
 
     public static readonly HashSet<string> WriteCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "VERIFY_PROCESS"
+        "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "VERIFY_PROCESS", "GEOIP"
     };
 
     public static bool IsValidCommand(string command) =>

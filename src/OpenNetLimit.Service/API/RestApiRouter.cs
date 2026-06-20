@@ -5,6 +5,7 @@ using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.Security;
 
 namespace OpenNetLimit.Service.API;
@@ -16,6 +17,7 @@ public sealed class RestApiRouter
     private readonly ControlPlaneState _controlPlane;
     private readonly RestApiOptions _options;
     private readonly IProcessVerifier _processVerifier;
+    private readonly IGeoIpResolver _geoIpResolver;
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -28,13 +30,15 @@ public sealed class RestApiRouter
         IRuleEngine ruleEngine,
         ControlPlaneState controlPlane,
         RestApiOptions options,
-        IProcessVerifier processVerifier)
+        IProcessVerifier processVerifier,
+        IGeoIpResolver geoIpResolver)
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
         _controlPlane = controlPlane;
         _options = options;
         _processVerifier = processVerifier;
+        _geoIpResolver = geoIpResolver;
     }
 
     public async Task<RestApiResponse> HandleAsync(RestApiRequest request, CancellationToken ct = default)
@@ -81,6 +85,10 @@ public sealed class RestApiRouter
                 await VerifyProcessAsync(query, ct),
             "/api/v1/verification/cache" when method == "GET" =>
                 RestApiResponse.Json(200, _processVerifier.GetCachedResults(), JsonOptions),
+            "/api/v1/geoip" when method == "GET" =>
+                await ResolveGeoIpAsync(query, ct),
+            "/api/v1/geoip/cache" when method == "GET" =>
+                RestApiResponse.Json(200, _geoIpResolver.GetCachedResults(), JsonOptions),
             _ => HandleRuleById(method, path, request.Body)
         };
     }
@@ -116,7 +124,9 @@ public sealed class RestApiRouter
     private static bool RequiresApiKey(string method, string path) =>
         IsMutation(method)
         || path.Equals("/api/v1/verification", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/api/v1/verification/cache", StringComparison.OrdinalIgnoreCase);
+        || path.Equals("/api/v1/verification/cache", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/api/v1/geoip", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/api/v1/geoip/cache", StringComparison.OrdinalIgnoreCase);
 
     private RestApiResponse AddRule(string body)
     {
@@ -235,6 +245,15 @@ public sealed class RestApiRouter
             return RestApiResponse.Error(400, "path query parameter is required", JsonOptions);
 
         var result = await _processVerifier.VerifyFileAsync(processPath, ct).ConfigureAwait(false);
+        return RestApiResponse.Json(200, result, JsonOptions);
+    }
+
+    private async Task<RestApiResponse> ResolveGeoIpAsync(IReadOnlyDictionary<string, string> query, CancellationToken ct)
+    {
+        if (!query.TryGetValue("ip", out var rawIp) || !System.Net.IPAddress.TryParse(rawIp, out var ipAddress))
+            return RestApiResponse.Error(400, "valid ip query parameter is required", JsonOptions);
+
+        var result = await _geoIpResolver.ResolveAsync(ipAddress, ct).ConfigureAwait(false);
         return RestApiResponse.Json(200, result, JsonOptions);
     }
 

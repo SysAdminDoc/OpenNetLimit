@@ -79,6 +79,8 @@
 - Keyed REST rule mutation endpoints for add/update/delete/import
 - Optional VirusTotal process verification using local SHA-256 hashes and cached file reports
 - `VERIFY_PROCESS` IPC command and REST verification endpoints for executable reputation checks
+- Optional cached GeoIP lookup for public remote IP country/city display
+- `GEOIP` IPC command and REST GeoIP endpoints with private-address suppression
 
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
@@ -91,6 +93,7 @@
 - REST API is loopback-only by default; non-loopback listener prefixes require `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`
 - REST mutations require `X-OpenNetLimit-Key` or bearer token authentication
 - VirusTotal verification is opt-in via `OPENNETLIMIT_VIRUSTOTAL_API_KEY`, sends hashes only, and requires admin/keyed access
+- GeoIP lookups are opt-in via `OPENNETLIMIT_GEOIP_ENABLED=1`, require admin/keyed access, and never query private, loopback, link-local, or multicast addresses
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
