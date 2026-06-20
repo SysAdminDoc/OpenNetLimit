@@ -132,6 +132,7 @@
 - RESX-based localization: replaced hardcoded string dictionaries with `Strings.resx` (English) and `Strings.es.resx` (Spanish) resource files via `ResourceManager`. New languages can be added by dropping satellite assemblies without code changes
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
+- DNS-based rule matching: rules can specify `DnsDomainFilter` to match traffic by resolved domain name. Supports exact domains (`cdn.example.com`) and wildcard subdomains (`*.example.com`). DNS responses (UDP port 53) are parsed in real-time to build an IP→domain correlation cache used during rule evaluation. DnsDomainCache holds up to 50K entries with TTL-based expiry.
 - Historical bandwidth timeline: new History tab with scrollable column chart showing per-process hourly/daily bandwidth from SQLite stats database; process filter dropdown and hourly/daily granularity toggle; localized in English and Spanish
 
 ### Fixed
