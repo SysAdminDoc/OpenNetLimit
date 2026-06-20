@@ -148,6 +148,7 @@
 - RuleEngine now returns defensive copies from GetRule, GetAllRules, FindMatchingRule, and GetRulesByGroup — callers can no longer mutate internal state
 - Added REST API rate limiting: 10 requests per 10-second window per caller IP; returns 429 when exceeded
 - Exposed IPacketInterceptor diagnostics (TotalBlocked, TotalDelayed, TotalDropped, TotalSent, GetRecentConnectionLog) through the interface — EngineWorker no longer downcasts to WinDivertInterceptor
+- Replaced DPAPI LocalMachine API key storage with Windows Credential Manager (CredWrite/CredRead) scoped to the service account; legacy DPAPI keys auto-migrated on first load
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
 - Fixed TrafficMonitor thread-safe byte counters (Interlocked.Add on ProcessTrafficInfo backing fields)
