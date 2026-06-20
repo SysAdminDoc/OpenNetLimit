@@ -96,10 +96,26 @@ public static class Program
         var body = new Dictionary<string, object?> { ["processName"] = process };
 
         var download = GetArg(args, "--download", null);
-        if (download is not null) body["downloadBytesPerSecond"] = long.Parse(download) * 1024;
+        if (download is not null)
+        {
+            if (!long.TryParse(download, out var dlValue))
+            {
+                Console.Error.WriteLine($"Error: --download value '{download}' is not a valid number");
+                return 1;
+            }
+            body["downloadBytesPerSecond"] = dlValue * 1024;
+        }
 
         var upload = GetArg(args, "--upload", null);
-        if (upload is not null) body["uploadBytesPerSecond"] = long.Parse(upload) * 1024;
+        if (upload is not null)
+        {
+            if (!long.TryParse(upload, out var ulValue))
+            {
+                Console.Error.WriteLine($"Error: --upload value '{upload}' is not a valid number");
+                return 1;
+            }
+            body["uploadBytesPerSecond"] = ulValue * 1024;
+        }
 
         body["action"] = GetArg(args, "--action", "Limit");
 
@@ -116,7 +132,15 @@ public static class Program
         if (ip is not null) body["remoteAddressFilter"] = ip;
 
         var port = GetArg(args, "--port", null);
-        if (port is not null) body["remotePortFilter"] = int.Parse(port);
+        if (port is not null)
+        {
+            if (!int.TryParse(port, out var portValue))
+            {
+                Console.Error.WriteLine($"Error: --port value '{port}' is not a valid number");
+                return 1;
+            }
+            body["remotePortFilter"] = portValue;
+        }
 
         return await PostJson("/api/v1/rules", body);
     }

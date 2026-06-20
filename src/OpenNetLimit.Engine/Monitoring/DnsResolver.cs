@@ -28,6 +28,10 @@ public class DnsResolver
             _cache[address] = new CacheEntry(hostname, DateTime.UtcNow + _cacheDuration);
             return hostname;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch
         {
             _cache[address] = new CacheEntry(null, DateTime.UtcNow + _cacheDuration);

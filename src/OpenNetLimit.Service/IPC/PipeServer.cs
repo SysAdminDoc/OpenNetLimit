@@ -78,9 +78,11 @@ public class PipeServer
 
     public async Task StartAsync(CancellationToken ct)
     {
+        bool isFirst = true;
         while (!ct.IsCancellationRequested)
         {
-            var pipe = CreateSecurePipe();
+            var pipe = CreateSecurePipe(isFirst);
+            isFirst = false;
 
             try
             {
@@ -95,7 +97,7 @@ public class PipeServer
         }
     }
 
-    internal static NamedPipeServerStream CreateSecurePipe()
+    internal static NamedPipeServerStream CreateSecurePipe(bool firstInstance = false)
     {
         var security = new PipeSecurity();
 
@@ -109,12 +111,16 @@ public class PipeServer
             PipeAccessRights.ReadWrite,
             AccessControlType.Allow));
 
+        var options = PipeOptions.Asynchronous;
+        if (firstInstance)
+            options |= PipeOptions.FirstPipeInstance;
+
         return NamedPipeServerStreamAcl.Create(
             IpcProtocol.PipeName,
             PipeDirection.InOut,
             NamedPipeServerStream.MaxAllowedServerInstances,
             PipeTransmissionMode.Byte,
-            PipeOptions.Asynchronous,
+            options,
             inBufferSize: 4096,
             outBufferSize: 4096,
             security);
