@@ -151,6 +151,15 @@
 - Removed dead pass-through properties from PipeServer (DiagnosticProvider, ConnectionLogProvider, StatsProvider, QuotaTracker) — EngineWorker sets these on ControlPlaneState directly
 - Fixed CLI import stdin DoS: reads with 1MB hard cap matching REST API body limit
 - Extracted shared EnvHelper.IsEnabled utility, removing four copy-pasted implementations across RestApiOptions, GeoIpOptions, PluginOptions, VirusTotalOptions
+- Fixed TrafficMonitor first-packet race: replaced AddOrUpdate with GetOrAdd + atomic AddBytes, preventing silent byte loss when two threads race on a new process
+- Removed unused BandwidthPriority enum and field from BandwidthRule (dead data never read by any runtime code)
+- Download/upload speed colors now use theme-aware DynamicResource brushes (DownloadBrush/UploadBrush) that adapt to light/dark themes
+- SetLimitDialog: inline validation with red border and error text replaces blocking MessageBox; screen-reader-friendly with LiveSetting=Assertive
+- Disabled context menu items now show tooltip explaining "Administrator privileges required"
+- DataGrid columns use star-sizing instead of hardcoded pixel widths for DPI/font-size resilience
+- Fixed time-dependent RuleSchedule tests: use fixed local-time DateTime values instead of DateTime.Today to avoid midnight/timezone fragility
+- DnsResolverTests: failure test is now resilient to captive-portal DNS that resolves all addresses
+- Added PacketScheduler tests: MaxDelay drop, queue capacity enforcement, multi-process isolation, RemoveProcess behavior (5 new tests)
 - Fixed BandwidthAlertTracker event trimming race: uses lock-based approach matching ConnectionLogger
 - Fixed BandwidthAlertTracker.GetRecentEvents: array snapshot + slice from end instead of O(n) Reverse()
 - Fixed PluginManager SSRF: webhook URLs with hostnames (non-IP) are now rejected at manifest validation

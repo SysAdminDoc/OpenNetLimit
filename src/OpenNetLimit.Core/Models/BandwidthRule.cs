@@ -17,13 +17,6 @@ public enum RuleDirection
     Upload
 }
 
-public enum BandwidthPriority
-{
-    Low = 0,
-    Normal = 1,
-    High = 2
-}
-
 public class BandwidthRule
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -51,8 +44,6 @@ public class BandwidthRule
     public RuleSchedule? Schedule { get; set; }
 
     public QuotaConfig? Quota { get; set; }
-
-    public BandwidthPriority BandwidthPriority { get; set; } = BandwidthPriority.Normal;
 
     public string? ProfileName { get; set; }
 
@@ -195,7 +186,6 @@ public class BandwidthRule
             ThrottleBytesPerSecond = Quota.ThrottleBytesPerSecond,
             WarningPercent = Quota.WarningPercent
         },
-        BandwidthPriority = BandwidthPriority,
         ProfileName = ProfileName,
         GroupName = GroupName,
         Priority = Priority
