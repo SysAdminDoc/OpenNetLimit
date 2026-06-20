@@ -66,8 +66,6 @@ public static class ThemeManager
 
     public static AppTheme CurrentTheme { get; private set; } = AppTheme.Dark;
 
-    public static string ThemeDisplayName => $"Theme: {CurrentTheme}";
-
     public static event Action<AppTheme>? ThemeChanged;
 
     public static void ApplySavedTheme()

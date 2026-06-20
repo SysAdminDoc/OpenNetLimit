@@ -8,7 +8,6 @@ An open-source, per-application bandwidth limiter and network monitor for Window
 
 ## Future (Post-1.0)
 
-- Localization / i18n
 
 ---
 
