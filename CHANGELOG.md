@@ -105,6 +105,14 @@
 - Plugins are opt-in via `OPENNETLIMIT_PLUGINS_ENABLED=1` and dispatch webhook events only; no in-process plugin DLL/script loading
 
 ### Fixed
+- Fixed QuotaTracker period reset: quotas now track a baseline so `ResetPeriod()` correctly counts only bytes since the reset, not cumulative totals
+- Fixed PipeServer admin impersonation: `IsClientAdmin` now captures client identity inside the `RunAsClient` callback instead of reading the service's own token afterward
+- Fixed TrafficStatsDb thread safety: all SQLite operations now serialized via lock to prevent corruption from concurrent stats/purge timer threads
+
+### Security
+- Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)
+
+### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
 - Fixed TrafficMonitor thread-safe byte counters (Interlocked.Add on ProcessTrafficInfo backing fields)

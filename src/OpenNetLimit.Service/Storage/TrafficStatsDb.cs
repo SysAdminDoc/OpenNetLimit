@@ -6,6 +6,7 @@ namespace OpenNetLimit.Service.Storage;
 public sealed class TrafficStatsDb : IDisposable
 {
     private readonly SqliteConnection _connection;
+    private readonly object _dbLock = new();
 
     public TrafficStatsDb(string dbPath)
     {
@@ -51,25 +52,28 @@ public sealed class TrafficStatsDb : IDisposable
         var hourKey = DateTime.UtcNow.ToString("yyyy-MM-ddTHH");
         var dateKey = DateTime.UtcNow.ToString("yyyy-MM-dd");
 
-        using var transaction = _connection.BeginTransaction();
-        try
+        lock (_dbLock)
         {
-            foreach (var proc in snapshot.Processes)
+            using var transaction = _connection.BeginTransaction();
+            try
             {
-                if (proc.CurrentDownloadBytesPerSecond == 0 && proc.CurrentUploadBytesPerSecond == 0)
-                    continue;
+                foreach (var proc in snapshot.Processes)
+                {
+                    if (proc.CurrentDownloadBytesPerSecond == 0 && proc.CurrentUploadBytesPerSecond == 0)
+                        continue;
 
-                UpsertHourly(proc.ProcessName, hourKey,
-                    proc.CurrentDownloadBytesPerSecond, proc.CurrentUploadBytesPerSecond);
-                UpsertDaily(proc.ProcessName, dateKey,
-                    proc.CurrentDownloadBytesPerSecond, proc.CurrentUploadBytesPerSecond);
+                    UpsertHourly(proc.ProcessName, hourKey,
+                        proc.CurrentDownloadBytesPerSecond, proc.CurrentUploadBytesPerSecond);
+                    UpsertDaily(proc.ProcessName, dateKey,
+                        proc.CurrentDownloadBytesPerSecond, proc.CurrentUploadBytesPerSecond);
+                }
+                transaction.Commit();
             }
-            transaction.Commit();
-        }
-        catch
-        {
-            transaction.Rollback();
-            throw;
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
     }
 
@@ -109,113 +113,125 @@ public sealed class TrafficStatsDb : IDisposable
 
     public List<TrafficStatEntry> GetHourlyStats(string? processName, int hours = 24)
     {
-        var since = DateTime.UtcNow.AddHours(-hours).ToString("yyyy-MM-ddTHH");
-        using var cmd = _connection.CreateCommand();
-
-        if (processName is not null)
+        lock (_dbLock)
         {
-            cmd.CommandText = """
-                SELECT process_name, hour_utc, bytes_received, bytes_sent
-                FROM traffic_hourly
-                WHERE process_name = @name AND hour_utc >= @since
-                ORDER BY hour_utc;
-                """;
-            cmd.Parameters.AddWithValue("@name", processName);
-        }
-        else
-        {
-            cmd.CommandText = """
-                SELECT 'ALL' as process_name, hour_utc,
-                    SUM(bytes_received) as bytes_received,
-                    SUM(bytes_sent) as bytes_sent
-                FROM traffic_hourly
-                WHERE hour_utc >= @since
-                GROUP BY hour_utc
-                ORDER BY hour_utc;
-                """;
-        }
-        cmd.Parameters.AddWithValue("@since", since);
+            var since = DateTime.UtcNow.AddHours(-hours).ToString("yyyy-MM-ddTHH");
+            using var cmd = _connection.CreateCommand();
 
-        return ExecuteStatQuery(cmd);
+            if (processName is not null)
+            {
+                cmd.CommandText = """
+                    SELECT process_name, hour_utc, bytes_received, bytes_sent
+                    FROM traffic_hourly
+                    WHERE process_name = @name AND hour_utc >= @since
+                    ORDER BY hour_utc;
+                    """;
+                cmd.Parameters.AddWithValue("@name", processName);
+            }
+            else
+            {
+                cmd.CommandText = """
+                    SELECT 'ALL' as process_name, hour_utc,
+                        SUM(bytes_received) as bytes_received,
+                        SUM(bytes_sent) as bytes_sent
+                    FROM traffic_hourly
+                    WHERE hour_utc >= @since
+                    GROUP BY hour_utc
+                    ORDER BY hour_utc;
+                    """;
+            }
+            cmd.Parameters.AddWithValue("@since", since);
+
+            return ExecuteStatQuery(cmd);
+        }
     }
 
     public List<TrafficStatEntry> GetDailyStats(string? processName, int days = 30)
     {
-        var since = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
-        using var cmd = _connection.CreateCommand();
-
-        if (processName is not null)
+        lock (_dbLock)
         {
-            cmd.CommandText = """
-                SELECT process_name, date_utc as period, bytes_received, bytes_sent
-                FROM traffic_daily
-                WHERE process_name = @name AND date_utc >= @since
-                ORDER BY date_utc;
-                """;
-            cmd.Parameters.AddWithValue("@name", processName);
-        }
-        else
-        {
-            cmd.CommandText = """
-                SELECT 'ALL' as process_name, date_utc as period,
-                    SUM(bytes_received) as bytes_received,
-                    SUM(bytes_sent) as bytes_sent
-                FROM traffic_daily
-                WHERE date_utc >= @since
-                GROUP BY date_utc
-                ORDER BY date_utc;
-                """;
-        }
-        cmd.Parameters.AddWithValue("@since", since);
+            var since = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
+            using var cmd = _connection.CreateCommand();
 
-        return ExecuteStatQuery(cmd);
+            if (processName is not null)
+            {
+                cmd.CommandText = """
+                    SELECT process_name, date_utc as period, bytes_received, bytes_sent
+                    FROM traffic_daily
+                    WHERE process_name = @name AND date_utc >= @since
+                    ORDER BY date_utc;
+                    """;
+                cmd.Parameters.AddWithValue("@name", processName);
+            }
+            else
+            {
+                cmd.CommandText = """
+                    SELECT 'ALL' as process_name, date_utc as period,
+                        SUM(bytes_received) as bytes_received,
+                        SUM(bytes_sent) as bytes_sent
+                    FROM traffic_daily
+                    WHERE date_utc >= @since
+                    GROUP BY date_utc
+                    ORDER BY date_utc;
+                    """;
+            }
+            cmd.Parameters.AddWithValue("@since", since);
+
+            return ExecuteStatQuery(cmd);
+        }
     }
 
     public List<ProcessTotalEntry> GetTopProcesses(int days = 7, int limit = 20)
     {
-        var since = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT process_name,
-                SUM(bytes_received) as total_received,
-                SUM(bytes_sent) as total_sent
-            FROM traffic_daily
-            WHERE date_utc >= @since
-            GROUP BY process_name
-            ORDER BY (total_received + total_sent) DESC
-            LIMIT @limit;
-            """;
-        cmd.Parameters.AddWithValue("@since", since);
-        cmd.Parameters.AddWithValue("@limit", limit);
-
-        var results = new List<ProcessTotalEntry>();
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
+        lock (_dbLock)
         {
-            results.Add(new ProcessTotalEntry
+            var since = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT process_name,
+                    SUM(bytes_received) as total_received,
+                    SUM(bytes_sent) as total_sent
+                FROM traffic_daily
+                WHERE date_utc >= @since
+                GROUP BY process_name
+                ORDER BY (total_received + total_sent) DESC
+                LIMIT @limit;
+                """;
+            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@limit", limit);
+
+            var results = new List<ProcessTotalEntry>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
             {
-                ProcessName = reader.GetString(0),
-                TotalBytesReceived = reader.GetInt64(1),
-                TotalBytesSent = reader.GetInt64(2)
-            });
+                results.Add(new ProcessTotalEntry
+                {
+                    ProcessName = reader.GetString(0),
+                    TotalBytesReceived = reader.GetInt64(1),
+                    TotalBytesSent = reader.GetInt64(2)
+                });
+            }
+            return results;
         }
-        return results;
     }
 
     public void PurgeOlderThan(int days = 90)
     {
-        var cutoff = DateTime.UtcNow.AddDays(-days);
-        var hourCutoff = cutoff.ToString("yyyy-MM-ddTHH");
-        var dateCutoff = cutoff.ToString("yyyy-MM-dd");
+        lock (_dbLock)
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-days);
+            var hourCutoff = cutoff.ToString("yyyy-MM-ddTHH");
+            var dateCutoff = cutoff.ToString("yyyy-MM-dd");
 
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
-            DELETE FROM traffic_hourly WHERE hour_utc < @hourCutoff;
-            DELETE FROM traffic_daily WHERE date_utc < @dateCutoff;
-            """;
-        cmd.Parameters.AddWithValue("@hourCutoff", hourCutoff);
-        cmd.Parameters.AddWithValue("@dateCutoff", dateCutoff);
-        cmd.ExecuteNonQuery();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                DELETE FROM traffic_hourly WHERE hour_utc < @hourCutoff;
+                DELETE FROM traffic_daily WHERE date_utc < @dateCutoff;
+                """;
+            cmd.Parameters.AddWithValue("@hourCutoff", hourCutoff);
+            cmd.Parameters.AddWithValue("@dateCutoff", dateCutoff);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     private static List<TrafficStatEntry> ExecuteStatQuery(SqliteCommand cmd)

@@ -189,10 +189,14 @@ public class PipeServer
     {
         try
         {
-            pipe.RunAsClient(() => { });
-            var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+            bool isAdmin = false;
+            pipe.RunAsClient(() =>
+            {
+                var identity = WindowsIdentity.GetCurrent();
+                var principal = new WindowsPrincipal(identity);
+                isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            });
+            return isAdmin;
         }
         catch
         {
