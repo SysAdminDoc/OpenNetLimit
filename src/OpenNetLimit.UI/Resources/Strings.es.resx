@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+              <xsd:attribute name="xml:space" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Action_Back" xml:space="preserve"><value>Atras</value></data>
+  <data name="Action_Cancel" xml:space="preserve"><value>Cancelar</value></data>
+  <data name="Action_Finish" xml:space="preserve"><value>Finalizar</value></data>
+  <data name="Action_Next" xml:space="preserve"><value>Siguiente</value></data>
+  <data name="Action_Ok" xml:space="preserve"><value>Aceptar</value></data>
+  <data name="Action_Skip" xml:space="preserve"><value>Omitir</value></data>
+  <data name="Alert_BalloonTitle" xml:space="preserve"><value>Alerta de ancho de banda de OpenNetLimit</value></data>
+  <data name="Chart_Automation" xml:space="preserve"><value>Grafico de trafico en tiempo real</value></data>
+  <data name="Chart_Download" xml:space="preserve"><value>Descarga</value></data>
+  <data name="Chart_Kbps" xml:space="preserve"><value>KB/s</value></data>
+  <data name="Chart_Upload" xml:space="preserve"><value>Subida</value></data>
+  <data name="Column_DownloadPerSecond" xml:space="preserve"><value>Descarga/s</value></data>
+  <data name="Column_Limit" xml:space="preserve"><value>Limite</value></data>
+  <data name="Column_PID" xml:space="preserve"><value>PID</value></data>
+  <data name="Column_Process" xml:space="preserve"><value>Proceso</value></data>
+  <data name="Column_TotalDown" xml:space="preserve"><value>Total descargado</value></data>
+  <data name="Column_TotalUp" xml:space="preserve"><value>Total subido</value></data>
+  <data name="Column_UploadPerSecond" xml:space="preserve"><value>Subida/s</value></data>
+  <data name="Label_Download" xml:space="preserve"><value>Descarga: </value></data>
+  <data name="Label_Upload" xml:space="preserve"><value>Subida: </value></data>
+  <data name="LanguageDisplay" xml:space="preserve"><value>Idioma: {0}</value></data>
+  <data name="Limit_None" xml:space="preserve"><value>Ninguno</value></data>
+  <data name="Main_Title" xml:space="preserve"><value>OpenNetLimit</value></data>
+  <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
+  <data name="Menu_RemoveLimit" xml:space="preserve"><value>Quitar limite</value></data>
+  <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Establecer limite de ancho de banda...</value></data>
+  <data name="Mode_Administrator" xml:space="preserve"><value>Administrador</value></data>
+  <data name="Mode_ReadOnly" xml:space="preserve"><value>Solo lectura</value></data>
+  <data name="ProcessGrid_Automation" xml:space="preserve"><value>Lista de trafico por proceso</value></data>
+  <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>
+  <data name="ServiceStatus_Automation" xml:space="preserve"><value>Estado del servicio</value></data>
+  <data name="SetLimit_DownloadAutomation" xml:space="preserve"><value>Limite de descarga en KB/s</value></data>
+  <data name="SetLimit_DownloadLabel" xml:space="preserve"><value>Descarga:</value></data>
+  <data name="SetLimit_InvalidMessage" xml:space="preserve"><value>Escriba numeros no negativos validos.</value></data>
+  <data name="SetLimit_InvalidTitle" xml:space="preserve"><value>Entrada no valida</value></data>
+  <data name="SetLimit_ProcessLabel" xml:space="preserve"><value>Limitar ancho de banda para: {0}</value></data>
+  <data name="SetLimit_Title" xml:space="preserve"><value>Establecer limite de ancho de banda</value></data>
+  <data name="SetLimit_UploadAutomation" xml:space="preserve"><value>Limite de subida en KB/s</value></data>
+  <data name="SetLimit_UploadLabel" xml:space="preserve"><value>Subida:</value></data>
+  <data name="SetLimit_ZeroHint" xml:space="preserve"><value>Use 0 para quitar el limite.</value></data>
+  <data name="Setup_ReadyBodyPrimary" xml:space="preserve"><value>OpenNetLimit se conectara al servicio en segundo plano y empezara a mostrar la actividad de red.</value></data>
+  <data name="Setup_ReadyBodySecondary" xml:space="preserve"><value>Haga clic derecho en cualquier proceso de la lista para establecer limites. Use el icono de la bandeja para acceso rapido.</value></data>
+  <data name="Setup_ReadyHint" xml:space="preserve"><value>Haga clic en Finalizar para abrir la ventana principal.</value></data>
+  <data name="Setup_ReadyTitle" xml:space="preserve"><value>Todo listo.</value></data>
+  <data name="Setup_RequirementsAntivirus" xml:space="preserve"><value>Algunos antivirus o EDR pueden marcar el controlador WinDivert. Agregue una excepcion si hace falta.</value></data>
+  <data name="Setup_RequirementsPrivileges" xml:space="preserve"><value>Se requieren privilegios de administrador para cargar el controlador de red WinDivert.</value></data>
+  <data name="Setup_RequirementsService" xml:space="preserve"><value>El servicio de OpenNetLimit debe estar en ejecucion para supervisar y limitar trafico.</value></data>
+  <data name="Setup_RequirementsStorage" xml:space="preserve"><value>Las reglas, estadisticas y registros se guardan en %ProgramData%\OpenNetLimit.</value></data>
+  <data name="Setup_RequirementsTitle" xml:space="preserve"><value>Requisitos</value></data>
+  <data name="Setup_Title" xml:space="preserve"><value>OpenNetLimit - Configuracion inicial</value></data>
+  <data name="Setup_WelcomeBody" xml:space="preserve"><value>OpenNetLimit supervisa y controla el ancho de banda de red por aplicacion en su PC Windows.</value></data>
+  <data name="Setup_WelcomeHint" xml:space="preserve"><value>Este asistente le ayuda a configurar los ajustes esenciales. Puede cambiarlos mas tarde.</value></data>
+  <data name="Setup_WelcomeTitle" xml:space="preserve"><value>Bienvenido a OpenNetLimit</value></data>
+  <data name="Status_Connected" xml:space="preserve"><value>Conectado</value></data>
+  <data name="Status_Connecting" xml:space="preserve"><value>Conectando...</value></data>
+  <data name="Status_Disconnected" xml:space="preserve"><value>Desconectado</value></data>
+  <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Servicio desconectado</value></data>
+  <data name="Status_ServiceNotRunning" xml:space="preserve"><value>El servicio no se esta ejecutando</value></data>
+  <data name="StatusBar_ActiveRules" xml:space="preserve"><value>Reglas activas: {0}</value></data>
+  <data name="StatusBar_Automation" xml:space="preserve"><value>Barra de estado</value></data>
+  <data name="StatusBar_Connections" xml:space="preserve"><value>Conexiones: {0}</value></data>
+  <data name="StatusBar_Mode" xml:space="preserve"><value>Modo: {0}</value></data>
+  <data name="StatusBar_RecentAlerts" xml:space="preserve"><value>Alertas recientes: {0}</value></data>
+  <data name="Theme_Dark" xml:space="preserve"><value>Oscuro</value></data>
+  <data name="Theme_Light" xml:space="preserve"><value>Claro</value></data>
+  <data name="ThemeDisplay" xml:space="preserve"><value>Tema: {0}</value></data>
+  <data name="TrafficSummary_Automation" xml:space="preserve"><value>Resumen de trafico</value></data>
+  <data name="Tray_Exit" xml:space="preserve"><value>Salir</value></data>
+  <data name="Tray_Show" xml:space="preserve"><value>Mostrar</value></data>
+</root>

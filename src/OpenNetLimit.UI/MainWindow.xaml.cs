@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Globalization;
 using System.Windows;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
@@ -15,6 +16,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        ApplyFlowDirection();
         InitializeComponent();
         DataContext = _viewModel;
         _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
@@ -124,5 +126,13 @@ public partial class MainWindow : Window
             _showTrayItem.Text = LocalizationManager.Text("Tray_Show");
         if (_exitTrayItem is not null)
             _exitTrayItem.Text = LocalizationManager.Text("Tray_Exit");
+        ApplyFlowDirection();
+    }
+
+    private void ApplyFlowDirection()
+    {
+        FlowDirection = CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft
+            ? System.Windows.FlowDirection.RightToLeft
+            : System.Windows.FlowDirection.LeftToRight;
     }
 }
