@@ -133,6 +133,11 @@
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
+- Fixed FlowTracker memory leak: closed flows are now purged every 5 minutes (PurgeStale was dead code)
+- Fixed named pipe squatting vulnerability: first pipe instance uses FirstPipeInstance flag to prevent attackers from pre-creating the pipe name
+- Fixed DnsResolver swallowing OperationCanceledException: shutdown cancellation is now properly propagated instead of being caught and cached as null
+- Fixed QuotaTracker unsynchronized state mutation: per-state lock prevents torn reads and double-fire of warning/exceeded events under concurrent timer ticks
+- Fixed CLI crash on invalid numeric input: --download, --upload, and --port now validate with TryParse and show user-friendly error messages
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
 - Fixed TrafficMonitor thread-safe byte counters (Interlocked.Add on ProcessTrafficInfo backing fields)

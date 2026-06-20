@@ -34,28 +34,40 @@ public class QuotaTracker
             long totalBytes = matchingProcesses.Sum(p => p.TotalBytesReceived + p.TotalBytesSent);
 
             var state = _quotas.GetOrAdd(rule.ProcessName, _ => new QuotaState());
-            state.RuleId = rule.Id;
-            state.ProcessName = rule.ProcessName;
-            state.LimitBytes = rule.Quota.LimitBytes;
-            state.UsedBytes = totalBytes - state.BaselineBytes;
-            state.Period = rule.Quota.Period;
-            state.WarningPercent = rule.Quota.WarningPercent;
-            state.Action = rule.Quota.OnExceeded;
 
-            var percentUsed = rule.Quota.LimitBytes > 0
-                ? (int)(state.UsedBytes * 100 / rule.Quota.LimitBytes) : 0;
+            bool fireWarning = false;
+            bool fireExceeded = false;
 
-            if (percentUsed >= 100 && !state.ExceededNotified)
+            lock (state)
             {
-                state.IsExceeded = true;
-                state.ExceededNotified = true;
+                state.RuleId = rule.Id;
+                state.ProcessName = rule.ProcessName;
+                state.LimitBytes = rule.Quota.LimitBytes;
+                state.UsedBytes = totalBytes - state.BaselineBytes;
+                state.Period = rule.Quota.Period;
+                state.WarningPercent = rule.Quota.WarningPercent;
+                state.Action = rule.Quota.OnExceeded;
+
+                var percentUsed = rule.Quota.LimitBytes > 0
+                    ? (int)(state.UsedBytes * 100 / rule.Quota.LimitBytes) : 0;
+
+                if (percentUsed >= 100 && !state.ExceededNotified)
+                {
+                    state.IsExceeded = true;
+                    state.ExceededNotified = true;
+                    fireExceeded = true;
+                }
+                else if (percentUsed >= rule.Quota.WarningPercent && !state.WarningNotified)
+                {
+                    state.WarningNotified = true;
+                    fireWarning = true;
+                }
+            }
+
+            if (fireExceeded)
                 OnQuotaExceeded?.Invoke(rule.ProcessName, state);
-            }
-            else if (percentUsed >= rule.Quota.WarningPercent && !state.WarningNotified)
-            {
-                state.WarningNotified = true;
+            else if (fireWarning)
                 OnQuotaWarning?.Invoke(rule.ProcessName, state);
-            }
         }
     }
 
@@ -87,11 +99,14 @@ public class QuotaTracker
                     .Sum(p => p.TotalBytesReceived + p.TotalBytesSent);
             }
 
-            state.BaselineBytes = currentTotal;
-            state.UsedBytes = 0;
-            state.IsExceeded = false;
-            state.WarningNotified = false;
-            state.ExceededNotified = false;
+            lock (state)
+            {
+                state.BaselineBytes = currentTotal;
+                state.UsedBytes = 0;
+                state.IsExceeded = false;
+                state.WarningNotified = false;
+                state.ExceededNotified = false;
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ public class EngineWorker : BackgroundService
     private TrafficStatsDb? _statsDb;
     private Timer? _statsTimer;
     private Timer? _purgeTimer;
+    private Timer? _flowPurgeTimer;
     private Timer? _quotaTimer;
     private Timer? _alertTimer;
 
@@ -137,6 +138,7 @@ public class EngineWorker : BackgroundService
             _logger.LogWarning(ex, "Failed to initialize stats database — statistics will be unavailable");
         }
 
+        _flowPurgeTimer = new Timer(_ => PurgeStaleFlows(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
@@ -270,6 +272,18 @@ public class EngineWorker : BackgroundService
         }, CancellationToken.None);
     }
 
+    private void PurgeStaleFlows()
+    {
+        try
+        {
+            _flowTracker.PurgeStale(TimeSpan.FromMinutes(5));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to purge stale flows");
+        }
+    }
+
     private void RecordStats()
     {
         try
@@ -289,6 +303,7 @@ public class EngineWorker : BackgroundService
         _alertTimer?.Dispose();
         _statsTimer?.Dispose();
         _purgeTimer?.Dispose();
+        _flowPurgeTimer?.Dispose();
 
         try
         {
