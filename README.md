@@ -24,6 +24,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **REST API / remote administration** — localhost API by default, optional keyed remote bind
 - **VirusTotal process verification** — optional hash-only executable reputation checks
 - **Geographic IP lookup** — optional cached remote IP country/city lookup
+- **Plugin webhooks** — optional manifest-based event plugins without in-process code loading
 
 ## Requirements
 
@@ -131,9 +132,11 @@ The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands
 | `GEOIP {ip}` | Admin | Resolve a public IP address to approximate country/city if enabled |
 | `ALERT_RULES` | Read | List bandwidth alert rules |
 | `ALERT_EVENTS` | Read | Recent triggered alert events |
+| `PLUGINS` | Read | Loaded plugin manifests |
 | `ADD_ALERT_RULE {json}` | Admin | Add a bandwidth alert threshold |
 | `UPDATE_ALERT_RULE {json}` | Admin | Update a bandwidth alert threshold |
 | `REMOVE_ALERT_RULE {guid}` | Admin | Remove a bandwidth alert threshold |
+| `RELOAD_PLUGINS` | Admin | Reload plugin manifests from disk |
 
 ### REST API
 
@@ -152,6 +155,8 @@ By default it listens only on `http://127.0.0.1:47719/`.
 | `OPENNETLIMIT_GEOIP_ENABLED=1` | Enables public-IP geolocation lookups. Disabled by default. |
 | `OPENNETLIMIT_GEOIP_ENDPOINT` | GeoIP provider base URL. Defaults to `https://free.freeipapi.com/api/json/`. |
 | `OPENNETLIMIT_GEOIP_CACHE_HOURS` | GeoIP cache duration. Defaults to 24 hours. |
+| `OPENNETLIMIT_PLUGINS_ENABLED=1` | Enables manifest-based webhook plugins. Disabled by default. |
+| `OPENNETLIMIT_PLUGIN_DIR` | Plugin manifest directory. Defaults to `%ProgramData%\OpenNetLimit\plugins`. |
 
 Remote administration is intentionally fail-closed: non-loopback prefixes are ignored unless both
 `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY` are configured.
@@ -182,6 +187,23 @@ Remote administration is intentionally fail-closed: non-loopback prefixes are ig
 | `POST /api/v1/alerts/rules` | Key required | Add a bandwidth alert rule |
 | `PUT /api/v1/alerts/rules/{id}` | Key required | Update a bandwidth alert rule |
 | `DELETE /api/v1/alerts/rules/{id}` | Key required | Remove a bandwidth alert rule |
+| `GET /api/v1/plugins` | Local read / keyed remote | Loaded plugin manifests |
+| `POST /api/v1/plugins/reload` | Key required | Reload plugin manifests |
+
+### Plugin Manifests
+
+Plugins are declarative JSON webhook manifests. OpenNetLimit does not load plugin DLLs or scripts in-process.
+
+```json
+{
+  "id": "alert-hook",
+  "name": "Alert Hook",
+  "version": "1.0.0",
+  "enabled": true,
+  "eventSubscriptions": ["alert.triggered", "quota.warning", "quota.exceeded"],
+  "webhookUrl": "https://example.test/opennetlimit"
+}
+```
 
 ## License
 

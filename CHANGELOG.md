@@ -84,6 +84,8 @@
 - Bandwidth alert rules with per-process/path thresholds, cooldowns, persistence, and recent event history
 - Tray balloon notifications for newly triggered bandwidth alerts in the WPF UI
 - Alert rule/event IPC commands and REST endpoints
+- Manifest-based webhook plugin system for alert and quota events
+- Plugin list/reload IPC commands and REST endpoints
 
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
@@ -98,6 +100,7 @@
 - VirusTotal verification is opt-in via `OPENNETLIMIT_VIRUSTOTAL_API_KEY`, sends hashes only, and requires admin/keyed access
 - GeoIP lookups are opt-in via `OPENNETLIMIT_GEOIP_ENABLED=1`, require admin/keyed access, and never query private, loopback, link-local, or multicast addresses
 - Alert rule mutations require existing admin/keyed control-plane access
+- Plugins are opt-in via `OPENNETLIMIT_PLUGINS_ENABLED=1` and dispatch webhook events only; no in-process plugin DLL/script loading
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully

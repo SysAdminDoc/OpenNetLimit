@@ -5,6 +5,7 @@ using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.IPC;
+using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Storage;
 
 namespace OpenNetLimit.Service;
@@ -18,6 +19,7 @@ public class EngineWorker : BackgroundService
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PipeServer _pipeServer;
     private readonly BandwidthAlertTracker _alertTracker;
+    private readonly PluginManager _pluginManager;
     private readonly ControlPlaneState _controlPlane;
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
@@ -46,6 +48,7 @@ public class EngineWorker : BackgroundService
         ITrafficMonitor trafficMonitor,
         PipeServer pipeServer,
         BandwidthAlertTracker alertTracker,
+        PluginManager pluginManager,
         ControlPlaneState controlPlane,
         ILogger<EngineWorker> logger)
     {
@@ -56,6 +59,7 @@ public class EngineWorker : BackgroundService
         _trafficMonitor = trafficMonitor;
         _pipeServer = pipeServer;
         _alertTracker = alertTracker;
+        _pluginManager = pluginManager;
         _controlPlane = controlPlane;
         _logger = logger;
     }
@@ -86,16 +90,26 @@ public class EngineWorker : BackgroundService
 
         _quotaTracker = new QuotaTracker(_ruleEngine, _trafficMonitor);
         _quotaTracker.OnQuotaWarning += (name, state) =>
+        {
             _logger.LogWarning("Quota warning for {Process}: {Percent}% used ({Used}/{Limit} bytes)",
                 name, state.PercentUsed, state.UsedBytes, state.LimitBytes);
+            DispatchPluginEvent("quota.warning", state, stoppingToken);
+        };
         _quotaTracker.OnQuotaExceeded += (name, state) =>
+        {
             _logger.LogWarning("Quota exceeded for {Process}: {Used}/{Limit} bytes — action: {Action}",
                 name, state.UsedBytes, state.LimitBytes, state.Action);
+            DispatchPluginEvent("quota.exceeded", state, stoppingToken);
+        };
         _alertTracker.OnAlert += alert =>
+        {
             _logger.LogWarning("Bandwidth alert: {Message}", alert.Message);
+            DispatchPluginEvent("alert.triggered", alert, stoppingToken);
+        };
 
         LoadRules();
         LoadAlerts();
+        LoadPlugins();
         _reconciler.Reconcile();
 
         try
@@ -231,6 +245,29 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to save alert rules to {Path}", AlertsPath);
         }
+    }
+
+    private void LoadPlugins()
+    {
+        try
+        {
+            var plugins = _pluginManager.Reload();
+            _logger.LogInformation("Loaded {Count} plugins", plugins.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load plugins");
+            RecordLastError($"Failed to load plugins: {ex.Message}");
+        }
+    }
+
+    private void DispatchPluginEvent(string eventType, object payload, CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await _pluginManager.DispatchAsync(eventType, payload, ct); }
+            catch (OperationCanceledException) { }
+        }, CancellationToken.None);
     }
 
     private void RecordStats()
