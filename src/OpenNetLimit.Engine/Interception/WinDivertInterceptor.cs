@@ -285,13 +285,21 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             IPAddress srcAddr, dstAddr;
             if (result.IPv4Hdr != null)
             {
-                srcAddr = IPAddress.Parse(result.IPv4Hdr->SrcAddr.ToString());
-                dstAddr = IPAddress.Parse(result.IPv4Hdr->DstAddr.ToString());
+                Span<byte> srcBytes = stackalloc byte[4];
+                Span<byte> dstBytes = stackalloc byte[4];
+                new ReadOnlySpan<byte>(&result.IPv4Hdr->SrcAddr, 4).CopyTo(srcBytes);
+                new ReadOnlySpan<byte>(&result.IPv4Hdr->DstAddr, 4).CopyTo(dstBytes);
+                srcAddr = new IPAddress(srcBytes);
+                dstAddr = new IPAddress(dstBytes);
             }
             else if (result.IPv6Hdr != null)
             {
-                srcAddr = IPAddress.Parse(result.IPv6Hdr->SrcAddr.ToString());
-                dstAddr = IPAddress.Parse(result.IPv6Hdr->DstAddr.ToString());
+                Span<byte> srcBytes = stackalloc byte[16];
+                Span<byte> dstBytes = stackalloc byte[16];
+                new ReadOnlySpan<byte>(&result.IPv6Hdr->SrcAddr, 16).CopyTo(srcBytes);
+                new ReadOnlySpan<byte>(&result.IPv6Hdr->DstAddr, 16).CopyTo(dstBytes);
+                srcAddr = new IPAddress(srcBytes);
+                dstAddr = new IPAddress(dstBytes);
             }
             else
             {

@@ -5,18 +5,20 @@ namespace OpenNetLimit.Engine.Monitoring;
 public class ConnectionLogger
 {
     private readonly ConcurrentQueue<ConnectionLogEntry> _entries = new();
-    private int _count;
+    private readonly object _trimLock = new();
 
     public const int MaxEntries = 10_000;
 
     public void Log(ConnectionLogEntry entry)
     {
         _entries.Enqueue(entry);
-        var count = Interlocked.Increment(ref _count);
 
-        while (count > MaxEntries && _entries.TryDequeue(out _))
+        if (_entries.Count > MaxEntries)
         {
-            count = Interlocked.Decrement(ref _count);
+            lock (_trimLock)
+            {
+                while (_entries.Count > MaxEntries && _entries.TryDequeue(out _)) { }
+            }
         }
     }
 
@@ -27,7 +29,7 @@ public class ConnectionLogger
         return new ArraySegment<ConnectionLogEntry>(snapshot, start, snapshot.Length - start);
     }
 
-    public int Count => Volatile.Read(ref _count);
+    public int Count => _entries.Count;
 }
 
 public class ConnectionLogEntry
