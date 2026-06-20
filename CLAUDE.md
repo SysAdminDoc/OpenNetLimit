@@ -34,3 +34,4 @@ Requires .NET 8 SDK (pinned via global.json). All projects target net8.0-windows
 - REST API defaults to `http://127.0.0.1:47719/`; writes require `OPENNETLIMIT_API_KEY`, and remote binds require both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`.
 - VirusTotal verification is opt-in with `OPENNETLIMIT_VIRUSTOTAL_API_KEY`; it hashes local files only and does not upload executables.
 - GeoIP lookup is opt-in with `OPENNETLIMIT_GEOIP_ENABLED=1`; public IPs go to the configured provider, while private/local ranges are suppressed.
+- Bandwidth alert rules persist to `%ProgramData%\OpenNetLimit\alerts.json`; UI tray notifications are driven by `ALERT_EVENTS`.

@@ -19,6 +19,7 @@ public class PipeServer
 {
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly IRuleEngine _ruleEngine;
+    private readonly BandwidthAlertTracker _alertTracker;
     private readonly ControlPlaneState _controlPlane;
     private readonly IProcessVerifier _processVerifier;
     private readonly IGeoIpResolver _geoIpResolver;
@@ -56,6 +57,7 @@ public class PipeServer
     public PipeServer(
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
+        BandwidthAlertTracker alertTracker,
         ControlPlaneState controlPlane,
         IProcessVerifier processVerifier,
         IGeoIpResolver geoIpResolver,
@@ -63,6 +65,7 @@ public class PipeServer
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
+        _alertTracker = alertTracker;
         _controlPlane = controlPlane;
         _processVerifier = processVerifier;
         _geoIpResolver = geoIpResolver;
@@ -207,14 +210,60 @@ public class PipeServer
             "STATS_DAILY" => Task.FromResult(GetStatsDaily(payload)),
             "STATS_TOP" => Task.FromResult(GetStatsTop()),
             "QUOTAS" => Task.FromResult(GetQuotas()),
+            "ALERT_RULES" => Task.FromResult(JsonSerializer.Serialize(_alertTracker.GetRules(), JsonOptions)),
+            "ALERT_EVENTS" => Task.FromResult(JsonSerializer.Serialize(_alertTracker.GetRecentEvents(), JsonOptions)),
             "ADD_RULE" => Task.FromResult(AddRule(payload)),
             "REMOVE_RULE" => Task.FromResult(RemoveRule(payload)),
             "UPDATE_RULE" => Task.FromResult(UpdateRule(payload)),
             "IMPORT_RULES" => Task.FromResult(ImportRules(payload)),
+            "ADD_ALERT_RULE" => Task.FromResult(AddAlertRule(payload)),
+            "UPDATE_ALERT_RULE" => Task.FromResult(UpdateAlertRule(payload)),
+            "REMOVE_ALERT_RULE" => Task.FromResult(RemoveAlertRule(payload)),
             "VERIFY_PROCESS" => VerifyProcess(payload, ct),
             "GEOIP" => ResolveGeoIp(payload, ct),
             _ => Task.FromResult(ErrorResponse("unknown command"))
         };
+    }
+
+    private string AddAlertRule(string payload)
+    {
+        try
+        {
+            var rule = JsonSerializer.Deserialize<BandwidthAlertRule>(payload, JsonOptions);
+            if (rule is null) return ErrorResponse("invalid alert rule");
+
+            _alertTracker.AddRule(rule);
+            return JsonSerializer.Serialize(new { ok = true, id = rule.Id }, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return ErrorResponse($"invalid JSON: {ex.Message}");
+        }
+    }
+
+    private string UpdateAlertRule(string payload)
+    {
+        try
+        {
+            var rule = JsonSerializer.Deserialize<BandwidthAlertRule>(payload, JsonOptions);
+            if (rule is null) return ErrorResponse("invalid alert rule");
+
+            _alertTracker.UpdateRule(rule);
+            return JsonSerializer.Serialize(new { ok = true, id = rule.Id }, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return ErrorResponse($"invalid JSON: {ex.Message}");
+        }
+    }
+
+    private string RemoveAlertRule(string payload)
+    {
+        if (!Guid.TryParse(payload.Trim(), out var id))
+            return ErrorResponse("invalid guid");
+
+        _alertTracker.RemoveRule(id);
+        return JsonSerializer.Serialize(new { ok = true }, JsonOptions);
     }
 
     private async Task<string> VerifyProcess(string payload, CancellationToken ct)

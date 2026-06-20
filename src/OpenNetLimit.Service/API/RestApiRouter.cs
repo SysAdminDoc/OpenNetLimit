@@ -4,6 +4,7 @@ using System.Text.Json;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.Security;
@@ -14,6 +15,7 @@ public sealed class RestApiRouter
 {
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly IRuleEngine _ruleEngine;
+    private readonly BandwidthAlertTracker _alertTracker;
     private readonly ControlPlaneState _controlPlane;
     private readonly RestApiOptions _options;
     private readonly IProcessVerifier _processVerifier;
@@ -28,6 +30,7 @@ public sealed class RestApiRouter
     public RestApiRouter(
         ITrafficMonitor trafficMonitor,
         IRuleEngine ruleEngine,
+        BandwidthAlertTracker alertTracker,
         ControlPlaneState controlPlane,
         RestApiOptions options,
         IProcessVerifier processVerifier,
@@ -35,6 +38,7 @@ public sealed class RestApiRouter
     {
         _trafficMonitor = trafficMonitor;
         _ruleEngine = ruleEngine;
+        _alertTracker = alertTracker;
         _controlPlane = controlPlane;
         _options = options;
         _processVerifier = processVerifier;
@@ -89,7 +93,15 @@ public sealed class RestApiRouter
                 await ResolveGeoIpAsync(query, ct),
             "/api/v1/geoip/cache" when method == "GET" =>
                 RestApiResponse.Json(200, _geoIpResolver.GetCachedResults(), JsonOptions),
-            _ => HandleRuleById(method, path, request.Body)
+            "/api/v1/alerts/rules" when method == "GET" =>
+                RestApiResponse.Json(200, _alertTracker.GetRules(), JsonOptions),
+            "/api/v1/alerts/rules" when method == "POST" =>
+                AddAlertRule(request.Body),
+            "/api/v1/alerts/events" when method == "GET" =>
+                RestApiResponse.Json(200, _alertTracker.GetRecentEvents(GetInt(query, "limit", 100, 1, 500)), JsonOptions),
+            _ => path.StartsWith("/api/v1/alerts/rules/", StringComparison.OrdinalIgnoreCase)
+                ? HandleAlertRuleById(method, path, request.Body)
+                : HandleRuleById(method, path, request.Body)
         };
     }
 
@@ -137,6 +149,23 @@ public sealed class RestApiRouter
                 return RestApiResponse.Error(400, "invalid rule", JsonOptions);
 
             _ruleEngine.AddRule(rule);
+            return RestApiResponse.Json(201, new { ok = true, id = rule.Id }, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
+        }
+    }
+
+    private RestApiResponse AddAlertRule(string body)
+    {
+        try
+        {
+            var rule = JsonSerializer.Deserialize<BandwidthAlertRule>(body, JsonOptions);
+            if (rule is null)
+                return RestApiResponse.Error(400, "invalid alert rule", JsonOptions);
+
+            _alertTracker.AddRule(rule);
             return RestApiResponse.Json(201, new { ok = true, id = rule.Id }, JsonOptions);
         }
         catch (JsonException ex)
@@ -199,6 +228,51 @@ public sealed class RestApiRouter
             "DELETE" => DeleteRule(id),
             _ => RestApiResponse.Error(405, "method not allowed", JsonOptions)
         };
+    }
+
+    private RestApiResponse HandleAlertRuleById(string method, string path, string body)
+    {
+        const string prefix = "/api/v1/alerts/rules/";
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return RestApiResponse.Error(404, "not found", JsonOptions);
+
+        var rawId = path[prefix.Length..];
+        if (!Guid.TryParse(rawId, out var id))
+            return RestApiResponse.Error(400, "invalid alert rule id", JsonOptions);
+
+        return method switch
+        {
+            "GET" => _alertTracker.GetRule(id) is { } rule
+                ? RestApiResponse.Json(200, rule, JsonOptions)
+                : RestApiResponse.Error(404, "alert rule not found", JsonOptions),
+            "PUT" => UpdateAlertRule(id, body),
+            "DELETE" => DeleteAlertRule(id),
+            _ => RestApiResponse.Error(405, "method not allowed", JsonOptions)
+        };
+    }
+
+    private RestApiResponse UpdateAlertRule(Guid id, string body)
+    {
+        try
+        {
+            var rule = JsonSerializer.Deserialize<BandwidthAlertRule>(body, JsonOptions);
+            if (rule is null)
+                return RestApiResponse.Error(400, "invalid alert rule", JsonOptions);
+
+            rule.Id = id;
+            _alertTracker.UpdateRule(rule);
+            return RestApiResponse.Json(200, new { ok = true, id }, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
+        }
+    }
+
+    private RestApiResponse DeleteAlertRule(Guid id)
+    {
+        _alertTracker.RemoveRule(id);
+        return RestApiResponse.Json(200, new { ok = true }, JsonOptions);
     }
 
     private RestApiResponse GetRule(Guid id)

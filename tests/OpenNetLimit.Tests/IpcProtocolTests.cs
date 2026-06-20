@@ -10,6 +10,8 @@ public class IpcProtocolTests
     [InlineData("RULES")]
     [InlineData("PROCESSES")]
     [InlineData("STATUS")]
+    [InlineData("ALERT_RULES")]
+    [InlineData("ALERT_EVENTS")]
     public void ReadCommands_AreValid(string command)
     {
         Assert.True(IpcProtocol.IsValidCommand(command));
@@ -22,6 +24,9 @@ public class IpcProtocolTests
     [InlineData("UPDATE_RULE")]
     [InlineData("VERIFY_PROCESS")]
     [InlineData("GEOIP")]
+    [InlineData("ADD_ALERT_RULE")]
+    [InlineData("UPDATE_ALERT_RULE")]
+    [InlineData("REMOVE_ALERT_RULE")]
     public void WriteCommands_AreValid_AndRequireAdmin(string command)
     {
         Assert.True(IpcProtocol.IsValidCommand(command));

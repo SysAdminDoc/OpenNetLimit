@@ -17,6 +17,7 @@ public class EngineWorker : BackgroundService
     private readonly IFlowTracker _flowTracker;
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PipeServer _pipeServer;
+    private readonly BandwidthAlertTracker _alertTracker;
     private readonly ControlPlaneState _controlPlane;
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
@@ -26,12 +27,14 @@ public class EngineWorker : BackgroundService
     private Timer? _statsTimer;
     private Timer? _purgeTimer;
     private Timer? _quotaTimer;
+    private Timer? _alertTimer;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "OpenNetLimit");
 
     private static readonly string RulesPath = Path.Combine(DataDir, "rules.json");
+    private static readonly string AlertsPath = Path.Combine(DataDir, "alerts.json");
     private static readonly string StatsDbPath = Path.Combine(DataDir, "traffic.db");
     private static readonly string LastErrorPath = Path.Combine(DataDir, "last-error.txt");
 
@@ -42,6 +45,7 @@ public class EngineWorker : BackgroundService
         IFlowTracker flowTracker,
         ITrafficMonitor trafficMonitor,
         PipeServer pipeServer,
+        BandwidthAlertTracker alertTracker,
         ControlPlaneState controlPlane,
         ILogger<EngineWorker> logger)
     {
@@ -51,6 +55,7 @@ public class EngineWorker : BackgroundService
         _flowTracker = flowTracker;
         _trafficMonitor = trafficMonitor;
         _pipeServer = pipeServer;
+        _alertTracker = alertTracker;
         _controlPlane = controlPlane;
         _logger = logger;
     }
@@ -86,8 +91,11 @@ public class EngineWorker : BackgroundService
         _quotaTracker.OnQuotaExceeded += (name, state) =>
             _logger.LogWarning("Quota exceeded for {Process}: {Used}/{Limit} bytes — action: {Action}",
                 name, state.UsedBytes, state.LimitBytes, state.Action);
+        _alertTracker.OnAlert += alert =>
+            _logger.LogWarning("Bandwidth alert: {Message}", alert.Message);
 
         LoadRules();
+        LoadAlerts();
         _reconciler.Reconcile();
 
         try
@@ -116,6 +124,7 @@ public class EngineWorker : BackgroundService
         }
 
         _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
         _controlPlane.QuotaTracker = _quotaTracker;
         if (_interceptor is WinDivertInterceptor wdi2)
@@ -196,6 +205,34 @@ public class EngineWorker : BackgroundService
         }
     }
 
+    private void LoadAlerts()
+    {
+        try
+        {
+            _alertTracker.LoadRules(AlertsPath);
+            _logger.LogInformation("Loaded {Count} alert rules from {Path}",
+                _alertTracker.GetRules().Count, AlertsPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load alert rules from {Path} — starting with empty alert set", AlertsPath);
+            RecordLastError($"Failed to load alert rules: {ex.Message}");
+        }
+    }
+
+    private void SaveAlerts()
+    {
+        try
+        {
+            _alertTracker.SaveRules(AlertsPath);
+            _logger.LogInformation("Saved alert rules to {Path}", AlertsPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save alert rules to {Path}", AlertsPath);
+        }
+    }
+
     private void RecordStats()
     {
         try
@@ -212,6 +249,7 @@ public class EngineWorker : BackgroundService
     private async Task ShutdownGracefully()
     {
         _quotaTimer?.Dispose();
+        _alertTimer?.Dispose();
         _statsTimer?.Dispose();
         _purgeTimer?.Dispose();
 
@@ -225,6 +263,7 @@ public class EngineWorker : BackgroundService
         }
 
         SaveRules();
+        SaveAlerts();
         _statsDb?.Dispose();
         _logger.LogInformation("OpenNetLimit engine stopped");
     }

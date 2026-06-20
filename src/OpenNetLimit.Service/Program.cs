@@ -30,6 +30,7 @@ builder.Services.AddSingleton<IRateLimiter, ProcessRateLimiter>();
 builder.Services.AddSingleton<ITrafficMonitor, TrafficMonitor>();
 builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
 builder.Services.AddSingleton<IPacketInterceptor, WinDivertInterceptor>();
+builder.Services.AddSingleton<BandwidthAlertTracker>();
 builder.Services.AddSingleton(RestApiOptions.FromEnvironment());
 builder.Services.AddSingleton(VirusTotalOptions.FromEnvironment());
 builder.Services.AddSingleton(GeoIpOptions.FromEnvironment());
