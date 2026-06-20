@@ -156,6 +156,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         "LanguageDisplay",
         LocalizationManager.CurrentCultureCode.ToUpperInvariant());
 
+    public HistoryViewModel HistoryViewModel { get; }
+
     public MainViewModel()
     {
         ChartSeries =
@@ -185,6 +187,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         _reconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _reconnectTimer.Tick += async (_, _) => await TryConnectAsync();
+
+        HistoryViewModel = new HistoryViewModel(_client);
 
         ThemeManager.ThemeChanged += OnThemeChanged;
         LocalizationManager.CultureChanged += OnCultureChanged;

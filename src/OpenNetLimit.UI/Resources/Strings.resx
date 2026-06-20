@@ -88,6 +88,16 @@
   <data name="Theme_Light" xml:space="preserve"><value>Light</value></data>
   <data name="ThemeDisplay" xml:space="preserve"><value>Theme: {0}</value></data>
   <data name="TrafficSummary_Automation" xml:space="preserve"><value>Traffic summary</value></data>
+  <data name="Tab_Realtime" xml:space="preserve"><value>Real-time</value></data>
+  <data name="Tab_History" xml:space="preserve"><value>History</value></data>
+  <data name="History_Automation" xml:space="preserve"><value>Historical bandwidth chart</value></data>
+  <data name="History_AllProcesses" xml:space="preserve"><value>All Processes</value></data>
+  <data name="History_Hourly" xml:space="preserve"><value>Hourly</value></data>
+  <data name="History_Daily" xml:space="preserve"><value>Daily</value></data>
+  <data name="History_Received" xml:space="preserve"><value>Received</value></data>
+  <data name="History_Sent" xml:space="preserve"><value>Sent</value></data>
+  <data name="History_Bytes" xml:space="preserve"><value>MB</value></data>
+  <data name="History_Refresh" xml:space="preserve"><value>Refresh</value></data>
   <data name="Tray_Exit" xml:space="preserve"><value>Exit</value></data>
   <data name="Tray_Show" xml:space="preserve"><value>Show</value></data>
 </root>

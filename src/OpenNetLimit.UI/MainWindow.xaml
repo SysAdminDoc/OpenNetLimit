@@ -9,14 +9,12 @@
     <Grid Margin="12" Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="160"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12"
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
                     AutomationProperties.Name="{loc:Loc ServiceStatus_Automation}">
             <TextBlock Text="{loc:Loc Main_Title}" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
             <Ellipse Width="10" Height="10" Margin="12,0,4,0"
@@ -26,50 +24,93 @@
                        AutomationProperties.LiveSetting="Polite"/>
         </StackPanel>
 
-        <!-- Summary -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8"
-                    AutomationProperties.Name="{loc:Loc TrafficSummary_Automation}">
-            <TextBlock Margin="0,0,24,0"
-                       AutomationProperties.Name="{Binding TotalDownload, StringFormat='Download speed: {0}'}">
-                <Run Text="{loc:Loc Label_Download}" Foreground="{DynamicResource MutedTextBrush}"/>
-                <Run Text="{Binding TotalDownload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#2196F3"/>
-            </TextBlock>
-            <TextBlock AutomationProperties.Name="{Binding TotalUpload, StringFormat='Upload speed: {0}'}">
-                <Run Text="{loc:Loc Label_Upload}" Foreground="{DynamicResource MutedTextBrush}"/>
-                <Run Text="{Binding TotalUpload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#4CAF50"/>
-            </TextBlock>
-        </StackPanel>
+        <!-- Tab Control -->
+        <TabControl Grid.Row="1" SelectionChanged="OnTabChanged">
+            <!-- Real-time Tab -->
+            <TabItem Header="{loc:Loc Tab_Realtime}">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="160"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-        <!-- Traffic chart -->
-        <lvc:CartesianChart Grid.Row="2" Margin="0,0,0,8"
-                            Series="{Binding ChartSeries}"
-                            YAxes="{Binding ChartYAxes}"
-                            XAxes="{Binding ChartXAxes}"
-                            AnimationsSpeed="00:00:00.200"
-                            AutomationProperties.Name="{loc:Loc Chart_Automation}"/>
+                    <!-- Summary -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
+                                AutomationProperties.Name="{loc:Loc TrafficSummary_Automation}">
+                        <TextBlock Margin="0,0,24,0"
+                                   AutomationProperties.Name="{Binding TotalDownload, StringFormat='Download speed: {0}'}">
+                            <Run Text="{loc:Loc Label_Download}" Foreground="{DynamicResource MutedTextBrush}"/>
+                            <Run Text="{Binding TotalDownload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#2196F3"/>
+                        </TextBlock>
+                        <TextBlock AutomationProperties.Name="{Binding TotalUpload, StringFormat='Upload speed: {0}'}">
+                            <Run Text="{loc:Loc Label_Upload}" Foreground="{DynamicResource MutedTextBrush}"/>
+                            <Run Text="{Binding TotalUpload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#4CAF50"/>
+                        </TextBlock>
+                    </StackPanel>
 
-        <!-- Process list -->
-        <DataGrid Grid.Row="3" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
-                  AutomationProperties.Name="{loc:Loc ProcessGrid_Automation}">
-            <DataGrid.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"/>
-                    <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"/>
-                </ContextMenu>
-            </DataGrid.ContextMenu>
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding ProcessName}" Width="180"/>
-                <DataGridTextColumn Header="{loc:Loc Column_PID}" Binding="{Binding ProcessId}" Width="60"/>
-                <DataGridTextColumn Header="{loc:Loc Column_DownloadPerSecond}" Binding="{Binding DownloadDisplay}" Width="120"/>
-                <DataGridTextColumn Header="{loc:Loc Column_UploadPerSecond}" Binding="{Binding UploadDisplay}" Width="120"/>
-                <DataGridTextColumn Header="{loc:Loc Column_TotalDown}" Binding="{Binding TotalDownDisplay}" Width="120"/>
-                <DataGridTextColumn Header="{loc:Loc Column_TotalUp}" Binding="{Binding TotalUpDisplay}" Width="120"/>
-                <DataGridTextColumn Header="{loc:Loc Column_Limit}" Binding="{Binding LimitDisplay}" Width="*"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                    <!-- Traffic chart -->
+                    <lvc:CartesianChart Grid.Row="1" Margin="0,0,0,8"
+                                        Series="{Binding ChartSeries}"
+                                        YAxes="{Binding ChartYAxes}"
+                                        XAxes="{Binding ChartXAxes}"
+                                        AnimationsSpeed="00:00:00.200"
+                                        AutomationProperties.Name="{loc:Loc Chart_Automation}"/>
+
+                    <!-- Process list -->
+                    <DataGrid Grid.Row="2" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
+                              AutomationProperties.Name="{loc:Loc ProcessGrid_Automation}">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"/>
+                                <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding ProcessName}" Width="180"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_PID}" Binding="{Binding ProcessId}" Width="60"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_DownloadPerSecond}" Binding="{Binding DownloadDisplay}" Width="120"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_UploadPerSecond}" Binding="{Binding UploadDisplay}" Width="120"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_TotalDown}" Binding="{Binding TotalDownDisplay}" Width="120"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_TotalUp}" Binding="{Binding TotalUpDisplay}" Width="120"/>
+                            <DataGridTextColumn Header="{loc:Loc Column_Limit}" Binding="{Binding LimitDisplay}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- History Tab -->
+            <TabItem Header="{loc:Loc Tab_History}" x:Name="HistoryTab">
+                <Grid Margin="0,8,0,0" DataContext="{Binding HistoryViewModel}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Controls -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <ComboBox ItemsSource="{Binding ProcessNames}" SelectedItem="{Binding SelectedProcess}"
+                                  MinWidth="180" Margin="0,0,12,0"/>
+                        <RadioButton Content="{loc:Loc History_Hourly}" IsChecked="{Binding IsHourly}"
+                                     VerticalAlignment="Center" Margin="0,0,12,0" GroupName="HistoryGranularity"/>
+                        <RadioButton Content="{loc:Loc History_Daily}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                     GroupName="HistoryGranularity"/>
+                        <Button Content="{loc:Loc History_Refresh}" Click="OnHistoryRefresh" MinWidth="80"/>
+                    </StackPanel>
+
+                    <!-- History chart -->
+                    <lvc:CartesianChart Grid.Row="1"
+                                        Series="{Binding HistorySeries}"
+                                        YAxes="{Binding HistoryYAxes}"
+                                        XAxes="{Binding HistoryXAxes}"
+                                        AnimationsSpeed="00:00:00.300"
+                                        AutomationProperties.Name="{loc:Loc History_Automation}"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
         <!-- Status bar -->
-        <StatusBar Grid.Row="4" Margin="0,8,0,0"
+        <StatusBar Grid.Row="2" Margin="0,8,0,0"
                    AutomationProperties.Name="{loc:Loc StatusBar_Automation}">
             <StatusBarItem AutomationProperties.Name="{Binding ConnectionsDisplay}">
                 <TextBlock Text="{Binding ConnectionsDisplay}"/>

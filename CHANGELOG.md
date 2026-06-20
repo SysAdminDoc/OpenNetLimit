@@ -132,6 +132,8 @@
 - RESX-based localization: replaced hardcoded string dictionaries with `Strings.resx` (English) and `Strings.es.resx` (Spanish) resource files via `ResourceManager`. New languages can be added by dropping satellite assemblies without code changes
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
+- Historical bandwidth timeline: new History tab with scrollable column chart showing per-process hourly/daily bandwidth from SQLite stats database; process filter dropdown and hourly/daily granularity toggle; localized in English and Spanish
+
 ### Fixed
 - Enabled TreatWarningsAsErrors in Directory.Build.props — nullable analysis and CS-series warnings now break the build
 - Added WinDivert driver signature validation at startup: logs warning if binary certificate is expired, with link to WinDivert#397 and cross-signing policy context

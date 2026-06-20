@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
 using Forms = System.Windows.Forms;
@@ -118,6 +119,19 @@ public partial class MainWindow : Window
     private void OnToggleLanguage(object sender, RoutedEventArgs e)
     {
         _viewModel.ToggleLanguage();
+    }
+
+    private async void OnTabChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source is System.Windows.Controls.TabControl && HistoryTab.IsSelected)
+        {
+            await _viewModel.HistoryViewModel.LoadDataAsync();
+        }
+    }
+
+    private async void OnHistoryRefresh(object sender, RoutedEventArgs e)
+    {
+        await _viewModel.HistoryViewModel.LoadDataAsync();
     }
 
     private void OnCultureChanged()
