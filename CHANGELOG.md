@@ -133,6 +133,9 @@
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
+- Fixed silent crash in WinDivert capture loops: non-cancellation exceptions (driver faults, I/O errors) are now caught, logged, and retried with backoff; persistent failures (10 consecutive) set `_isRunning = false`
+- Fixed TrafficMonitor snapshot race: `CurrentDownloadBytesPerSecond`/`CurrentUploadBytesPerSecond` now use volatile-backed fields to prevent torn reads by concurrent pipe/REST/UI callers
+- Fixed PacketScheduler dispose race: `_sendLock` serializes DrainReady timer callback and Dispose flush loop to prevent concurrent WinDivert handle access
 - Fixed FlowTracker memory leak: closed flows are now purged every 5 minutes (PurgeStale was dead code)
 - Fixed named pipe squatting vulnerability: first pipe instance uses FirstPipeInstance flag to prevent attackers from pre-creating the pipe name
 - Fixed DnsResolver swallowing OperationCanceledException: shutdown cancellation is now properly propagated instead of being caught and cached as null

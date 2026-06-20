@@ -115,12 +115,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     {
         var buffer = new Memory<byte>(new byte[65535]);
         var addrBuffer = new Memory<WinDivertAddress>(new WinDivertAddress[1]);
+        int consecutiveErrors = 0;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 var (recvLen, _) = _flowHandle!.RecvEx(buffer.Span, addrBuffer.Span);
+                consecutiveErrors = 0;
                 ref var addr = ref addrBuffer.Span[0];
 
                 var flowData = addr.Flow;
@@ -161,6 +163,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             {
                 break;
             }
+            catch (Exception ex)
+            {
+                consecutiveErrors++;
+                Trace.TraceError($"FlowLoop error ({consecutiveErrors}): {ex.Message}");
+                if (consecutiveErrors >= 10)
+                {
+                    Trace.TraceError("FlowLoop: too many consecutive errors, stopping");
+                    _isRunning = false;
+                    break;
+                }
+                Thread.Sleep(Math.Min(consecutiveErrors * 100, 1000));
+            }
         }
     }
 
@@ -168,12 +182,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     {
         var buffer = new Memory<byte>(new byte[65535]);
         var addrBuffer = new Memory<WinDivertAddress>(new WinDivertAddress[1]);
+        int consecutiveErrors = 0;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 var (recvLen, _) = _networkHandle!.RecvEx(buffer.Span, addrBuffer.Span);
+                consecutiveErrors = 0;
                 ref var addr = ref addrBuffer.Span[0];
                 var packet = buffer[..(int)recvLen];
 
@@ -245,6 +261,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             catch (Exception) when (ct.IsCancellationRequested)
             {
                 break;
+            }
+            catch (Exception ex)
+            {
+                consecutiveErrors++;
+                Trace.TraceError($"NetworkLoop error ({consecutiveErrors}): {ex.Message}");
+                if (consecutiveErrors >= 10)
+                {
+                    Trace.TraceError("NetworkLoop: too many consecutive errors, stopping");
+                    _isRunning = false;
+                    break;
+                }
+                Thread.Sleep(Math.Min(consecutiveErrors * 100, 1000));
             }
         }
     }
