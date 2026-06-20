@@ -1,3 +1,4 @@
+using System.Net;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
 using Xunit;
@@ -213,5 +214,85 @@ public class RuleEngineTests
         engine.ImportRules("""[{"processName":"firefox"}]""", replace: true);
         Assert.Single(engine.GetAllRules());
         Assert.Equal("firefox", engine.GetAllRules()[0].ProcessName);
+    }
+
+    [Fact]
+    public void FindMatchingRule_WithRemotePort_FiltersCorrectly()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            RemotePortFilter = 443,
+            DownloadBytesPerSecond = 50_000
+        });
+
+        var match = engine.FindMatchingRule("chrome", null, IPAddress.Parse("8.8.8.8"), 443, "Tcp");
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("chrome", null, IPAddress.Parse("8.8.8.8"), 80, "Tcp");
+        Assert.Null(noMatch);
+    }
+
+    [Fact]
+    public void FindMatchingRule_WithProtocol_FiltersCorrectly()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "app",
+            ProtocolFilter = "Tcp",
+            DownloadBytesPerSecond = 10_000
+        });
+
+        var match = engine.FindMatchingRule("app", null, null, null, "Tcp");
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("app", null, null, null, "Udp");
+        Assert.Null(noMatch);
+    }
+
+    [Fact]
+    public void FindMatchingRule_WithCidr_FiltersCorrectly()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "app",
+            RemoteAddressFilter = "10.0.0.0/8",
+            DownloadBytesPerSecond = 10_000
+        });
+
+        var match = engine.FindMatchingRule("app", null, IPAddress.Parse("10.1.2.3"), null, null);
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("app", null, IPAddress.Parse("192.168.1.1"), null, null);
+        Assert.Null(noMatch);
+    }
+
+    [Fact]
+    public void FindMatchingRule_WithExactIp_FiltersCorrectly()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule
+        {
+            ProcessName = "app",
+            RemoteAddressFilter = "8.8.8.8",
+            DownloadBytesPerSecond = 10_000
+        });
+
+        var match = engine.FindMatchingRule("app", null, IPAddress.Parse("8.8.8.8"), null, null);
+        Assert.NotNull(match);
+
+        var noMatch = engine.FindMatchingRule("app", null, IPAddress.Parse("8.8.4.4"), null, null);
+        Assert.Null(noMatch);
+    }
+
+    [Fact]
+    public void MatchesConnection_NoFilters_MatchesAll()
+    {
+        var rule = new BandwidthRule { ProcessName = "app" };
+        Assert.True(rule.MatchesConnection(IPAddress.Parse("1.2.3.4"), 443, "Tcp"));
+        Assert.False(rule.HasConnectionFilters);
     }
 }

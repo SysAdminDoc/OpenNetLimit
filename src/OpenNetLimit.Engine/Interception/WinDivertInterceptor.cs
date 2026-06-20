@@ -200,7 +200,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath);
+                var remoteAddr = isOutbound ? flowKey.RemoteAddress : flowKey.LocalAddress;
+                var remotePort = isOutbound ? (int)flowKey.RemotePort : (int)flowKey.LocalPort;
+                var protocolStr = flowKey.Protocol.ToString();
+                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
+                    remoteAddr, remotePort, protocolStr);
                 if (matchingRule?.Action == RuleAction.Block && !ProtectedProcesses.Contains(processName))
                 {
                     Interlocked.Increment(ref _totalBlocked);
