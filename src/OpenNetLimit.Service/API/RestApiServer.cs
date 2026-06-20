@@ -11,13 +11,26 @@ public sealed class RestApiServer : BackgroundService
     private readonly RestApiRouter _router;
     private readonly RestApiOptions _options;
     private readonly ILogger<RestApiServer> _logger;
-    private readonly ConcurrentDictionary<string, RateLimiter> _rateLimiters = new();
+    private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new();
+    private Timer? _rateLimiterCleanupTimer;
 
     public RestApiServer(RestApiRouter router, RestApiOptions options, ILogger<RestApiServer> logger)
     {
         _router = router;
         _options = options;
         _logger = logger;
+    }
+
+    private sealed class RateLimiterEntry
+    {
+        public RateLimiter Limiter { get; }
+        public DateTime LastAccess { get; set; }
+
+        public RateLimiterEntry(RateLimiter limiter)
+        {
+            Limiter = limiter;
+            LastAccess = DateTime.UtcNow;
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -27,6 +40,8 @@ public sealed class RestApiServer : BackgroundService
             _logger.LogInformation("REST API disabled by OPENNETLIMIT_API_DISABLED");
             return;
         }
+
+        _rateLimiterCleanupTimer = new Timer(_ => PruneIdleRateLimiters(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
         using var listener = new HttpListener();
         foreach (var url in _options.Urls)
@@ -72,15 +87,17 @@ public sealed class RestApiServer : BackgroundService
         try
         {
             var clientKey = context.Request.RemoteEndPoint?.Address?.ToString() ?? "unknown";
-            var limiter = _rateLimiters.GetOrAdd(clientKey, _ => new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = 10,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(10),
-                TokensPerPeriod = 10,
-                QueueLimit = 0
-            }));
+            var entry = _rateLimiters.GetOrAdd(clientKey, _ => new RateLimiterEntry(
+                new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+                {
+                    TokenLimit = 10,
+                    ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                    TokensPerPeriod = 10,
+                    QueueLimit = 0
+                })));
+            entry.LastAccess = DateTime.UtcNow;
 
-            using var lease = await limiter.AcquireAsync(1, ct);
+            using var lease = await entry.Limiter.AcquireAsync(1, ct);
             if (!lease.IsAcquired)
             {
                 result = RestApiResponse.Error(429, "rate limit exceeded", RestApiRouter.JsonOptions);
@@ -161,5 +178,17 @@ public sealed class RestApiServer : BackgroundService
             return authorization[bearer.Length..];
 
         return null;
+    }
+
+    private void PruneIdleRateLimiters()
+    {
+        var cutoff = DateTime.UtcNow.AddMinutes(-10);
+        foreach (var kvp in _rateLimiters)
+        {
+            if (kvp.Value.LastAccess < cutoff && _rateLimiters.TryRemove(kvp.Key, out var removed))
+            {
+                removed.Limiter.Dispose();
+            }
+        }
     }
 }

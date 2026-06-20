@@ -133,6 +133,12 @@
 - RTL language support: main window applies `FlowDirection.RightToLeft` when the current UI culture uses a right-to-left script
 
 ### Fixed
+- Added quota period auto-reset: daily quotas reset at midnight, weekly on Monday midnight, monthly on 1st midnight via timer in EngineWorker
+- Added DnsResolver cache eviction: max 10,000 entries with periodic pruning of expired entries
+- Added DnsResolver and ConnectionLogger unit tests covering cache behavior, entry trimming, and recent retrieval
+- Fixed RuleSchedule UTC time comparison: schedule start/end times now evaluated against local time instead of UTC
+- Fixed REST API rate-limiter dictionary leak: idle rate limiters (>10 minutes) are now pruned and disposed
+- Fixed PluginManager IPv4-mapped IPv6 SSRF bypass: `::ffff:192.168.x.x` addresses now correctly detected as private via MapToIPv4
 - Fixed silent crash in WinDivert capture loops: non-cancellation exceptions (driver faults, I/O errors) are now caught, logged, and retried with backoff; persistent failures (10 consecutive) set `_isRunning = false`
 - Fixed TrafficMonitor snapshot race: `CurrentDownloadBytesPerSecond`/`CurrentUploadBytesPerSecond` now use volatile-backed fields to prevent torn reads by concurrent pipe/REST/UI callers
 - Fixed PacketScheduler dispose race: `_sendLock` serializes DrainReady timer callback and Dispose flush loop to prevent concurrent WinDivert handle access

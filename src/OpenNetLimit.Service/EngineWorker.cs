@@ -29,7 +29,9 @@ public class EngineWorker : BackgroundService
     private Timer? _purgeTimer;
     private Timer? _flowPurgeTimer;
     private Timer? _quotaTimer;
+    private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
+    private DateTime _lastQuotaResetCheck = DateTime.Now.Date;
 
     private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -147,6 +149,7 @@ public class EngineWorker : BackgroundService
 
         _flowPurgeTimer = new Timer(_ => PurgeStaleFlows(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _quotaResetTimer = new Timer(_ => CheckQuotaResets(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
         _controlPlane.QuotaTracker = _quotaTracker;
@@ -278,6 +281,39 @@ public class EngineWorker : BackgroundService
         }, CancellationToken.None);
     }
 
+    private void CheckQuotaResets()
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var today = now.Date;
+
+            if (today <= _lastQuotaResetCheck)
+                return;
+
+            _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Daily);
+            _logger.LogInformation("Daily quota period reset");
+
+            if (today.DayOfWeek == DayOfWeek.Monday)
+            {
+                _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Weekly);
+                _logger.LogInformation("Weekly quota period reset");
+            }
+
+            if (today.Day == 1)
+            {
+                _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Monthly);
+                _logger.LogInformation("Monthly quota period reset");
+            }
+
+            _lastQuotaResetCheck = today;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check quota resets");
+        }
+    }
+
     private void PurgeStaleFlows()
     {
         try
@@ -306,6 +342,7 @@ public class EngineWorker : BackgroundService
     private async Task ShutdownGracefully()
     {
         _quotaTimer?.Dispose();
+        _quotaResetTimer?.Dispose();
         _alertTimer?.Dispose();
         _statsTimer?.Dispose();
         _purgeTimer?.Dispose();
