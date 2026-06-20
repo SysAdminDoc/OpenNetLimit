@@ -74,6 +74,9 @@
 - Rule load failure recovery: starts with empty rule set instead of crashing
 - Pipe server crash isolation: logged and recorded without taking down the engine
 - Data directory auto-creation on startup
+- REST API for local automation and third-party integration (`/api/v1/status`, snapshots, processes, rules, stats, quotas, connection log)
+- Optional remote administration via explicit non-loopback REST bind and API key
+- Keyed REST rule mutation endpoints for add/update/delete/import
 
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
@@ -83,6 +86,8 @@
 - Added IPC protocol definitions with versioning and command validation
 - Input length limits prevent oversized command injection
 - Fixed REMOVE_RULE bug that was calling RemoveAll() instead of removing only the specified rule
+- REST API is loopback-only by default; non-loopback listener prefixes require `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`
+- REST mutations require `X-OpenNetLimit-Key` or bearer token authentication
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully

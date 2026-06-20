@@ -3,6 +3,7 @@ using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
+using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.IPC;
 using OpenNetLimit.Service.Storage;
 
@@ -16,6 +17,7 @@ public class EngineWorker : BackgroundService
     private readonly IFlowTracker _flowTracker;
     private readonly ITrafficMonitor _trafficMonitor;
     private readonly PipeServer _pipeServer;
+    private readonly ControlPlaneState _controlPlane;
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
     private RuleReconciler? _reconciler;
@@ -40,6 +42,7 @@ public class EngineWorker : BackgroundService
         IFlowTracker flowTracker,
         ITrafficMonitor trafficMonitor,
         PipeServer pipeServer,
+        ControlPlaneState controlPlane,
         ILogger<EngineWorker> logger)
     {
         _interceptor = interceptor;
@@ -48,12 +51,14 @@ public class EngineWorker : BackgroundService
         _flowTracker = flowTracker;
         _trafficMonitor = trafficMonitor;
         _pipeServer = pipeServer;
+        _controlPlane = controlPlane;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("OpenNetLimit engine starting");
+        _controlPlane.DiagnosticProvider = GetDiagnosticInfo;
 
         if (!ValidatePrerequisites())
         {
@@ -102,6 +107,7 @@ public class EngineWorker : BackgroundService
             _statsDb = new TrafficStatsDb(StatsDbPath);
             _statsTimer = new Timer(_ => RecordStats(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
             _purgeTimer = new Timer(_ => _statsDb.PurgeOlderThan(90), null, TimeSpan.FromHours(1), TimeSpan.FromHours(24));
+            _controlPlane.StatsProvider = _statsDb;
             _logger.LogInformation("Traffic statistics database initialized at {Path}", StatsDbPath);
         }
         catch (Exception ex)
@@ -111,11 +117,9 @@ public class EngineWorker : BackgroundService
 
         _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
-        _pipeServer.DiagnosticProvider = GetDiagnosticInfo;
-        _pipeServer.StatsProvider = _statsDb;
-        _pipeServer.QuotaTracker = _quotaTracker;
+        _controlPlane.QuotaTracker = _quotaTracker;
         if (_interceptor is WinDivertInterceptor wdi2)
-            _pipeServer.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
+            _controlPlane.ConnectionLogProvider = () => wdi2.ConnectionLog.GetRecent(100).Cast<object>().ToList();
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
         _logger.LogInformation("IPC pipe server started");
 
