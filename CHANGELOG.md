@@ -127,6 +127,8 @@
 - Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)
 - Added PluginManager SSRF protection: webhook URLs targeting loopback, private RFC1918, or link-local addresses are rejected at manifest validation
 - Added 10-second HTTP timeout on plugin webhook dispatch to prevent indefinite hangs
+- DPAPI-protected API key storage: service checks `%ProgramData%\OpenNetLimit\apikey.protected` (encrypted with LocalMachine scope) when `OPENNETLIMIT_API_KEY` env var is not set
+- Rules support `CountryFilter` array for country-code-based connection filtering using the existing GeoIP infrastructure
 
 ### Fixed
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
