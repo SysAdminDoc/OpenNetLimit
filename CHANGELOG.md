@@ -121,6 +121,7 @@
 - Rule conditions: rules can now filter by remote IP address (exact or CIDR subnet), remote port, and protocol (TCP/UDP). Interceptor evaluates connection-level conditions per packet via `FindMatchingRule` overload
 - Added `ProtocolFilter`, `MatchesConnection`, and `HasConnectionFilters` to `BandwidthRule` model; existing `RemoteAddressFilter`/`RemotePortFilter` fields now active in rule evaluation
 - App groups: rules can be assigned to named groups via `GroupName` field. `GROUPS` and `GROUP_RULES` IPC commands, `GET /api/v1/groups` and `GET /api/v1/groups/{name}` REST endpoints for querying groups and their rules
+- CLI tool (`onl`): scriptable rule management, status queries, stats, group queries, and import/export via the REST API. Supports `OPENNETLIMIT_API_URL` and `OPENNETLIMIT_API_KEY` environment variables
 
 ### Security
 - Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)
