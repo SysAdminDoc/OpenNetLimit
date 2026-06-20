@@ -27,30 +27,6 @@ public class PipeServer
     private readonly PluginManager _pluginManager;
     private readonly ILogger<PipeServer> _logger;
 
-    public Func<DiagnosticInfo>? DiagnosticProvider
-    {
-        get => _controlPlane.DiagnosticProvider;
-        set => _controlPlane.DiagnosticProvider = value;
-    }
-
-    public Func<IReadOnlyList<object>>? ConnectionLogProvider
-    {
-        get => _controlPlane.ConnectionLogProvider;
-        set => _controlPlane.ConnectionLogProvider = value;
-    }
-
-    public TrafficStatsDb? StatsProvider
-    {
-        get => _controlPlane.StatsProvider;
-        set => _controlPlane.StatsProvider = value;
-    }
-
-    public QuotaTracker? QuotaTracker
-    {
-        get => _controlPlane.QuotaTracker;
-        set => _controlPlane.QuotaTracker = value;
-    }
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase

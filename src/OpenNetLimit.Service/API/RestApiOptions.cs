@@ -1,3 +1,5 @@
+using OpenNetLimit.Core;
+
 namespace OpenNetLimit.Service.API;
 
 public sealed class RestApiOptions
@@ -19,8 +21,8 @@ public sealed class RestApiOptions
         return Create(
             Environment.GetEnvironmentVariable("OPENNETLIMIT_API_URLS"),
             apiKey,
-            IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_ENABLE_REMOTE_API")),
-            IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_API_DISABLED")));
+            EnvHelper.IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_ENABLE_REMOTE_API")),
+            EnvHelper.IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_API_DISABLED")));
     }
 
     public static RestApiOptions Create(string? rawUrls, string? apiKey, bool remoteRequested, bool disabled)
@@ -85,10 +87,4 @@ public sealed class RestApiOptions
     private static string EnsureTrailingSlash(string url) =>
         url.EndsWith("/", StringComparison.Ordinal) ? url : url + "/";
 
-    private static bool IsEnabled(string? value) =>
-        value is not null
-        && (value.Equals("1", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("on", StringComparison.OrdinalIgnoreCase));
 }

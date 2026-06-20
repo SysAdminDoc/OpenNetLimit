@@ -148,6 +148,9 @@
 - Fixed HistoryViewModel CancellationTokenSource leak: old CTS disposed before replacement
 - Fixed RuleEngine.ImportRules: imported rules now validated (must have ProcessName or ProcessPath), matching AddRule/UpdateRule behavior
 - Fixed QuotaTracker.Update: uses QuotaState.PercentUsed property instead of duplicating the percentage formula
+- Removed dead pass-through properties from PipeServer (DiagnosticProvider, ConnectionLogProvider, StatsProvider, QuotaTracker) — EngineWorker sets these on ControlPlaneState directly
+- Fixed CLI import stdin DoS: reads with 1MB hard cap matching REST API body limit
+- Extracted shared EnvHelper.IsEnabled utility, removing four copy-pasted implementations across RestApiOptions, GeoIpOptions, PluginOptions, VirusTotalOptions
 - Fixed BandwidthAlertTracker event trimming race: uses lock-based approach matching ConnectionLogger
 - Fixed BandwidthAlertTracker.GetRecentEvents: array snapshot + slice from end instead of O(n) Reverse()
 - Fixed PluginManager SSRF: webhook URLs with hostnames (non-IP) are now rejected at manifest validation

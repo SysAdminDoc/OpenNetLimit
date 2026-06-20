@@ -1,3 +1,5 @@
+using OpenNetLimit.Core;
+
 namespace OpenNetLimit.Service.Security;
 
 public sealed class VirusTotalOptions
@@ -17,16 +19,9 @@ public sealed class VirusTotalOptions
 
         return new VirusTotalOptions
         {
-            Enabled = !IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_VIRUSTOTAL_DISABLED")),
+            Enabled = !EnvHelper.IsEnabled(Environment.GetEnvironmentVariable("OPENNETLIMIT_VIRUSTOTAL_DISABLED")),
             ApiKey = Environment.GetEnvironmentVariable("OPENNETLIMIT_VIRUSTOTAL_API_KEY"),
             CacheDuration = TimeSpan.FromHours(cacheHours)
         };
     }
-
-    private static bool IsEnabled(string? value) =>
-        value is not null
-        && (value.Equals("1", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
-            || value.Equals("on", StringComparison.OrdinalIgnoreCase));
 }
