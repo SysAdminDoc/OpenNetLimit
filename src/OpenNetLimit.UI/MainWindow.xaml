@@ -5,7 +5,7 @@
         Title="OpenNetLimit" Height="700" Width="900"
         WindowStartupLocation="CenterScreen"
         KeyboardNavigation.TabNavigation="Cycle">
-    <Grid Margin="12">
+    <Grid Margin="12" Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -21,7 +21,7 @@
             <Ellipse Width="10" Height="10" Margin="12,0,4,0"
                      Fill="{Binding StatusColor}" VerticalAlignment="Center"
                      AutomationProperties.Name="{Binding StatusText}"/>
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="Gray"
+            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                        AutomationProperties.LiveSetting="Polite"/>
         </StackPanel>
 
@@ -30,11 +30,11 @@
                     AutomationProperties.Name="Traffic summary">
             <TextBlock Margin="0,0,24,0"
                        AutomationProperties.Name="{Binding TotalDownload, StringFormat='Download speed: {0}'}">
-                <Run Text="Download: " Foreground="Gray"/>
+                <Run Text="Download: " Foreground="{DynamicResource MutedTextBrush}"/>
                 <Run Text="{Binding TotalDownload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#2196F3"/>
             </TextBlock>
             <TextBlock AutomationProperties.Name="{Binding TotalUpload, StringFormat='Upload speed: {0}'}">
-                <Run Text="Upload: " Foreground="Gray"/>
+                <Run Text="Upload: " Foreground="{DynamicResource MutedTextBrush}"/>
                 <Run Text="{Binding TotalUpload, Mode=OneWay}" FontWeight="SemiBold" Foreground="#4CAF50"/>
             </TextBlock>
         </StackPanel>
@@ -84,6 +84,10 @@
             <Separator/>
             <StatusBarItem AutomationProperties.Name="{Binding PermissionDisplay, StringFormat='Mode: {0}'}">
                 <TextBlock Text="{Binding PermissionDisplay, StringFormat='Mode: {0}'}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem AutomationProperties.Name="{Binding ThemeDisplay, StringFormat='Current {0}'}">
+                <Button Content="{Binding ThemeDisplay}" MinWidth="96" Click="OnToggleTheme"/>
             </StatusBarItem>
         </StatusBar>
     </Grid>

@@ -86,6 +86,7 @@
 - Alert rule/event IPC commands and REST endpoints
 - Manifest-based webhook plugin system for alert and quota events
 - Plugin list/reload IPC commands and REST endpoints
+- Persisted dark/light WPF theme support with a status-bar toggle
 
 ### Security
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)

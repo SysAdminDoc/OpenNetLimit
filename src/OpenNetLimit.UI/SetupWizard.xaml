@@ -4,7 +4,7 @@
         Title="OpenNetLimit — First-Run Setup" Height="400" Width="520"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
         WindowStyle="SingleBorderWindow">
-    <Grid>
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -28,7 +28,7 @@
                     <TextBlock TextWrapping="Wrap" FontSize="14" Margin="0,0,0,12">
                         OpenNetLimit monitors and controls per-application network bandwidth on your Windows PC.
                     </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="Gray">
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}">
                         This wizard will help you configure the essential settings. You can change these later at any time.
                     </TextBlock>
                 </StackPanel>
@@ -47,7 +47,7 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" FontSize="13">
                         &#x2022; Some antivirus or EDR software may flag the WinDivert driver. Add an exception if needed.
                     </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,12,0,0" FontSize="12">
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" Margin="0,12,0,0" FontSize="12">
                         Traffic rules, statistics, and logs are stored in %ProgramData%\OpenNetLimit.
                     </TextBlock>
                 </StackPanel>
@@ -63,7 +63,7 @@
                     <TextBlock TextWrapping="Wrap" FontSize="13" Margin="0,0,0,8">
                         Right-click any process in the list to set bandwidth limits. Use the system tray icon for quick access.
                     </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,12,0,0" FontSize="12">
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" Margin="0,12,0,0" FontSize="12">
                         Click Finish to open the main window.
                     </TextBlock>
                 </StackPanel>

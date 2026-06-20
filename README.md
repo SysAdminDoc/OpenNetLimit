@@ -17,6 +17,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **Bandwidth priorities** — high/normal/low priority levels per application
 - **Import/export rules** — share rule sets between machines
 - **System tray** — minimize to tray, quick access context menu
+- **Theme support** — persisted dark/light UI toggle from the status bar
 - **Connection logging** — rolling log of established, closed, and blocked connections
 - **Windows service detection** — identifies svchost-hosted service names
 - **UWP/Store app detection** — identifies AppX package names
@@ -69,7 +70,7 @@ In a separate terminal (does not require admin for monitoring):
 dotnet run --project src/OpenNetLimit.UI
 ```
 
-The UI will auto-connect to the service and display live traffic data. On first launch, a setup wizard guides you through requirements.
+The UI will auto-connect to the service and display live traffic data. On first launch, a setup wizard guides you through requirements. Use the status-bar theme button to switch between dark and light mode.
 
 ### Setting Bandwidth Limits
 

@@ -121,6 +121,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetField(ref _permissionDisplay, value);
     }
 
+    private string _themeDisplay = ThemeManager.ThemeDisplayName;
+    public string ThemeDisplay
+    {
+        get => _themeDisplay;
+        set => SetField(ref _themeDisplay, value);
+    }
+
     public MainViewModel()
     {
         ChartSeries =
@@ -151,6 +158,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _reconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _reconnectTimer.Tick += async (_, _) => await TryConnectAsync();
 
+        ThemeManager.ThemeChanged += OnThemeChanged;
+        ApplyChartTheme();
         DetectAdmin();
         _ = TryConnectAsync();
     }
@@ -348,6 +357,34 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         catch { }
     }
 
+    public void ToggleTheme()
+    {
+        ThemeManager.ToggleTheme();
+    }
+
+    private void OnThemeChanged(AppTheme _)
+    {
+        ThemeDisplay = ThemeManager.ThemeDisplayName;
+        ApplyChartTheme();
+    }
+
+    private void ApplyChartTheme()
+    {
+        var colors = ThemeManager.GetChartColors();
+        var labelPaint = new SolidColorPaint(new SKColor(colors.LabelR, colors.LabelG, colors.LabelB));
+        var gridPaint = new SolidColorPaint(new SKColor(colors.GridR, colors.GridG, colors.GridB)) { StrokeThickness = 1 };
+
+        foreach (var axis in ChartYAxes)
+        {
+            axis.LabelsPaint = labelPaint;
+            axis.NamePaint = labelPaint;
+            axis.SeparatorsPaint = gridPaint;
+        }
+
+        foreach (var axis in ChartXAxes)
+            axis.LabelsPaint = labelPaint;
+    }
+
     private void OnDisconnected()
     {
         _pollTimer.Stop();
@@ -381,6 +418,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        ThemeManager.ThemeChanged -= OnThemeChanged;
         _pollTimer.Stop();
         _reconnectTimer.Stop();
         _client.Dispose();
