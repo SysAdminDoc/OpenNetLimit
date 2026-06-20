@@ -7,6 +7,7 @@ public partial class App : System.Windows.Application
 {
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        LocalizationManager.ApplySavedCulture();
         ThemeManager.ApplySavedTheme();
 
         if (SetupWizard.IsFirstRun)

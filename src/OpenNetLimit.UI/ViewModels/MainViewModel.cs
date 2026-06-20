@@ -43,7 +43,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     [
         new Axis
         {
-            Name = "KB/s",
+            Name = LocalizationManager.Text("Chart_Kbps"),
             MinLimit = 0,
             Labeler = v => $"{v / 1024:F0}"
         }
@@ -58,7 +58,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     ];
 
-    private string _statusText = "Disconnected";
+    private string _statusKey = "Status_Disconnected";
+    private string? _statusFallbackText;
+
+    private string _statusText = LocalizationManager.Text("Status_Disconnected");
     public string StatusText
     {
         get => _statusText;
@@ -90,22 +93,40 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public int ActiveConnectionCount
     {
         get => _activeConnectionCount;
-        set => SetField(ref _activeConnectionCount, value);
+        set
+        {
+            if (SetField(ref _activeConnectionCount, value))
+                OnPropertyChanged(nameof(ConnectionsDisplay));
+        }
     }
+
+    public string ConnectionsDisplay => LocalizationManager.Format("StatusBar_Connections", ActiveConnectionCount);
 
     private int _activeRuleCount;
     public int ActiveRuleCount
     {
         get => _activeRuleCount;
-        set => SetField(ref _activeRuleCount, value);
+        set
+        {
+            if (SetField(ref _activeRuleCount, value))
+                OnPropertyChanged(nameof(ActiveRulesDisplay));
+        }
     }
+
+    public string ActiveRulesDisplay => LocalizationManager.Format("StatusBar_ActiveRules", ActiveRuleCount);
 
     private int _recentAlertCount;
     public int RecentAlertCount
     {
         get => _recentAlertCount;
-        set => SetField(ref _recentAlertCount, value);
+        set
+        {
+            if (SetField(ref _recentAlertCount, value))
+                OnPropertyChanged(nameof(RecentAlertsDisplay));
+        }
     }
+
+    public string RecentAlertsDisplay => LocalizationManager.Format("StatusBar_RecentAlerts", RecentAlertCount);
 
     private bool _isAdmin;
     public bool IsAdmin
@@ -118,15 +139,22 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public string PermissionDisplay
     {
         get => _permissionDisplay;
-        set => SetField(ref _permissionDisplay, value);
+        set
+        {
+            if (SetField(ref _permissionDisplay, value))
+                OnPropertyChanged(nameof(PermissionModeDisplay));
+        }
     }
 
-    private string _themeDisplay = ThemeManager.ThemeDisplayName;
-    public string ThemeDisplay
-    {
-        get => _themeDisplay;
-        set => SetField(ref _themeDisplay, value);
-    }
+    public string PermissionModeDisplay => LocalizationManager.Format("StatusBar_Mode", PermissionDisplay);
+
+    public string ThemeDisplay => LocalizationManager.Format(
+        "ThemeDisplay",
+        LocalizationManager.Text(ThemeManager.CurrentTheme == AppTheme.Dark ? "Theme_Dark" : "Theme_Light"));
+
+    public string LanguageDisplay => LocalizationManager.Format(
+        "LanguageDisplay",
+        LocalizationManager.CurrentCultureCode.ToUpperInvariant());
 
     public MainViewModel()
     {
@@ -135,7 +163,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             new LineSeries<ObservableValue>
             {
                 Values = _downloadPoints,
-                Name = "Download",
+                Name = LocalizationManager.Text("Chart_Download"),
                 GeometrySize = 0,
                 Stroke = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3)) { StrokeThickness = 2 },
                 Fill = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3, 0x40)),
@@ -144,7 +172,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             new LineSeries<ObservableValue>
             {
                 Values = _uploadPoints,
-                Name = "Upload",
+                Name = LocalizationManager.Text("Chart_Upload"),
                 GeometrySize = 0,
                 Stroke = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50)) { StrokeThickness = 2 },
                 Fill = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50, 0x40)),
@@ -159,8 +187,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _reconnectTimer.Tick += async (_, _) => await TryConnectAsync();
 
         ThemeManager.ThemeChanged += OnThemeChanged;
+        LocalizationManager.CultureChanged += OnCultureChanged;
         ApplyChartTheme();
         DetectAdmin();
+        RefreshLocalizedStrings();
         _ = TryConnectAsync();
     }
 
@@ -169,19 +199,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         using var identity = WindowsIdentity.GetCurrent();
         var principal = new WindowsPrincipal(identity);
         IsAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
-        PermissionDisplay = IsAdmin ? "Administrator" : "Read-only";
+        PermissionDisplay = IsAdmin
+            ? LocalizationManager.Text("Mode_Administrator")
+            : LocalizationManager.Text("Mode_ReadOnly");
     }
 
     private async Task TryConnectAsync()
     {
-        UpdateStatus(ConnectionState.Connecting, "Connecting...");
+        UpdateStatus(ConnectionState.Connecting, "Status_Connecting");
         var connected = await _client.ConnectAsync();
 
         if (connected)
         {
             _reconnectTimer.Stop();
             _pollTimer.Start();
-            UpdateStatus(ConnectionState.Connected, "Connected");
+            UpdateStatus(ConnectionState.Connected, "Status_Connected");
             await PollServiceAsync();
         }
         else
@@ -189,7 +221,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             _pollTimer.Stop();
             if (!_reconnectTimer.IsEnabled)
                 _reconnectTimer.Start();
-            UpdateStatus(_client.State, _client.LastError ?? "Service not running");
+
+            if (string.IsNullOrWhiteSpace(_client.LastError) ||
+                string.Equals(_client.LastError, "Service not running", StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateStatus(_client.State, "Status_ServiceNotRunning");
+            }
+            else
+            {
+                UpdateStatus(_client.State, "Status_ServiceNotRunning", _client.LastError);
+            }
         }
     }
 
@@ -310,14 +351,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private static string FormatLimit(ProcessTrafficInfo proc)
     {
         if (proc.DownloadLimitBytesPerSecond is null && proc.UploadLimitBytesPerSecond is null)
-            return "None";
+            return LocalizationManager.Text("Limit_None");
 
         var parts = new List<string>();
         if (proc.DownloadLimitBytesPerSecond is > 0)
             parts.Add($"↓{ProcessViewModel.FormatBytes(proc.DownloadLimitBytesPerSecond.Value)}");
         if (proc.UploadLimitBytesPerSecond is > 0)
             parts.Add($"↑{ProcessViewModel.FormatBytes(proc.UploadLimitBytesPerSecond.Value)}");
-        return parts.Count > 0 ? string.Join(" ", parts) : "None";
+        return parts.Count > 0 ? string.Join(" ", parts) : LocalizationManager.Text("Limit_None");
     }
 
     public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec)
@@ -362,10 +403,43 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ThemeManager.ToggleTheme();
     }
 
+    public void ToggleLanguage()
+    {
+        LocalizationManager.ToggleCulture();
+    }
+
     private void OnThemeChanged(AppTheme _)
     {
-        ThemeDisplay = ThemeManager.ThemeDisplayName;
+        OnPropertyChanged(nameof(ThemeDisplay));
         ApplyChartTheme();
+    }
+
+    private void OnCultureChanged()
+    {
+        RefreshLocalizedStrings();
+    }
+
+    private void RefreshLocalizedStrings()
+    {
+        StatusText = _statusFallbackText ?? LocalizationManager.Text(_statusKey);
+        PermissionDisplay = IsAdmin
+            ? LocalizationManager.Text("Mode_Administrator")
+            : LocalizationManager.Text("Mode_ReadOnly");
+
+        if (ChartSeries[0] is LineSeries<ObservableValue> downloadSeries)
+            downloadSeries.Name = LocalizationManager.Text("Chart_Download");
+        if (ChartSeries[1] is LineSeries<ObservableValue> uploadSeries)
+            uploadSeries.Name = LocalizationManager.Text("Chart_Upload");
+
+        foreach (var axis in ChartYAxes)
+            axis.Name = LocalizationManager.Text("Chart_Kbps");
+
+        OnPropertyChanged(nameof(ConnectionsDisplay));
+        OnPropertyChanged(nameof(ActiveRulesDisplay));
+        OnPropertyChanged(nameof(RecentAlertsDisplay));
+        OnPropertyChanged(nameof(PermissionModeDisplay));
+        OnPropertyChanged(nameof(ThemeDisplay));
+        OnPropertyChanged(nameof(LanguageDisplay));
     }
 
     private void ApplyChartTheme()
@@ -388,14 +462,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnDisconnected()
     {
         _pollTimer.Stop();
-        UpdateStatus(ConnectionState.Disconnected, "Service disconnected");
+        UpdateStatus(ConnectionState.Disconnected, "Status_ServiceDisconnected");
         if (!_reconnectTimer.IsEnabled)
             _reconnectTimer.Start();
     }
 
-    private void UpdateStatus(ConnectionState state, string text)
+    private void UpdateStatus(ConnectionState state, string textKey, string? fallbackText = null)
     {
-        StatusText = text;
+        _statusKey = textKey;
+        _statusFallbackText = fallbackText;
+        StatusText = fallbackText ?? LocalizationManager.Text(textKey);
         StatusColor = state switch
         {
             ConnectionState.Connected => Brushes.LimeGreen,
@@ -412,13 +488,19 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        OnPropertyChanged(propertyName);
         return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     public void Dispose()
     {
         ThemeManager.ThemeChanged -= OnThemeChanged;
+        LocalizationManager.CultureChanged -= OnCultureChanged;
         _pollTimer.Stop();
         _reconnectTimer.Stop();
         _client.Dispose();
@@ -458,7 +540,7 @@ public class ProcessViewModel : INotifyPropertyChanged
         set => SetField(ref _totalUpDisplay, value);
     }
 
-    private string _limitDisplay = "None";
+    private string _limitDisplay = LocalizationManager.Text("Limit_None");
     public string LimitDisplay
     {
         get => _limitDisplay;

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using OpenNetLimit.UI.Services;
 
 namespace OpenNetLimit.UI;
 
@@ -23,7 +24,7 @@ public partial class SetupWizard : Window
             Pages.SelectedIndex++;
             BtnBack.IsEnabled = true;
             if (Pages.SelectedIndex == Pages.Items.Count - 1)
-                BtnNext.Content = "Finish";
+                BtnNext.Content = LocalizationManager.Text("Action_Finish");
         }
         else
         {
@@ -37,7 +38,7 @@ public partial class SetupWizard : Window
         if (Pages.SelectedIndex > 0)
         {
             Pages.SelectedIndex--;
-            BtnNext.Content = "Next";
+            BtnNext.Content = LocalizationManager.Text("Action_Next");
             BtnBack.IsEnabled = Pages.SelectedIndex > 0;
         }
     }

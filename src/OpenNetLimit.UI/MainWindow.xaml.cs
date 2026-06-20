@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows;
+using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
 using Forms = System.Windows.Forms;
 
@@ -9,12 +10,15 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
     private Forms.NotifyIcon? _trayIcon;
+    private Forms.ToolStripMenuItem? _showTrayItem;
+    private Forms.ToolStripMenuItem? _exitTrayItem;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _viewModel;
         _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
+        LocalizationManager.CultureChanged += OnCultureChanged;
         InitializeTrayIcon();
         StateChanged += OnStateChanged;
         Closed += OnClosed;
@@ -23,14 +27,16 @@ public partial class MainWindow : Window
     private void InitializeTrayIcon()
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Show", null, (_, _) => RestoreFromTray());
+        _showTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_Show"), null, (_, _) => RestoreFromTray());
+        menu.Items.Add(_showTrayItem);
         menu.Items.Add("-");
-        menu.Items.Add("Exit", null, (_, _) =>
+        _exitTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_Exit"), null, (_, _) =>
         {
             _trayIcon?.Dispose();
             _trayIcon = null;
             System.Windows.Application.Current.Shutdown();
         });
+        menu.Items.Add(_exitTrayItem);
 
         _trayIcon = new Forms.NotifyIcon
         {
@@ -63,6 +69,7 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _viewModel.BandwidthAlertRaised -= OnBandwidthAlertRaised;
+        LocalizationManager.CultureChanged -= OnCultureChanged;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _viewModel.Dispose();
@@ -72,7 +79,7 @@ public partial class MainWindow : Window
     {
         _trayIcon?.ShowBalloonTip(
             5000,
-            "OpenNetLimit bandwidth alert",
+            LocalizationManager.Text("Alert_BalloonTitle"),
             alert.Message,
             Forms.ToolTipIcon.Warning);
     }
@@ -104,5 +111,18 @@ public partial class MainWindow : Window
     private void OnToggleTheme(object sender, RoutedEventArgs e)
     {
         _viewModel.ToggleTheme();
+    }
+
+    private void OnToggleLanguage(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ToggleLanguage();
+    }
+
+    private void OnCultureChanged()
+    {
+        if (_showTrayItem is not null)
+            _showTrayItem.Text = LocalizationManager.Text("Tray_Show");
+        if (_exitTrayItem is not null)
+            _exitTrayItem.Text = LocalizationManager.Text("Tray_Exit");
     }
 }
