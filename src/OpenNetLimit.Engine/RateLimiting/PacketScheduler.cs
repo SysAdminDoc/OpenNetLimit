@@ -7,6 +7,7 @@ public sealed class PacketScheduler : IDisposable
 {
     private readonly ConcurrentDictionary<uint, ProcessPacketQueue> _queues = new();
     private readonly Timer _drainTimer;
+    private readonly object _sendLock = new();
     private WinDivert? _handle;
     private int _disposed;
 
@@ -61,27 +62,37 @@ public sealed class PacketScheduler : IDisposable
         if (_handle is null || Volatile.Read(ref _disposed) != 0)
             return;
 
-        long now = Environment.TickCount64;
+        if (!Monitor.TryEnter(_sendLock))
+            return;
 
-        Span<WinDivertAddress> addrSpan = stackalloc WinDivertAddress[1];
-        foreach (var (_, queue) in _queues)
+        try
         {
-            while (queue.TryPeek(out var pkt) && pkt.SendAtTicks <= now)
+            long now = Environment.TickCount64;
+
+            Span<WinDivertAddress> addrSpan = stackalloc WinDivertAddress[1];
+            foreach (var (_, queue) in _queues)
             {
-                if (queue.TryDequeue(out pkt))
+                while (queue.TryPeek(out var pkt) && pkt.SendAtTicks <= now)
                 {
-                    try
+                    if (queue.TryDequeue(out pkt))
                     {
-                        addrSpan[0] = pkt.Address;
-                        _handle.SendEx(pkt.Data, addrSpan);
-                        Interlocked.Increment(ref _totalSent);
-                    }
-                    catch
-                    {
-                        Interlocked.Increment(ref _totalDropped);
+                        try
+                        {
+                            addrSpan[0] = pkt.Address;
+                            _handle.SendEx(pkt.Data, addrSpan);
+                            Interlocked.Increment(ref _totalSent);
+                        }
+                        catch
+                        {
+                            Interlocked.Increment(ref _totalDropped);
+                        }
                     }
                 }
             }
+        }
+        finally
+        {
+            Monitor.Exit(_sendLock);
         }
     }
 
@@ -97,19 +108,22 @@ public sealed class PacketScheduler : IDisposable
 
         _drainTimer.Dispose();
 
-        if (_handle is not null)
+        lock (_sendLock)
         {
-            Span<WinDivertAddress> flushAddr = stackalloc WinDivertAddress[1];
-            foreach (var (_, queue) in _queues)
+            if (_handle is not null)
             {
-                while (queue.TryDequeue(out var pkt))
+                Span<WinDivertAddress> flushAddr = stackalloc WinDivertAddress[1];
+                foreach (var (_, queue) in _queues)
                 {
-                    try
+                    while (queue.TryDequeue(out var pkt))
                     {
-                        flushAddr[0] = pkt.Address;
-                        _handle.SendEx(pkt.Data, flushAddr);
+                        try
+                        {
+                            flushAddr[0] = pkt.Address;
+                            _handle.SendEx(pkt.Data, flushAddr);
+                        }
+                        catch { }
                     }
-                    catch { }
                 }
             }
         }

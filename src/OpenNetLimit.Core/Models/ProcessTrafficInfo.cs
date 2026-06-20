@@ -8,8 +8,19 @@ public class ProcessTrafficInfo
     public string? ServiceName { get; set; }
     public string? AppxPackage { get; set; }
 
-    public long CurrentDownloadBytesPerSecond { get; set; }
-    public long CurrentUploadBytesPerSecond { get; set; }
+    private long _currentDownloadBytesPerSecond;
+    public long CurrentDownloadBytesPerSecond
+    {
+        get => Volatile.Read(ref _currentDownloadBytesPerSecond);
+        set => Volatile.Write(ref _currentDownloadBytesPerSecond, value);
+    }
+
+    private long _currentUploadBytesPerSecond;
+    public long CurrentUploadBytesPerSecond
+    {
+        get => Volatile.Read(ref _currentUploadBytesPerSecond);
+        set => Volatile.Write(ref _currentUploadBytesPerSecond, value);
+    }
 
     private long _totalBytesReceived;
     public long TotalBytesReceived
