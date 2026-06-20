@@ -6,6 +6,11 @@ namespace OpenNetLimit.Engine.Monitoring;
 
 public static class ProcessIdentifier
 {
+    private static Dictionary<uint, string?>? _serviceCache;
+    private static DateTime _serviceCacheExpiry;
+    private static readonly object _serviceCacheLock = new();
+    private static readonly TimeSpan ServiceCacheTtl = TimeSpan.FromSeconds(60);
+
     public static string? GetServiceName(uint processId)
     {
         try
@@ -19,27 +24,43 @@ public static class ProcessIdentifier
             return null;
         }
 
+        lock (_serviceCacheLock)
+        {
+            if (_serviceCache is not null && DateTime.UtcNow < _serviceCacheExpiry)
+            {
+                return _serviceCache.TryGetValue(processId, out var cached) ? cached : null;
+            }
+
+            _serviceCache = BuildServicePidMap();
+            _serviceCacheExpiry = DateTime.UtcNow + ServiceCacheTtl;
+            return _serviceCache.TryGetValue(processId, out var result) ? result : null;
+        }
+    }
+
+    private static Dictionary<uint, string?> BuildServicePidMap()
+    {
+        var map = new Dictionary<uint, string?>();
         try
         {
             uint bytesNeeded = 0;
             EnumServicesStatusEx(IntPtr.Zero, 0, 0x30, 1, IntPtr.Zero, 0, ref bytesNeeded, out _, IntPtr.Zero, null);
 
             var scManager = OpenSCManager(null, null, 0x0004);
-            if (scManager == IntPtr.Zero) return null;
+            if (scManager == IntPtr.Zero) return map;
             try
             {
                 var buffer = Marshal.AllocHGlobal((int)bytesNeeded);
                 try
                 {
                     if (!EnumServicesStatusEx(scManager, 0, 0x30, 1, buffer, bytesNeeded, ref bytesNeeded, out uint count, IntPtr.Zero, null))
-                        return null;
+                        return map;
 
                     var entrySize = Marshal.SizeOf<ENUM_SERVICE_STATUS_PROCESS>();
                     for (uint i = 0; i < count; i++)
                     {
                         var entry = Marshal.PtrToStructure<ENUM_SERVICE_STATUS_PROCESS>(buffer + (int)(i * entrySize));
-                        if (entry.ServiceStatusProcess.dwProcessId == processId)
-                            return entry.lpServiceName;
+                        if (entry.ServiceStatusProcess.dwProcessId != 0)
+                            map.TryAdd(entry.ServiceStatusProcess.dwProcessId, entry.lpServiceName);
                     }
                 }
                 finally
@@ -56,8 +77,7 @@ public static class ProcessIdentifier
         {
             // Fallback: not critical
         }
-
-        return null;
+        return map;
     }
 
     public static string? GetAppxPackageName(uint processId)

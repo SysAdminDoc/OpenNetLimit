@@ -297,6 +297,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                     BandwidthAlertRaised?.Invoke(alert);
             }
 
+            if (_seenAlertIds.Count > 1000)
+            {
+                var recentIds = alerts.Select(a => a.Id).ToHashSet();
+                _seenAlertIds.IntersectWith(recentIds);
+            }
+
             _alertEventsInitialized = true;
         }
         catch
@@ -365,16 +371,39 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_client.State != ConnectionState.Connected) return;
 
-        var rule = new BandwidthRule
+        var rulesJson = await _client.SendCommandAsync("RULES");
+        BandwidthRule? existingRule = null;
+        if (rulesJson is not null)
         {
-            ProcessName = processName,
-            DownloadBytesPerSecond = downloadBytesPerSec,
-            UploadBytesPerSecond = uploadBytesPerSec,
-            Action = RuleAction.Limit
-        };
+            try
+            {
+                var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
+                existingRule = rules?.FirstOrDefault(r =>
+                    r.ProcessName?.Equals(processName, StringComparison.OrdinalIgnoreCase) == true &&
+                    r.Action == RuleAction.Limit);
+            }
+            catch { }
+        }
 
-        var json = JsonSerializer.Serialize(rule, JsonOptions);
-        await _client.SendCommandAsync($"ADD_RULE {json}");
+        if (existingRule is not null)
+        {
+            existingRule.DownloadBytesPerSecond = downloadBytesPerSec;
+            existingRule.UploadBytesPerSecond = uploadBytesPerSec;
+            var json = JsonSerializer.Serialize(existingRule, JsonOptions);
+            await _client.SendCommandAsync($"UPDATE_RULE {json}");
+        }
+        else
+        {
+            var rule = new BandwidthRule
+            {
+                ProcessName = processName,
+                DownloadBytesPerSecond = downloadBytesPerSec,
+                UploadBytesPerSecond = uploadBytesPerSec,
+                Action = RuleAction.Limit
+            };
+            var json = JsonSerializer.Serialize(rule, JsonOptions);
+            await _client.SendCommandAsync($"ADD_RULE {json}");
+        }
     }
 
     public async Task RemoveLimitAsync(string processName)

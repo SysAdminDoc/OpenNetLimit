@@ -1,3 +1,5 @@
+using OpenNetLimit.Core;
+
 namespace OpenNetLimit.Core.Models;
 
 public class BandwidthAlertRule
@@ -19,7 +21,7 @@ public class BandwidthAlertRule
         if (ProcessPath is not null && process.ProcessPath is not null)
         {
             if (ProcessPath.Contains('*') || ProcessPath.Contains('?'))
-                return WildcardMatch(process.ProcessPath, ProcessPath);
+                return WildcardMatcher.IsMatch(process.ProcessPath, ProcessPath);
             return process.ProcessPath.Equals(ProcessPath, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -37,37 +39,6 @@ public class BandwidthAlertRule
             _ => process.CurrentDownloadBytesPerSecond + process.CurrentUploadBytesPerSecond
         };
 
-    private static bool WildcardMatch(string input, string pattern)
-    {
-        int i = 0, j = 0;
-        int starI = -1, starJ = -1;
-
-        while (i < input.Length)
-        {
-            if (j < pattern.Length && (char.ToLowerInvariant(pattern[j]) == char.ToLowerInvariant(input[i]) || pattern[j] == '?'))
-            {
-                i++;
-                j++;
-            }
-            else if (j < pattern.Length && pattern[j] == '*')
-            {
-                starI = i;
-                starJ = j++;
-            }
-            else if (starJ >= 0)
-            {
-                i = ++starI;
-                j = starJ + 1;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        while (j < pattern.Length && pattern[j] == '*') j++;
-        return j == pattern.Length;
-    }
 }
 
 public class BandwidthAlertEvent
