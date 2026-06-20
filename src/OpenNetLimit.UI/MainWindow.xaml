@@ -78,6 +78,10 @@
                 <TextBlock Text="{Binding ActiveRuleCount, StringFormat='Active Rules: {0}'}"/>
             </StatusBarItem>
             <Separator/>
+            <StatusBarItem AutomationProperties.Name="{Binding RecentAlertCount, StringFormat='Recent Alerts: {0}'}">
+                <TextBlock Text="{Binding RecentAlertCount, StringFormat='Recent Alerts: {0}'}"/>
+            </StatusBarItem>
+            <Separator/>
             <StatusBarItem AutomationProperties.Name="{Binding PermissionDisplay, StringFormat='Mode: {0}'}">
                 <TextBlock Text="{Binding PermissionDisplay, StringFormat='Mode: {0}'}"/>
             </StatusBarItem>

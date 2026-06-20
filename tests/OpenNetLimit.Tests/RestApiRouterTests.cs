@@ -259,6 +259,7 @@ public class RestApiRouterTests
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
+        var alertTracker = new BandwidthAlertTracker(monitor);
         var controlPlane = new ControlPlaneState
         {
             DiagnosticProvider = () => new DiagnosticInfo
@@ -272,6 +273,7 @@ public class RestApiRouterTests
         return (monitor, rules, new RestApiRouter(
             monitor,
             rules,
+            alertTracker,
             controlPlane,
             options,
             verifier ?? new StubVerifier(),

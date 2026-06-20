@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _viewModel;
+        _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
         InitializeTrayIcon();
         StateChanged += OnStateChanged;
         Closed += OnClosed;
@@ -61,9 +62,19 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _viewModel.BandwidthAlertRaised -= OnBandwidthAlertRaised;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _viewModel.Dispose();
+    }
+
+    private void OnBandwidthAlertRaised(OpenNetLimit.Core.Models.BandwidthAlertEvent alert)
+    {
+        _trayIcon?.ShowBalloonTip(
+            5000,
+            "OpenNetLimit bandwidth alert",
+            alert.Message,
+            Forms.ToolTipIcon.Warning);
     }
 
     private async void OnSetLimit(object sender, RoutedEventArgs e)

@@ -22,6 +22,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly PipeClient _client = new();
     private readonly DispatcherTimer _pollTimer;
     private readonly DispatcherTimer _reconnectTimer;
+    private readonly HashSet<Guid> _seenAlertIds = [];
+    private bool _alertEventsInitialized;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -96,6 +98,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _activeRuleCount;
         set => SetField(ref _activeRuleCount, value);
+    }
+
+    private int _recentAlertCount;
+    public int RecentAlertCount
+    {
+        get => _recentAlertCount;
+        set => SetField(ref _recentAlertCount, value);
     }
 
     private bool _isAdmin;
@@ -214,6 +223,36 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             catch { }
         }
+
+        await PollAlertEventsAsync();
+    }
+
+    private async Task PollAlertEventsAsync()
+    {
+        var alertsJson = await _client.SendCommandAsync("ALERT_EVENTS");
+        if (alertsJson is null) return;
+
+        try
+        {
+            var alerts = JsonSerializer.Deserialize<List<BandwidthAlertEvent>>(alertsJson, JsonOptions);
+            if (alerts is null) return;
+
+            RecentAlertCount = alerts.Count;
+            foreach (var alert in alerts.OrderBy(a => a.TriggeredAt))
+            {
+                if (!_seenAlertIds.Add(alert.Id))
+                    continue;
+
+                if (_alertEventsInitialized)
+                    BandwidthAlertRaised?.Invoke(alert);
+            }
+
+            _alertEventsInitialized = true;
+        }
+        catch
+        {
+            // Malformed alert response — ignore this tick
+        }
     }
 
     private void UpdateProcessList(IReadOnlyList<ProcessTrafficInfo> processes)
@@ -330,6 +369,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event Action<BandwidthAlertEvent>? BandwidthAlertRaised;
 
     protected bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {

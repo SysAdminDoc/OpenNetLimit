@@ -11,6 +11,7 @@ A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDi
 - **Connection blocking** — block network access for specific applications
 - **Traffic statistics** — SQLite-backed hourly/daily usage tracking with historical queries
 - **Quota management** — daily/weekly/monthly data caps with auto-throttle or auto-block
+- **Bandwidth usage alerts** — threshold rules with cooldowns and tray notifications
 - **Rule scheduling** — time-of-day and day-of-week recurring schedules
 - **Wildcard rules** — match processes by path patterns (`*\chrome.exe`)
 - **Bandwidth priorities** — high/normal/low priority levels per application
@@ -128,6 +129,11 @@ The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands
 | `IMPORT_RULES {json}` | Admin | Import rules (merge mode) |
 | `VERIFY_PROCESS {path}` | Admin | Hash an executable and query VirusTotal if configured |
 | `GEOIP {ip}` | Admin | Resolve a public IP address to approximate country/city if enabled |
+| `ALERT_RULES` | Read | List bandwidth alert rules |
+| `ALERT_EVENTS` | Read | Recent triggered alert events |
+| `ADD_ALERT_RULE {json}` | Admin | Add a bandwidth alert threshold |
+| `UPDATE_ALERT_RULE {json}` | Admin | Update a bandwidth alert threshold |
+| `REMOVE_ALERT_RULE {guid}` | Admin | Remove a bandwidth alert threshold |
 
 ### REST API
 
@@ -171,6 +177,11 @@ Remote administration is intentionally fail-closed: non-loopback prefixes are ig
 | `GET /api/v1/verification/cache` | Key required | Cached verification results |
 | `GET /api/v1/geoip?ip=8.8.8.8` | Key required | Resolve a public IP address to approximate location |
 | `GET /api/v1/geoip/cache` | Key required | Cached GeoIP results |
+| `GET /api/v1/alerts/rules` | Local read / keyed remote | List bandwidth alert rules |
+| `GET /api/v1/alerts/events?limit=100` | Local read / keyed remote | Recent bandwidth alert events |
+| `POST /api/v1/alerts/rules` | Key required | Add a bandwidth alert rule |
+| `PUT /api/v1/alerts/rules/{id}` | Key required | Update a bandwidth alert rule |
+| `DELETE /api/v1/alerts/rules/{id}` | Key required | Remove a bandwidth alert rule |
 
 ## License
 
