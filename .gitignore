@@ -39,3 +39,10 @@ $RECYCLE.BIN/
 *.bak
 *.swp
 *~.nib
+
+# AI config
+CLAUDE.md
+CODEX_CHANGELOG.md
+AGENTS.md
+.claude/
+.codex/
