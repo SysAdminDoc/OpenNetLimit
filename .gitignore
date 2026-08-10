@@ -40,7 +40,14 @@ $RECYCLE.BIN/
 *.swp
 *~.nib
 
-## AI agent working notes
+# AI config
 CLAUDE.md
 CODEX_CHANGELOG.md
+AGENTS.md
 .claude/
+.codex/
+
+# AI config
+.ai/
+PROJECT_CONTEXT.md
+CONTINUATION_PROMPT.md
