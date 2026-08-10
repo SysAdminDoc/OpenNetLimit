@@ -39,3 +39,8 @@ $RECYCLE.BIN/
 *.bak
 *.swp
 *~.nib
+
+## AI agent working notes
+CLAUDE.md
+CODEX_CHANGELOG.md
+.claude/
