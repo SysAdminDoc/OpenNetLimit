@@ -11,7 +11,7 @@ using OpenNetLimit.UI.Services;
 
 namespace OpenNetLimit.UI.ViewModels;
 
-public class HistoryViewModel : INotifyPropertyChanged
+public class HistoryViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly PipeClient _client;
     private CancellationTokenSource? _loadCts;
@@ -93,14 +93,14 @@ public class HistoryViewModel : INotifyPropertyChanged
             {
                 Values = _receivedPoints,
                 Name = LocalizationManager.Text("History_Received"),
-                Fill = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3, 0xCC)),
+                Fill = new SolidColorPaint(new SKColor(0x2C, 0xCA, 0xF6, 0xE6)),
                 MaxBarWidth = 20
             },
             new ColumnSeries<ObservableValue>
             {
                 Values = _sentPoints,
                 Name = LocalizationManager.Text("History_Sent"),
-                Fill = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50, 0xCC)),
+                Fill = new SolidColorPaint(new SKColor(0x4B, 0xE5, 0xA2, 0xD8)),
                 MaxBarWidth = 20
             }
         ];
@@ -114,6 +114,36 @@ public class HistoryViewModel : INotifyPropertyChanged
                 TextSize = 10
             }
         ];
+
+        ThemeManager.ThemeChanged += OnThemeChanged;
+        ApplyChartTheme();
+    }
+
+    internal void ApplyMarketingFixture()
+    {
+        _labels.Clear();
+        _receivedPoints.Clear();
+        _sentPoints.Clear();
+
+        string[] labels = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
+        double[] received = [420, 680, 930, 760, 1180, 1440, 1320, 1710, 1580, 1860];
+        double[] sent = [110, 160, 240, 180, 310, 380, 340, 460, 410, 520];
+
+        foreach (var label in labels)
+            _labels.Add(label);
+        foreach (var value in received)
+            _receivedPoints.Add(new ObservableValue(value));
+        foreach (var value in sent)
+            _sentPoints.Add(new ObservableValue(value));
+
+        ProcessNames = new ObservableCollection<string>
+        {
+            "ALL",
+            "msedge.exe",
+            "steam.exe",
+            "OneDrive.exe",
+            "Teams.exe"
+        };
     }
 
     public async Task LoadDataAsync()
@@ -202,6 +232,39 @@ public class HistoryViewModel : INotifyPropertyChanged
         if (value >= 1024)
             return $"{value / 1024:F1} GB";
         return $"{value:F0} MB";
+    }
+
+    private void OnThemeChanged(AppTheme _)
+    {
+        ApplyChartTheme();
+    }
+
+    private void ApplyChartTheme()
+    {
+        var colors = ThemeManager.GetChartColors();
+        var labelPaint = new SolidColorPaint(new SKColor(colors.LabelR, colors.LabelG, colors.LabelB));
+        var gridPaint = new SolidColorPaint(new SKColor(colors.GridR, colors.GridG, colors.GridB)) { StrokeThickness = 1 };
+
+        foreach (var axis in HistoryYAxes)
+        {
+            axis.LabelsPaint = labelPaint;
+            axis.NamePaint = labelPaint;
+            axis.SeparatorsPaint = gridPaint;
+        }
+
+        foreach (var axis in HistoryXAxes)
+        {
+            axis.LabelsPaint = labelPaint;
+            axis.NamePaint = labelPaint;
+        }
+    }
+
+    public void Dispose()
+    {
+        ThemeManager.ThemeChanged -= OnThemeChanged;
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = null;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

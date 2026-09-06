@@ -20,52 +20,62 @@ public static class ThemeManager
 
     private static readonly IReadOnlyDictionary<string, string> DarkPalette = new Dictionary<string, string>
     {
-        ["WindowBackgroundBrush"] = "#121417",
-        ["PanelBackgroundBrush"] = "#1B1F24",
-        ["ControlBackgroundBrush"] = "#252B33",
-        ["ControlHoverBrush"] = "#303843",
-        ["ControlPressedBrush"] = "#3A444F",
-        ["InputBackgroundBrush"] = "#15191F",
-        ["InputBorderBrush"] = "#4A535F",
-        ["TextBrush"] = "#F0F3F6",
-        ["MutedTextBrush"] = "#A7B0BA",
-        ["BorderBrush"] = "#3A414B",
-        ["GridBackgroundBrush"] = "#171A1F",
-        ["GridHeaderBrush"] = "#232931",
-        ["GridAltRowBrush"] = "#20262D",
-        ["GridLineBrush"] = "#343B45",
-        ["SelectionBrush"] = "#0E4C73",
+        ["WindowBackgroundBrush"] = "#080D16",
+        ["PanelBackgroundBrush"] = "#0F1726",
+        ["SurfaceRaisedBrush"] = "#131E30",
+        ["ControlBackgroundBrush"] = "#172337",
+        ["ControlHoverBrush"] = "#1F304A",
+        ["ControlPressedBrush"] = "#263A58",
+        ["InputBackgroundBrush"] = "#0B1220",
+        ["InputBorderBrush"] = "#2B3D58",
+        ["TextBrush"] = "#F4F7FB",
+        ["MutedTextBrush"] = "#93A4BC",
+        ["BorderBrush"] = "#22324A",
+        ["GridBackgroundBrush"] = "#0B1321",
+        ["GridHeaderBrush"] = "#111C2D",
+        ["GridAltRowBrush"] = "#0E1929",
+        ["GridLineBrush"] = "#1D2B41",
+        ["SelectionBrush"] = "#123D55",
         ["SelectionTextBrush"] = "#FFFFFF",
-        ["DisabledTextBrush"] = "#707984",
-        ["StatusBarBackgroundBrush"] = "#181C21",
-        ["AccentBrush"] = "#2D8FD5",
-        ["DownloadBrush"] = "#5CB3F5",
-        ["UploadBrush"] = "#6BCF7F"
+        ["DisabledTextBrush"] = "#627086",
+        ["StatusBarBackgroundBrush"] = "#0B1220",
+        ["AccentBrush"] = "#27C7F3",
+        ["AccentSoftBrush"] = "#153C4B",
+        ["DownloadBrush"] = "#2CCAF6",
+        ["UploadBrush"] = "#4BE5A2",
+        ["SuccessBrush"] = "#4BE5A2",
+        ["WarningBrush"] = "#F2C66D",
+        ["DangerBrush"] = "#F27887"
     };
 
     private static readonly IReadOnlyDictionary<string, string> LightPalette = new Dictionary<string, string>
     {
-        ["WindowBackgroundBrush"] = "#FAFAFA",
+        ["WindowBackgroundBrush"] = "#F3F7FB",
         ["PanelBackgroundBrush"] = "#FFFFFF",
-        ["ControlBackgroundBrush"] = "#F1F3F5",
-        ["ControlHoverBrush"] = "#E6EAEE",
-        ["ControlPressedBrush"] = "#D8DEE5",
+        ["SurfaceRaisedBrush"] = "#F8FBFE",
+        ["ControlBackgroundBrush"] = "#EAF1F7",
+        ["ControlHoverBrush"] = "#DFEAF3",
+        ["ControlPressedBrush"] = "#D2E0EC",
         ["InputBackgroundBrush"] = "#FFFFFF",
-        ["InputBorderBrush"] = "#AEB7C2",
-        ["TextBrush"] = "#17202A",
-        ["MutedTextBrush"] = "#606B78",
-        ["BorderBrush"] = "#D0D7DE",
+        ["InputBorderBrush"] = "#AFC0D0",
+        ["TextBrush"] = "#142033",
+        ["MutedTextBrush"] = "#5E6F84",
+        ["BorderBrush"] = "#D5E0EA",
         ["GridBackgroundBrush"] = "#FFFFFF",
-        ["GridHeaderBrush"] = "#EEF2F5",
-        ["GridAltRowBrush"] = "#F7F9FB",
-        ["GridLineBrush"] = "#D8DEE5",
-        ["SelectionBrush"] = "#CFE7F8",
-        ["SelectionTextBrush"] = "#17202A",
-        ["DisabledTextBrush"] = "#8A949F",
-        ["StatusBarBackgroundBrush"] = "#F1F3F5",
-        ["AccentBrush"] = "#0B73B8",
-        ["DownloadBrush"] = "#1976D2",
-        ["UploadBrush"] = "#388E3C"
+        ["GridHeaderBrush"] = "#F0F5F9",
+        ["GridAltRowBrush"] = "#F7FAFC",
+        ["GridLineBrush"] = "#E1E9F0",
+        ["SelectionBrush"] = "#D8F2FA",
+        ["SelectionTextBrush"] = "#142033",
+        ["DisabledTextBrush"] = "#8594A6",
+        ["StatusBarBackgroundBrush"] = "#EAF1F7",
+        ["AccentBrush"] = "#007FA8",
+        ["AccentSoftBrush"] = "#DDF3F8",
+        ["DownloadBrush"] = "#008FC2",
+        ["UploadBrush"] = "#168A5E",
+        ["SuccessBrush"] = "#168A5E",
+        ["WarningBrush"] = "#A66A05",
+        ["DangerBrush"] = "#B53A4A"
     };
 
     public static AppTheme CurrentTheme { get; private set; } = AppTheme.Dark;
@@ -90,8 +100,8 @@ public static class ThemeManager
     public static SkiaThemeColors GetChartColors()
     {
         return CurrentTheme == AppTheme.Dark
-            ? new SkiaThemeColors(0xF0, 0xF3, 0xF6, 0x34, 0x3B, 0x45)
-            : new SkiaThemeColors(0x17, 0x20, 0x2A, 0xD8, 0xDE, 0xE5);
+            ? new SkiaThemeColors(0x93, 0xA4, 0xBC, 0x1D, 0x2B, 0x41)
+            : new SkiaThemeColors(0x5E, 0x6F, 0x84, 0xE1, 0xE9, 0xF0);
     }
 
     private static void ApplyTheme(AppTheme theme, bool save)

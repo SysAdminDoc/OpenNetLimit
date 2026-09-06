@@ -12,6 +12,7 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
     private Forms.NotifyIcon? _trayIcon;
+    private System.Drawing.Icon? _trayIconImage;
     private Forms.ToolStripMenuItem? _showTrayItem;
     private Forms.ToolStripMenuItem? _exitTrayItem;
 
@@ -20,9 +21,12 @@ public partial class MainWindow : Window
         ApplyFlowDirection();
         InitializeComponent();
         DataContext = _viewModel;
+        if (MarketingCapture.IsEnabled && MarketingCapture.View == "history")
+            MainTabs.SelectedIndex = 1;
         _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
         LocalizationManager.CultureChanged += OnCultureChanged;
-        InitializeTrayIcon();
+        if (!MarketingCapture.IsEnabled)
+            InitializeTrayIcon();
         StateChanged += OnStateChanged;
         Closed += OnClosed;
     }
@@ -37,14 +41,21 @@ public partial class MainWindow : Window
         {
             _trayIcon?.Dispose();
             _trayIcon = null;
+            _trayIconImage?.Dispose();
+            _trayIconImage = null;
             System.Windows.Application.Current.Shutdown();
         });
         menu.Items.Add(_exitTrayItem);
 
+        var executablePath = Environment.ProcessPath;
+        _trayIconImage = executablePath is not null
+            ? System.Drawing.Icon.ExtractAssociatedIcon(executablePath)
+            : null;
+
         _trayIcon = new Forms.NotifyIcon
         {
             Text = "OpenNetLimit",
-            Icon = SystemIcons.Application,
+            Icon = _trayIconImage ?? SystemIcons.Application,
             ContextMenuStrip = menu,
             Visible = true
         };
@@ -75,6 +86,8 @@ public partial class MainWindow : Window
         LocalizationManager.CultureChanged -= OnCultureChanged;
         _trayIcon?.Dispose();
         _trayIcon = null;
+        _trayIconImage?.Dispose();
+        _trayIconImage = null;
         _viewModel.Dispose();
     }
 

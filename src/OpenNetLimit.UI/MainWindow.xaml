@@ -3,143 +3,282 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
         xmlns:loc="clr-namespace:OpenNetLimit.UI.Services"
-        Title="{loc:Loc Main_WindowTitle}" Height="700" Width="900"
+        Title="{loc:Loc Main_WindowTitle}"
+        Icon="Assets/OpenNetLimit.ico"
+        Height="760" Width="1120" MinHeight="680" MinWidth="980"
         WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackgroundBrush}"
         KeyboardNavigation.TabNavigation="Cycle">
-    <Grid Margin="12" Background="{DynamicResource WindowBackgroundBrush}">
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
-                    AutomationProperties.Name="{loc:Loc ServiceStatus_Automation}">
-            <TextBlock Text="{loc:Loc Main_Title}" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
-            <Ellipse Width="10" Height="10" Margin="12,0,4,0"
-                     Fill="{Binding StatusColor}" VerticalAlignment="Center"
-                     AutomationProperties.Name="{Binding StatusText}"/>
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
-                       AutomationProperties.LiveSetting="Polite"/>
-        </StackPanel>
+        <Border Grid.Row="0"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="24,17">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-        <!-- Tab Control -->
-        <TabControl Grid.Row="1" SelectionChanged="OnTabChanged">
-            <!-- Real-time Tab -->
+                <Image Grid.Column="0" Source="Assets/OpenNetLimit.png"
+                       Width="48" Height="48" Margin="0,0,14,0"
+                       VerticalAlignment="Center"
+                       AutomationProperties.Name="OpenNetLimit logo"/>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="{loc:Loc Main_Title}" FontSize="22" FontWeight="Bold"/>
+                    <TextBlock Text="{loc:Loc Main_Subtitle}" Style="{StaticResource SectionSubtitle}" Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <Border Grid.Column="2" Style="{StaticResource CardBorder}"
+                        CornerRadius="8" Padding="13,9"
+                        AutomationProperties.Name="{loc:Loc ServiceStatus_Automation}">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="9" Height="9" Margin="0,0,9,0"
+                                 Fill="{Binding StatusColor}" VerticalAlignment="Center"
+                                 AutomationProperties.Name="{Binding StatusText}"/>
+                        <StackPanel>
+                            <TextBlock Text="{loc:Loc Service_Label}" Style="{StaticResource EyebrowText}"/>
+                            <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold"
+                                       AutomationProperties.LiveSetting="Polite"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <TabControl Grid.Row="1" x:Name="MainTabs" Margin="24,14,24,12"
+                    SelectionChanged="OnTabChanged">
             <TabItem Header="{loc:Loc Tab_Realtime}">
-                <Grid Margin="0,8,0,0">
+                <Grid Margin="0,12,0,0">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="160"/>
+                        <RowDefinition Height="104"/>
+                        <RowDefinition Height="216"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Summary -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8"
-                                AutomationProperties.Name="{loc:Loc TrafficSummary_Automation}">
-                        <TextBlock Margin="0,0,24,0"
-                                   AutomationProperties.Name="{Binding TotalDownload, StringFormat='Download speed: {0}'}">
-                            <Run Text="{loc:Loc Label_Download}" Foreground="{DynamicResource MutedTextBrush}"/>
-                            <Run Text="{Binding TotalDownload, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource DownloadBrush}"/>
-                        </TextBlock>
-                        <TextBlock AutomationProperties.Name="{Binding TotalUpload, StringFormat='Upload speed: {0}'}">
-                            <Run Text="{loc:Loc Label_Upload}" Foreground="{DynamicResource MutedTextBrush}"/>
-                            <Run Text="{Binding TotalUpload, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource UploadBrush}"/>
-                        </TextBlock>
-                    </StackPanel>
+                    <Grid Grid.Row="0" Margin="0,0,0,12"
+                          AutomationProperties.Name="{loc:Loc TrafficSummary_Automation}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                    <!-- Traffic chart -->
-                    <lvc:CartesianChart Grid.Row="1" Margin="0,0,0,8"
-                                        Series="{Binding ChartSeries}"
-                                        YAxes="{Binding ChartYAxes}"
-                                        XAxes="{Binding ChartXAxes}"
-                                        AnimationsSpeed="00:00:00.200"
-                                        AutomationProperties.Name="{loc:Loc Chart_Automation}"/>
+                        <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="16,13">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Background="{DynamicResource DownloadBrush}" CornerRadius="2" Margin="0,1,0,1"/>
+                                <StackPanel Grid.Column="1" Margin="13,0,0,0">
+                                    <TextBlock Text="{loc:Loc Metric_Download}" Style="{StaticResource EyebrowText}"/>
+                                    <TextBlock Text="{Binding TotalDownload, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource DownloadBrush}"
+                                               AutomationProperties.Name="{Binding TotalDownload, StringFormat='Download speed: {0}'}"/>
+                                    <TextBlock Text="{loc:Loc Metric_LiveTotal}" Style="{StaticResource SectionSubtitle}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
-                    <!-- Process list -->
-                    <DataGrid Grid.Row="2" x:Name="ProcessGrid" ItemsSource="{Binding Processes}" Style="{StaticResource DataGridStyle}"
-                              AutomationProperties.Name="{loc:Loc ProcessGrid_Automation}">
-                        <DataGrid.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"
-                                          ToolTipService.ShowOnDisabled="True"
-                                          ToolTip="{loc:Loc Menu_AdminRequired}"/>
-                                <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"
-                                          ToolTipService.ShowOnDisabled="True"
-                                          ToolTip="{loc:Loc Menu_AdminRequired}"/>
-                            </ContextMenu>
-                        </DataGrid.ContextMenu>
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding ProcessName}" Width="2*"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_PID}" Binding="{Binding ProcessId}" Width="Auto"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_DownloadPerSecond}" Binding="{Binding DownloadDisplay}" Width="*"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_UploadPerSecond}" Binding="{Binding UploadDisplay}" Width="*"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_TotalDown}" Binding="{Binding TotalDownDisplay}" Width="*"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_TotalUp}" Binding="{Binding TotalUpDisplay}" Width="*"/>
-                            <DataGridTextColumn Header="{loc:Loc Column_Limit}" Binding="{Binding LimitDisplay}" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                        <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="16,13">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Background="{DynamicResource UploadBrush}" CornerRadius="2" Margin="0,1,0,1"/>
+                                <StackPanel Grid.Column="1" Margin="13,0,0,0">
+                                    <TextBlock Text="{loc:Loc Metric_Upload}" Style="{StaticResource EyebrowText}" Foreground="{DynamicResource UploadBrush}"/>
+                                    <TextBlock Text="{Binding TotalUpload, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource UploadBrush}"
+                                               AutomationProperties.Name="{Binding TotalUpload, StringFormat='Upload speed: {0}'}"/>
+                                    <TextBlock Text="{loc:Loc Metric_LiveTotal}" Style="{StaticResource SectionSubtitle}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Column="4" Style="{StaticResource CardBorder}" Padding="16,13">
+                            <StackPanel>
+                                <TextBlock Text="{loc:Loc Metric_Applications}" Style="{StaticResource EyebrowText}"/>
+                                <TextBlock Text="{Binding ActiveConnectionCount}" FontSize="24" FontWeight="SemiBold"/>
+                                <TextBlock Text="{loc:Loc Metric_ApplicationsHint}" Style="{StaticResource SectionSubtitle}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="16,12" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="0,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{loc:Loc Chart_LiveTitle}" Style="{StaticResource SectionTitle}"/>
+                                    <TextBlock Text="{loc:Loc Chart_LiveSubtitle}" Style="{StaticResource SectionSubtitle}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Border Width="14" Height="3" CornerRadius="2" Background="{DynamicResource DownloadBrush}"/>
+                                    <TextBlock Text="{loc:Loc Chart_Download}" Margin="6,0,14,0"
+                                               Foreground="{DynamicResource MutedTextBrush}" FontSize="11"/>
+                                    <Border Width="14" Height="3" CornerRadius="2" Background="{DynamicResource UploadBrush}"/>
+                                    <TextBlock Text="{loc:Loc Chart_Upload}" Margin="6,0,18,0"
+                                               Foreground="{DynamicResource MutedTextBrush}" FontSize="11"/>
+                                    <TextBlock Text="{loc:Loc Chart_WindowLabel}" Style="{StaticResource EyebrowText}"/>
+                                </StackPanel>
+                            </Grid>
+                            <lvc:CartesianChart Grid.Row="1"
+                                                Background="{DynamicResource PanelBackgroundBrush}"
+                                                Series="{Binding ChartSeries}"
+                                                YAxes="{Binding ChartYAxes}"
+                                                XAxes="{Binding ChartXAxes}"
+                                                AnimationsSpeed="00:00:00.200"
+                                                AutomationProperties.Name="{loc:Loc Chart_Automation}"/>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="16,12,16,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{loc:Loc ProcessList_Title}" Style="{StaticResource SectionTitle}"/>
+                                    <TextBlock Text="{loc:Loc ProcessList_Hint}" Style="{StaticResource SectionSubtitle}"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding ActiveRulesDisplay}" Style="{StaticResource EyebrowText}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <DataGrid Grid.Row="1" x:Name="ProcessGrid" ItemsSource="{Binding Processes}"
+                                      Style="{StaticResource DataGridStyle}"
+                                      AutomationProperties.Name="{loc:Loc ProcessGrid_Automation}">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"
+                                                  ToolTipService.ShowOnDisabled="True"
+                                                  ToolTip="{loc:Loc Menu_AdminRequired}"/>
+                                        <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"
+                                                  ToolTipService.ShowOnDisabled="True"
+                                                  ToolTip="{loc:Loc Menu_AdminRequired}"/>
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding ProcessName}" Width="1.55*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_PID}" Binding="{Binding ProcessId}" Width="0.55*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_DownloadPerSecond}" Binding="{Binding DownloadDisplay}" Width="*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_UploadPerSecond}" Binding="{Binding UploadDisplay}" Width="*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_TotalDown}" Binding="{Binding TotalDownDisplay}" Width="*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_TotalUp}" Binding="{Binding TotalUpDisplay}" Width="*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Limit}" Binding="{Binding LimitDisplay}" Width="1.35*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </Border>
                 </Grid>
             </TabItem>
 
-            <!-- History Tab -->
             <TabItem Header="{loc:Loc Tab_History}" x:Name="HistoryTab">
-                <Grid Margin="0,8,0,0" DataContext="{Binding HistoryViewModel}">
+                <Grid Margin="0,12,0,0" DataContext="{Binding HistoryViewModel}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Controls -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <ComboBox ItemsSource="{Binding ProcessNames}" SelectedItem="{Binding SelectedProcess}"
-                                  MinWidth="180" Margin="0,0,12,0"/>
-                        <RadioButton Content="{loc:Loc History_Hourly}" IsChecked="{Binding IsHourly}"
-                                     VerticalAlignment="Center" Margin="0,0,12,0" GroupName="HistoryGranularity"/>
-                        <RadioButton Content="{loc:Loc History_Daily}" IsChecked="{Binding IsDaily}"
-                                     VerticalAlignment="Center" Margin="0,0,12,0"
-                                     GroupName="HistoryGranularity"/>
-                        <Button Content="{loc:Loc History_Refresh}" Click="OnHistoryRefresh" MinWidth="80"/>
-                    </StackPanel>
+                    <Border Grid.Row="0" Style="{StaticResource CardBorder}" Padding="16,12" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{loc:Loc History_Title}" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="{loc:Loc History_Subtitle}" Style="{StaticResource SectionSubtitle}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <ComboBox ItemsSource="{Binding ProcessNames}" SelectedItem="{Binding SelectedProcess}"
+                                          MinWidth="190" Margin="0,0,14,0"/>
+                                <RadioButton Content="{loc:Loc History_Hourly}" IsChecked="{Binding IsHourly}"
+                                             Margin="0,0,14,0" GroupName="HistoryGranularity"/>
+                                <RadioButton Content="{loc:Loc History_Daily}" IsChecked="{Binding IsDaily}"
+                                             Margin="0,0,14,0" GroupName="HistoryGranularity"/>
+                                <Button Content="{loc:Loc History_Refresh}" Click="OnHistoryRefresh" MinWidth="86"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
 
-                    <!-- History chart -->
-                    <lvc:CartesianChart Grid.Row="1"
-                                        Series="{Binding HistorySeries}"
-                                        YAxes="{Binding HistoryYAxes}"
-                                        XAxes="{Binding HistoryXAxes}"
-                                        AnimationsSpeed="00:00:00.300"
-                                        AutomationProperties.Name="{loc:Loc History_Automation}"/>
+                    <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,6,4">
+                                <Border Width="10" Height="10" CornerRadius="2" Background="{DynamicResource DownloadBrush}"/>
+                                <TextBlock Text="{loc:Loc History_Received}" Margin="7,0,16,0"
+                                           Foreground="{DynamicResource MutedTextBrush}"/>
+                                <Border Width="10" Height="10" CornerRadius="2" Background="{DynamicResource UploadBrush}"/>
+                                <TextBlock Text="{loc:Loc History_Sent}" Margin="7,0,0,0"
+                                           Foreground="{DynamicResource MutedTextBrush}"/>
+                            </StackPanel>
+                            <lvc:CartesianChart Grid.Row="1" Background="{DynamicResource PanelBackgroundBrush}"
+                                                Series="{Binding HistorySeries}"
+                                                YAxes="{Binding HistoryYAxes}"
+                                                XAxes="{Binding HistoryXAxes}"
+                                                AnimationsSpeed="00:00:00.300"
+                                                AutomationProperties.Name="{loc:Loc History_Automation}"/>
+                        </Grid>
+                    </Border>
                 </Grid>
             </TabItem>
         </TabControl>
 
-        <!-- Status bar -->
-        <StatusBar Grid.Row="2" Margin="0,8,0,0"
-                   AutomationProperties.Name="{loc:Loc StatusBar_Automation}">
-            <StatusBarItem AutomationProperties.Name="{Binding ConnectionsDisplay}">
-                <TextBlock Text="{Binding ConnectionsDisplay}"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem AutomationProperties.Name="{Binding ActiveRulesDisplay}">
-                <TextBlock Text="{Binding ActiveRulesDisplay}"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem AutomationProperties.Name="{Binding RecentAlertsDisplay}">
-                <TextBlock Text="{Binding RecentAlertsDisplay}"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem AutomationProperties.Name="{Binding PermissionModeDisplay}">
-                <TextBlock Text="{Binding PermissionModeDisplay}"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem AutomationProperties.Name="{Binding ThemeDisplay, StringFormat='Current {0}'}">
-                <Button Content="{Binding ThemeDisplay}" MinWidth="96" Click="OnToggleTheme"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem AutomationProperties.Name="{Binding LanguageDisplay}">
-                <Button Content="{Binding LanguageDisplay}" MinWidth="108" Click="OnToggleLanguage"/>
-            </StatusBarItem>
-        </StatusBar>
+        <Border Grid.Row="2" Background="{DynamicResource StatusBarBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Padding="16,7" AutomationProperties.Name="{loc:Loc StatusBar_Automation}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ConnectionsDisplay}" Foreground="{DynamicResource MutedTextBrush}"/>
+                    <Border Width="1" Height="14" Background="{DynamicResource BorderBrush}" Margin="12,0"/>
+                    <TextBlock Text="{Binding ActiveRulesDisplay}" Foreground="{DynamicResource MutedTextBrush}"/>
+                    <Border Width="1" Height="14" Background="{DynamicResource BorderBrush}" Margin="12,0"/>
+                    <TextBlock Text="{Binding RecentAlertsDisplay}" Foreground="{DynamicResource MutedTextBrush}"/>
+                    <Border Width="1" Height="14" Background="{DynamicResource BorderBrush}" Margin="12,0"/>
+                    <TextBlock Text="{Binding PermissionModeDisplay}" Foreground="{DynamicResource MutedTextBrush}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="{Binding ThemeDisplay}" Style="{StaticResource CompactButton}" MinWidth="98"
+                            Click="OnToggleTheme" AutomationProperties.Name="{Binding ThemeDisplay, StringFormat='Current {0}'}"/>
+                    <Button Content="{Binding LanguageDisplay}" Style="{StaticResource CompactButton}" MinWidth="106"
+                            Margin="8,0,0,0" Click="OnToggleLanguage" AutomationProperties.Name="{Binding LanguageDisplay}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

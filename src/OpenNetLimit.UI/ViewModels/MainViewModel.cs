@@ -43,9 +43,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     [
         new Axis
         {
-            Name = LocalizationManager.Text("Chart_Kbps"),
             MinLimit = 0,
-            Labeler = v => $"{v / 1024:F0}"
+            Labeler = FormatRateAxis
         }
     ];
 
@@ -167,8 +166,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 Values = _downloadPoints,
                 Name = LocalizationManager.Text("Chart_Download"),
                 GeometrySize = 0,
-                Stroke = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3)) { StrokeThickness = 2 },
-                Fill = new SolidColorPaint(new SKColor(0x21, 0x96, 0xF3, 0x40)),
+                Stroke = new SolidColorPaint(new SKColor(0x2C, 0xCA, 0xF6)) { StrokeThickness = 3 },
+                Fill = new SolidColorPaint(new SKColor(0x2C, 0xCA, 0xF6, 0x28)),
                 LineSmoothness = 0.3
             },
             new LineSeries<ObservableValue>
@@ -176,8 +175,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 Values = _uploadPoints,
                 Name = LocalizationManager.Text("Chart_Upload"),
                 GeometrySize = 0,
-                Stroke = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50)) { StrokeThickness = 2 },
-                Fill = new SolidColorPaint(new SKColor(0x4C, 0xAF, 0x50, 0x40)),
+                Stroke = new SolidColorPaint(new SKColor(0x4B, 0xE5, 0xA2)) { StrokeThickness = 3 },
+                Fill = new SolidColorPaint(new SKColor(0x4B, 0xE5, 0xA2, 0x24)),
                 LineSmoothness = 0.3
             }
         ];
@@ -195,7 +194,92 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ApplyChartTheme();
         DetectAdmin();
         RefreshLocalizedStrings();
-        _ = TryConnectAsync();
+        if (MarketingCapture.IsEnabled)
+            ApplyMarketingFixture();
+        else
+            _ = TryConnectAsync();
+    }
+
+    private void ApplyMarketingFixture()
+    {
+        IsAdmin = true;
+        PermissionDisplay = LocalizationManager.Text("Mode_Administrator");
+        TotalDownload = "18.6 MB/s";
+        TotalUpload = "2.4 MB/s";
+        ActiveConnectionCount = 5;
+        ActiveRuleCount = 3;
+        RecentAlertCount = 1;
+        UpdateStatus(ConnectionState.Connected, "Status_Connected");
+
+        double[] downloadMbps =
+        [
+            6.2, 7.1, 7.5, 8.8, 9.4, 8.9, 10.2, 11.6, 10.8, 12.4,
+            13.1, 12.7, 14.5, 15.2, 14.8, 16.1, 15.6, 17.3, 16.8, 18.6,
+            17.9, 18.2, 16.7, 17.4, 18.1, 17.6, 19.2, 18.8, 17.5, 18.6
+        ];
+        double[] uploadMbps =
+        [
+            0.8, 1.0, 0.9, 1.2, 1.1, 1.3, 1.4, 1.2, 1.6, 1.5,
+            1.7, 1.9, 1.6, 1.8, 2.0, 1.9, 2.2, 2.1, 2.3, 2.4,
+            2.2, 2.5, 2.3, 2.1, 2.4, 2.6, 2.5, 2.3, 2.4, 2.4
+        ];
+        foreach (var value in downloadMbps)
+            _downloadPoints.Add(new ObservableValue(value * 1024 * 1024));
+        foreach (var value in uploadMbps)
+            _uploadPoints.Add(new ObservableValue(value * 1024 * 1024));
+
+        Processes.Add(new ProcessViewModel
+        {
+            ProcessId = 18432,
+            ProcessName = "msedge.exe",
+            DownloadDisplay = "8.4 MB/s",
+            UploadDisplay = "620.0 KB/s",
+            TotalDownDisplay = "5.8 GB",
+            TotalUpDisplay = "320.4 MB",
+            LimitDisplay = "↓ 12.0 MB/s  ↑ 1.5 MB/s"
+        });
+        Processes.Add(new ProcessViewModel
+        {
+            ProcessId = 10288,
+            ProcessName = "steam.exe",
+            DownloadDisplay = "6.1 MB/s",
+            UploadDisplay = "1.2 MB/s",
+            TotalDownDisplay = "18.4 GB",
+            TotalUpDisplay = "2.1 GB",
+            LimitDisplay = "↓ 8.0 MB/s"
+        });
+        Processes.Add(new ProcessViewModel
+        {
+            ProcessId = 22576,
+            ProcessName = "OneDrive.exe",
+            DownloadDisplay = "2.7 MB/s",
+            UploadDisplay = "480.0 KB/s",
+            TotalDownDisplay = "3.2 GB",
+            TotalUpDisplay = "1.8 GB",
+            LimitDisplay = "↓ 3.0 MB/s  ↑ 768 KB/s"
+        });
+        Processes.Add(new ProcessViewModel
+        {
+            ProcessId = 30844,
+            ProcessName = "Teams.exe",
+            DownloadDisplay = "640.0 KB/s",
+            UploadDisplay = "190.0 KB/s",
+            TotalDownDisplay = "1.6 GB",
+            TotalUpDisplay = "740.0 MB",
+            LimitDisplay = LocalizationManager.Text("Limit_None")
+        });
+        Processes.Add(new ProcessViewModel
+        {
+            ProcessId = 1532,
+            ProcessName = "svchost.exe",
+            DownloadDisplay = "210.0 KB/s",
+            UploadDisplay = "42.0 KB/s",
+            TotalDownDisplay = "890.0 MB",
+            TotalUpDisplay = "120.0 MB",
+            LimitDisplay = LocalizationManager.Text("Limit_None")
+        });
+
+        HistoryViewModel.ApplyMarketingFixture();
     }
 
     private void DetectAdmin()
@@ -371,6 +455,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return parts.Count > 0 ? string.Join(" ", parts) : LocalizationManager.Text("Limit_None");
     }
 
+    private static string FormatRateAxis(double bytesPerSecond)
+    {
+        if (bytesPerSecond >= 1024 * 1024)
+            return $"{bytesPerSecond / (1024 * 1024):F0} MB/s";
+        if (bytesPerSecond >= 1024)
+            return $"{bytesPerSecond / 1024:F0} KB/s";
+        return $"{bytesPerSecond:F0} B/s";
+    }
+
     public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec)
     {
         if (_client.State != ConnectionState.Connected) return;
@@ -464,9 +557,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (ChartSeries[1] is LineSeries<ObservableValue> uploadSeries)
             uploadSeries.Name = LocalizationManager.Text("Chart_Upload");
 
-        foreach (var axis in ChartYAxes)
-            axis.Name = LocalizationManager.Text("Chart_Kbps");
-
         OnPropertyChanged(nameof(ConnectionsDisplay));
         OnPropertyChanged(nameof(ActiveRulesDisplay));
         OnPropertyChanged(nameof(RecentAlertsDisplay));
@@ -536,6 +626,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         LocalizationManager.CultureChanged -= OnCultureChanged;
         _pollTimer.Stop();
         _reconnectTimer.Stop();
+        HistoryViewModel.Dispose();
         _client.Dispose();
     }
 }

@@ -9,6 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>OpenNetLimit.UI</RootNamespace>
     <Platforms>x64</Platforms>
+    <ApplicationIcon>Assets\OpenNetLimit.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +18,11 @@
 
   <ItemGroup>
     <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\OpenNetLimit.ico" />
+    <Resource Include="Assets\OpenNetLimit.png" />
   </ItemGroup>
 
 </Project>

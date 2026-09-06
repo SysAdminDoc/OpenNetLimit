@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-09-06
 
 ### Added
+- New OpenNetLimit logo, Windows icon family, product screenshots, and social preview artwork
+- Redesigned WPF dashboard with clearer status, traffic summaries, history charts, and limit editing
+- Cohesive dark and light themes with accessible chart labels and higher-contrast controls
+- Isolated marketing capture tool with realistic fixture data and blank-render detection
+- Reproducible Windows x64 release packaging with service install and removal scripts
 - First-run setup wizard: 3-page guided walkthrough for new users (requirements, tips, finish)
 - Wizard shows on first launch, stores completion marker in %LocalAppData%\OpenNetLimit
 - Skip button available on all wizard pages
@@ -90,6 +95,7 @@
 - English/Spanish WPF localization with a persisted status-bar language toggle
 
 ### Security
+- Updated Microsoft.Data.Sqlite to 8.0.30 and SourceGear.sqlite3 to 3.53.4, removing the vulnerable SQLitePCLRaw 2.1.6 dependency
 - Secured named-pipe IPC with explicit ACL (Administrators: FullControl, Users: ReadWrite)
 - Added client identity checking via impersonation for mutation commands
 - Mutation commands (ADD_RULE, REMOVE_RULE, UPDATE_RULE) require administrator privileges
@@ -124,7 +130,7 @@
 - CLI tool (`onl`): scriptable rule management, status queries, stats, group queries, and import/export via the REST API. Supports `OPENNETLIMIT_API_URL` and `OPENNETLIMIT_API_KEY` environment variables
 
 ### Security
-- Added SourceGear.sqlite3 3.50.4.5 to override vulnerable SQLitePCLRaw transitive dependency (CVE-2025-6965, SQLite < 3.50.2 memory corruption)
+- Added SourceGear.sqlite3 as the native SQLite provider and updated it to 3.53.4
 - Added PluginManager SSRF protection: webhook URLs targeting loopback, private RFC1918, or link-local addresses are rejected at manifest validation
 - Added 10-second HTTP timeout on plugin webhook dispatch to prevent indefinite hangs
 - DPAPI-protected API key storage: service checks `%ProgramData%\OpenNetLimit\apikey.protected` (encrypted with LocalMachine scope) when `OPENNETLIMIT_API_KEY` env var is not set
@@ -148,7 +154,7 @@
 - Fixed HistoryViewModel CancellationTokenSource leak: old CTS disposed before replacement
 - Fixed RuleEngine.ImportRules: imported rules now validated (must have ProcessName or ProcessPath), matching AddRule/UpdateRule behavior
 - Fixed QuotaTracker.Update: uses QuotaState.PercentUsed property instead of duplicating the percentage formula
-- Removed dead pass-through properties from PipeServer (DiagnosticProvider, ConnectionLogProvider, StatsProvider, QuotaTracker) — EngineWorker sets these on ControlPlaneState directly
+- Removed dead pass-through properties from PipeServer (DiagnosticProvider, ConnectionLogProvider, StatsProvider, QuotaTracker). EngineWorker sets these on ControlPlaneState directly
 - Fixed CLI import stdin DoS: reads with 1MB hard cap matching REST API body limit
 - Extracted shared EnvHelper.IsEnabled utility, removing four copy-pasted implementations across RestApiOptions, GeoIpOptions, PluginOptions, VirusTotalOptions
 - Fixed TrafficMonitor first-packet race: replaced AddOrUpdate with GetOrAdd + atomic AddBytes, preventing silent byte loss when two threads race on a new process
@@ -177,10 +183,10 @@
 - Added IPv6 CIDR matching tests: /64 and /128 prefixes
 
 ### Fixed
-- Enabled TreatWarningsAsErrors in Directory.Build.props — nullable analysis and CS-series warnings now break the build
+- Enabled TreatWarningsAsErrors in Directory.Build.props. Nullable analysis and CS-series warnings now break the build
 - Added WinDivert driver signature validation at startup: logs warning if binary certificate is expired, with link to WinDivert#397 and cross-signing policy context
 - Fixed ConnectionLogger counter drift: replaced Interlocked.Increment/_count with lock-based trim using ConcurrentQueue.Count directly
-- Eliminated ParsePacket IPAddress string roundtrip: IP addresses now constructed from bytes via stackalloc spans — zero string allocation in the hot packet-processing loop
+- Eliminated ParsePacket IPAddress string roundtrip. IP addresses now construct from bytes through stackalloc spans with zero string allocation in the packet-processing loop
 - Added TrafficStatsDb purge transaction: hourly and daily DELETEs now wrapped in a transaction for atomicity
 - Validated BandwidthRule requires ProcessName or ProcessPath: AddRule/UpdateRule throw ArgumentException for rules that cannot match any process
 - Added quota period auto-reset: daily quotas reset at midnight, weekly on Monday midnight, monthly on 1st midnight via timer in EngineWorker
@@ -198,15 +204,15 @@
 - Fixed QuotaTracker unsynchronized state mutation: per-state lock prevents torn reads and double-fire of warning/exceeded events under concurrent timer ticks
 - Fixed CLI crash on invalid numeric input: --download, --upload, and --port now validate with TryParse and show user-friendly error messages
 - Pinned floating NuGet versions (Microsoft.Data.Sqlite 8.0.11, ProtectedData 8.0.0) for reproducible builds
-- Added pipe server auto-restart with exponential backoff (1s → 30s) on crash — IPC recovers without service restart
+- Added pipe server auto-restart with exponential backoff (1s to 30s) on crash. IPC recovers without a service restart
 - Fixed PluginManager SSRF gap for IPv6 ULA (`fc00::/7`) and link-local (`fe80::/10`) addresses
-- Fixed ConnectionLogger.GetRecent O(n) performance — replaced Reverse().Take() with array slice from end
+- Fixed ConnectionLogger.GetRecent O(n) performance by replacing Reverse().Take() with an array slice from the end
 - Made WinDivertInterceptor.IsRunning thread-safe via volatile backing field
 - Enhanced driver load failure diagnostics: last-error.txt now includes HVCI, EDR, and driver signing troubleshooting steps
 - Added Windows Event Log integration: service events written to Application log under "OpenNetLimit" source
-- RuleEngine now returns defensive copies from GetRule, GetAllRules, FindMatchingRule, and GetRulesByGroup — callers can no longer mutate internal state
+- RuleEngine now returns defensive copies from GetRule, GetAllRules, FindMatchingRule, and GetRulesByGroup. Callers can no longer mutate internal state
 - Added REST API rate limiting: 10 requests per 10-second window per caller IP; returns 429 when exceeded
-- Exposed IPacketInterceptor diagnostics (TotalBlocked, TotalDelayed, TotalDropped, TotalSent, GetRecentConnectionLog) through the interface — EngineWorker no longer downcasts to WinDivertInterceptor
+- Exposed IPacketInterceptor diagnostics (TotalBlocked, TotalDelayed, TotalDropped, TotalSent, GetRecentConnectionLog) through the interface. EngineWorker no longer downcasts to WinDivertInterceptor
 - Replaced DPAPI LocalMachine API key storage with Windows Credential Manager (CredWrite/CredRead) scoped to the service account; legacy DPAPI keys auto-migrated on first load
 - Restored solution build: all 5 projects (Core, Engine, Service, UI, Tests) compile successfully
 - Fixed WinDivertInterceptor to use correct SharpDivert 1.1.0 API (enums, RecvEx tuple return, address access, packet parsing)
@@ -217,17 +223,17 @@
 - Pinned .NET SDK to 8.0.x via global.json to avoid broken .NET 9 SDK test runner
 - Traffic snapshots now preserve executable paths when available, enabling process verification and path-aware integrations
 
-## Roadmap archive — 2026-08-10 — ROADMAP.md
+## Roadmap archive, 2026-08-10: ROADMAP.md
 
 <details>
 <summary>Original roadmap snapshot</summary>
 
 ````markdown
-# OpenNetLimit — Development Roadmap
+# OpenNetLimit development roadmap
 
 ## Vision
 
-An open-source, per-application bandwidth limiter and network monitor for Windows — a free alternative to NetLimiter, built on WinDivert.
+An open-source, per-application bandwidth limiter and network monitor for Windows. It is a free alternative to NetLimiter built on WinDivert.
 
 ---
 

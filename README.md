@@ -1,247 +1,134 @@
-# OpenNetLimit
+<p align="center">
+  <img src="assets/brand/opennetlimit-mark.png" width="128" alt="OpenNetLimit logo">
+</p>
 
-Open-source per-application bandwidth limiter and network monitor for Windows.
+<h1 align="center">OpenNetLimit</h1>
 
-A free alternative to [NetLimiter](https://www.netlimiter.com/), built on [WinDivert](https://github.com/basil00/WinDivert).
+<p align="center"><strong>See which apps use your connection. Set the limits that matter.</strong></p>
 
-## Features
+<p align="center">
+  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.0.0" src="https://img.shields.io/badge/version-1.0.0-27C7F3?style=flat-square"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4BE5A2?style=flat-square"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0A84FF?style=flat-square">
+  <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-6D4AFF?style=flat-square">
+</p>
 
-- **Per-application bandwidth limiting** — set download/upload speed limits on any process
-- **Real-time traffic monitoring** — live per-process bandwidth display with scrolling chart
-- **Connection blocking** — block network access for specific applications
-- **Traffic statistics** — SQLite-backed hourly/daily usage tracking with historical queries
-- **Quota management** — daily/weekly/monthly data caps with auto-throttle or auto-block
-- **Bandwidth usage alerts** — threshold rules with cooldowns and tray notifications
-- **Rule scheduling** — time-of-day and day-of-week recurring schedules
-- **Wildcard rules** — match processes by path patterns (`*\chrome.exe`)
-- **Bandwidth priorities** — high/normal/low priority levels per application
-- **Import/export rules** — share rule sets between machines
-- **System tray** — minimize to tray, quick access context menu
-- **Theme support** — persisted dark/light UI toggle from the status bar
-- **Localization** — persisted UI language toggle with English and Spanish catalogs
-- **Connection logging** — rolling log of established, closed, and blocked connections
-- **Windows service detection** — identifies svchost-hosted service names
-- **UWP/Store app detection** — identifies AppX package names
-- **Secure IPC** — ACL-protected named pipe, admin required for rule changes
-- **REST API / remote administration** — localhost API by default, optional keyed remote bind
-- **VirusTotal process verification** — optional hash-only executable reputation checks
-- **Geographic IP lookup** — optional cached remote IP country/city lookup
-- **Plugin webhooks** — optional manifest-based event plugins without in-process code loading
+<p align="center">
+  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><strong>Download for Windows</strong></a>
+  ·
+  <a href="#quick-start">Quick start</a>
+  ·
+  <a href="docs/automation-api.md">Automation guide</a>
+</p>
 
-## Requirements
+![OpenNetLimit live traffic dashboard](assets/screenshots/02-live-traffic.png)
 
-- Windows 10 or later (x64)
-- .NET 8.0 Runtime
-- Administrator privileges (required for WinDivert driver)
+OpenNetLimit gives Windows users a clear view of per-app traffic and direct control over bandwidth. It runs locally and stores traffic history in SQLite. Limits are enforced through WinDivert.
 
-### WinDivert Driver
+Use it when a download is wrecking a call or when a background app is chewing through a hotspot allowance. OpenNetLimit shows the culprit and lets you act without replacing your firewall.
 
-OpenNetLimit uses the [WinDivert](https://reqrypt.org/windivert.html) user-mode packet capture library. The native binaries (`WinDivert.dll` and `WinDivert64.sys`) are included automatically via the `Native.WinDivert` NuGet package.
+## What it does
 
-**Important notes:**
-
-- The WinDivert driver (`WinDivert64.sys`) is a signed kernel driver that loads on first use and requires administrator privileges.
-- Some enterprise security tools (EDR/AV) may flag or block the WinDivert driver. If you encounter driver load failures, check your security software's block list.
-- Hypervisor-Protected Code Integrity (HVCI) may prevent the driver from loading on some systems. See [LOLDrivers entry](https://www.loldrivers.io/drivers/45a31a17-f78d-48ec-beba-74f6bfc5f96e/) for details.
-- WinDivert is licensed under LGPL-3.0 / GPL-2.0. See [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
-
-### Enterprise Deployment (WDAC/EDR)
-
-WinDivert's signed driver is tracked by [LOLDrivers](https://www.loldrivers.io/drivers/45a31a17-f78d-48ec-beba-74f6bfc5f96e/) as a dual-use driver and may trigger alerts in enterprise EDR products (CrowdStrike, Defender for Endpoint, etc.). The [SigmaHQ detection rule](https://detection.fyi/sigmahq/sigma/windows/driver_load/driver_load_win_windivert/) `driver_load_win_windivert` fires at HIGH severity on driver load. This is expected for legitimate bandwidth management use — WinDivert is not malware but has been used by adversary tooling in the past.
-
-**Bundled binary hashes (WinDivert 2.2.2 via Native.WinDivert NuGet):**
-
-| File | SHA-256 |
+| Capability | What you get |
 |---|---|
-| `WinDivert.dll` (x64) | `C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2` |
-| `WinDivert64.sys` (x64) | `8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2` |
+| Live traffic | Current download and upload rates for each active process, plus a rolling connection chart |
+| Per-app control | Independent download and upload ceilings, blocking rules, wildcard paths, and protocol filters |
+| Usage history | Hourly or daily charts backed by a local database, with quotas and threshold alerts |
+| Repeatable rules | Schedules, app groups, import and export, plus a scriptable command-line client |
+| Local automation | A loopback REST API with keyed mutations and an explicit opt-in for remote access |
+| Private defaults | Rules and history remain on the PC. VirusTotal, GeoIP, webhooks, and remote access stay off until configured |
 
-**WDAC allowlist policy (Windows Defender Application Control):**
+## A clearer view of your connection
 
-To allow WinDivert on WDAC-enforced systems, add the file hashes to your supplemental policy:
+| Guided first run | Bandwidth history |
+|---|---|
+| ![OpenNetLimit first-run setup](assets/screenshots/01-first-run.png) | ![OpenNetLimit bandwidth history](assets/screenshots/03-bandwidth-history.png) |
 
-```xml
-<FileRules>
-  <Allow ID="ID_ALLOW_WINDIVERT_DLL" FriendlyName="WinDivert.dll"
-         Hash="C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2" />
-  <Allow ID="ID_ALLOW_WINDIVERT_SYS" FriendlyName="WinDivert64.sys"
-         Hash="8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2" />
-</FileRules>
+| Focused limit editor | Full light theme |
+|---|---|
+| ![OpenNetLimit limit editor](assets/screenshots/04-set-limit.png) | ![OpenNetLimit light theme](assets/screenshots/05-light-theme.png) |
+
+## Download
+
+The release ZIP contains a self-contained Windows x64 build. A separate .NET installation is not required.
+
+[Download OpenNetLimit 1.0.0](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
+
+Each release includes a SHA-256 checksum file. Compare it before installation if the ZIP came from anywhere other than this repository.
+
+## Quick start
+
+1. Download the latest Windows x64 ZIP and extract it to a permanent folder.
+2. Open an Administrator PowerShell window in that folder and run `./Install-Service.ps1`.
+3. Launch `OpenNetLimit.UI.exe`.
+4. Right-click an application in the traffic list to set or remove its limit.
+
+The service starts with Windows after installation. Run `./Uninstall-Service.ps1` from an Administrator PowerShell window to remove it. Traffic history and rules in `%ProgramData%\OpenNetLimit` are left intact.
+
+### Driver trust note
+
+OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires administrator rights for the service. Some security products flag WinDivert because it is a dual-use network driver. Review the [driver trust and enterprise deployment notes](docs/enterprise-driver-deployment.md) before approving it on a managed PC.
+
+## Everyday use
+
+### Limit an application
+
+1. Find the process in the live traffic table.
+2. Right-click it and choose **Set Bandwidth Limit**.
+3. Enter either limit in KB/s, then select **OK**.
+
+The rule takes effect immediately. System-critical Windows processes are protected from blocking and rate limits.
+
+### Check traffic history
+
+Open **History**, choose a process or keep **All**, then switch between hourly and daily totals. Data stays in `%ProgramData%\OpenNetLimit\traffic.db`.
+
+### Use the command line
+
+```powershell
+./onl.exe status
+./onl.exe snapshot
+./onl.exe rules add --process steam.exe --download 8192 --upload 1024
+./onl.exe stats top --days 7 --limit 10
 ```
 
-**EDR allowlist steps (common products):**
+See the [CLI and REST API guide](docs/automation-api.md) for authentication, remote access, and the complete endpoint list.
 
-- **Microsoft Defender for Endpoint:** Add WinDivert64.sys path or hash to *Indicators > Allow* in the Defender Security Center.
-- **CrowdStrike Falcon:** Create a Machine Learning exclusion for the WinDivert64.sys hash or path under *IOC Management*.
-- **SentinelOne:** Add the WinDivert file hashes to the *Exclusions > Hashes* allowlist in the management console.
-- **Carbon Black:** Add a bypass rule for the WinDivert driver hash in the *Reputation* tab.
+## Build from source
 
-Verify hashes match the values above before adding allowlist entries. If you build WinDivert from source or use a different version, recompute hashes with `certutil -hashfile WinDivert64.sys SHA256`.
-
-## Getting Started
-
-### Building
+You need the .NET 8 SDK on Windows.
 
 ```powershell
 dotnet restore
-dotnet build
-dotnet test
+dotnet build OpenNetLimit.sln -c Release
+dotnet test OpenNetLimit.sln -c Release
+./scripts/build-release.ps1
 ```
 
-### Running the Service
-
-The service must run as Administrator to load the WinDivert driver:
+Marketing screenshots are captured on isolated Windows desktops. The capture process never switches away from the user's current desktop.
 
 ```powershell
-dotnet run --project src/OpenNetLimit.Service
+./scripts/capture-marketing.ps1
 ```
 
-### Running the UI
+## How it is put together
 
-In a separate terminal (does not require admin for monitoring):
-
-```powershell
-dotnet run --project src/OpenNetLimit.UI
-```
-
-The UI will auto-connect to the service and display live traffic data. On first launch, a setup wizard guides you through requirements. Use the status-bar theme and language buttons to switch dark/light mode and English/Spanish text. Set `OPENNETLIMIT_UI_CULTURE` to override the startup UI culture.
-
-### Setting Bandwidth Limits
-
-1. Right-click a process in the traffic list
-2. Select **Set Bandwidth Limit...**
-3. Enter download/upload limits in KB/s
-4. The limit takes effect immediately via the background service
-
-### Troubleshooting
-
-- **Service won't start:** Ensure you're running as Administrator. Check `%ProgramData%\OpenNetLimit\last-error.txt` for details.
-- **UI shows "Disconnected":** The background service isn't running. Start it first.
-- **Driver blocked by AV/EDR:** Add WinDivert64.sys to your security software's allow list.
-- **HVCI preventing driver load:** WinDivert may be blocked on systems with Hypervisor-Protected Code Integrity enabled.
-- **REST API mutation returns 403:** Set `OPENNETLIMIT_API_KEY` and send it with `X-OpenNetLimit-Key`.
-- **Remote API does not listen on LAN:** Set both `OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY`, then provide a non-loopback `OPENNETLIMIT_API_URLS` prefix.
-- **Process verification says NotConfigured:** Set `OPENNETLIMIT_VIRUSTOTAL_API_KEY`. OpenNetLimit sends only SHA-256 hashes to VirusTotal; it does not upload files.
-- **GeoIP lookup says Disabled:** Set `OPENNETLIMIT_GEOIP_ENABLED=1`. Public remote IPs are sent to the configured GeoIP provider and cached; private, loopback, link-local, and multicast addresses are not queried.
-
-## Architecture
-
-- **OpenNetLimit.Core** — Shared models, interfaces, IPC protocol definitions
-- **OpenNetLimit.Engine** — WinDivert packet interception, flow tracking, token bucket rate limiting, packet scheduling
-- **OpenNetLimit.Service** — Windows background service, rule engine, traffic statistics (SQLite), quota management
-- **OpenNetLimit.UI** — WPF desktop GUI with LiveCharts2 real-time charts
-- **OpenNetLimit.Tests** — xUnit unit tests
-
-### Data Storage
-
-All persistent data is stored in `%ProgramData%\OpenNetLimit\`:
-
-| File | Purpose |
+| Project | Responsibility |
 |---|---|
-| `rules.json` | Bandwidth rules and quota configurations |
-| `traffic.db` | SQLite database with hourly/daily traffic statistics |
-| `last-error.txt` | Last startup error for troubleshooting |
-| `logs/` | Service log directory |
+| `OpenNetLimit.UI` | WPF dashboard, history, rule editing, localization, and theme support |
+| `OpenNetLimit.Service` | Background engine, local storage, named-pipe IPC, and REST API |
+| `OpenNetLimit.Engine` | WinDivert interception, flow tracking, and packet scheduling |
+| `OpenNetLimit.CLI` | Scriptable access to status, rules, history, groups, and quotas |
 
-### IPC Protocol
+Persistent state lives in `%ProgramData%\OpenNetLimit`. The UI communicates with the service over a local named pipe. Read operations are available to local users, while rule changes require administrator rights.
 
-The UI communicates with the service via a named pipe (`OpenNetLimit`). Commands:
+## Documentation
 
-| Command | Access | Description |
-|---|---|---|
-| `SNAPSHOT` | Read | Current traffic snapshot with per-process bandwidth |
-| `PROCESSES` | Read | All tracked processes |
-| `RULES` | Read | All bandwidth rules |
-| `STATUS` | Read | Service diagnostics (uptime, counters) |
-| `STATS_HOURLY [name]` | Read | Hourly traffic stats (optional process filter) |
-| `STATS_DAILY [name]` | Read | Daily traffic stats (optional process filter) |
-| `STATS_TOP` | Read | Top processes by total bandwidth |
-| `QUOTAS` | Read | All quota states with usage percentages |
-| `CONNECTION_LOG` | Read | Last 100 connection log entries |
-| `EXPORT_RULES` | Read | Export all rules as JSON |
-| `ADD_RULE {json}` | Admin | Add a new bandwidth rule |
-| `REMOVE_RULE {guid}` | Admin | Remove a rule by ID |
-| `UPDATE_RULE {json}` | Admin | Update an existing rule |
-| `IMPORT_RULES {json}` | Admin | Import rules (merge mode) |
-| `VERIFY_PROCESS {path}` | Admin | Hash an executable and query VirusTotal if configured |
-| `GEOIP {ip}` | Admin | Resolve a public IP address to approximate country/city if enabled |
-| `ALERT_RULES` | Read | List bandwidth alert rules |
-| `ALERT_EVENTS` | Read | Recent triggered alert events |
-| `PLUGINS` | Read | Loaded plugin manifests |
-| `ADD_ALERT_RULE {json}` | Admin | Add a bandwidth alert threshold |
-| `UPDATE_ALERT_RULE {json}` | Admin | Update a bandwidth alert threshold |
-| `REMOVE_ALERT_RULE {guid}` | Admin | Remove a bandwidth alert threshold |
-| `RELOAD_PLUGINS` | Admin | Reload plugin manifests from disk |
-
-### REST API
-
-The service also exposes a small REST API for local automation and optional remote administration.
-By default it listens only on `http://127.0.0.1:47719/`.
-
-| Setting | Description |
-|---|---|
-| `OPENNETLIMIT_API_URLS` | Semicolon- or comma-separated listener prefixes. Defaults to `http://127.0.0.1:47719/`. |
-| `OPENNETLIMIT_API_KEY` | Required for all REST mutations and all remote requests. Send as `X-OpenNetLimit-Key` or `Authorization: Bearer <key>`. |
-| `OPENNETLIMIT_ENABLE_REMOTE_API=1` | Allows non-loopback listener prefixes only when `OPENNETLIMIT_API_KEY` is also set. |
-| `OPENNETLIMIT_API_DISABLED=1` | Disables the REST listener. |
-| `OPENNETLIMIT_VIRUSTOTAL_API_KEY` | Enables hash-only VirusTotal process verification. |
-| `OPENNETLIMIT_VIRUSTOTAL_CACHE_HOURS` | Verification cache duration. Defaults to 12 hours. |
-| `OPENNETLIMIT_VIRUSTOTAL_DISABLED=1` | Disables VirusTotal verification even when a key exists. |
-| `OPENNETLIMIT_GEOIP_ENABLED=1` | Enables public-IP geolocation lookups. Disabled by default. |
-| `OPENNETLIMIT_GEOIP_ENDPOINT` | GeoIP provider base URL. Defaults to `https://free.freeipapi.com/api/json/`. |
-| `OPENNETLIMIT_GEOIP_CACHE_HOURS` | GeoIP cache duration. Defaults to 24 hours. |
-| `OPENNETLIMIT_PLUGINS_ENABLED=1` | Enables manifest-based webhook plugins. Disabled by default. |
-| `OPENNETLIMIT_PLUGIN_DIR` | Plugin manifest directory. Defaults to `%ProgramData%\OpenNetLimit\plugins`. |
-
-Remote administration is intentionally fail-closed: non-loopback prefixes are ignored unless both
-`OPENNETLIMIT_ENABLE_REMOTE_API=1` and `OPENNETLIMIT_API_KEY` are configured.
-
-| Endpoint | Access | Description |
-|---|---|---|
-| `GET /health` | Local read / keyed remote | Liveness check |
-| `GET /api/v1/status` | Local read / keyed remote | Service diagnostics |
-| `GET /api/v1/snapshot` | Local read / keyed remote | Current traffic snapshot |
-| `GET /api/v1/processes` | Local read / keyed remote | Tracked processes |
-| `GET /api/v1/rules` | Local read / keyed remote | All bandwidth rules |
-| `GET /api/v1/rules/{id}` | Local read / keyed remote | One bandwidth rule |
-| `POST /api/v1/rules` | Key required | Add a bandwidth rule |
-| `PUT /api/v1/rules/{id}` | Key required | Update a bandwidth rule |
-| `DELETE /api/v1/rules/{id}` | Key required | Remove a bandwidth rule |
-| `POST /api/v1/rules/import?replace=true` | Key required | Import rule JSON |
-| `GET /api/v1/stats/hourly?processName=chrome&hours=24` | Local read / keyed remote | Hourly stats |
-| `GET /api/v1/stats/daily?processName=chrome&days=30` | Local read / keyed remote | Daily stats |
-| `GET /api/v1/stats/top?days=7&limit=20` | Local read / keyed remote | Top processes by traffic |
-| `GET /api/v1/quotas` | Local read / keyed remote | Quota states |
-| `GET /api/v1/connections` | Local read / keyed remote | Recent connection log |
-| `GET /api/v1/verification?path=C:\Windows\System32\notepad.exe` | Key required | Hash a file and query VirusTotal |
-| `GET /api/v1/verification/cache` | Key required | Cached verification results |
-| `GET /api/v1/geoip?ip=8.8.8.8` | Key required | Resolve a public IP address to approximate location |
-| `GET /api/v1/geoip/cache` | Key required | Cached GeoIP results |
-| `GET /api/v1/alerts/rules` | Local read / keyed remote | List bandwidth alert rules |
-| `GET /api/v1/alerts/events?limit=100` | Local read / keyed remote | Recent bandwidth alert events |
-| `POST /api/v1/alerts/rules` | Key required | Add a bandwidth alert rule |
-| `PUT /api/v1/alerts/rules/{id}` | Key required | Update a bandwidth alert rule |
-| `DELETE /api/v1/alerts/rules/{id}` | Key required | Remove a bandwidth alert rule |
-| `GET /api/v1/plugins` | Local read / keyed remote | Loaded plugin manifests |
-| `POST /api/v1/plugins/reload` | Key required | Reload plugin manifests |
-
-### Plugin Manifests
-
-Plugins are declarative JSON webhook manifests. OpenNetLimit does not load plugin DLLs or scripts in-process.
-
-```json
-{
-  "id": "alert-hook",
-  "name": "Alert Hook",
-  "version": "1.0.0",
-  "enabled": true,
-  "eventSubscriptions": ["alert.triggered", "quota.warning", "quota.exceeded"],
-  "webhookUrl": "https://example.test/opennetlimit"
-}
-```
+- [CLI and REST API](docs/automation-api.md)
+- [Driver trust and enterprise deployment](docs/enterprise-driver-deployment.md)
+- [Third-party notices](THIRD-PARTY-NOTICES.txt)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
-WinDivert is licensed separately under LGPL-3.0 / GPL-2.0 — see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+OpenNetLimit is released under the [MIT License](LICENSE). WinDivert and other bundled components retain their own licenses, which are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).

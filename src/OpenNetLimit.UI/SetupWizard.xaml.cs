@@ -15,6 +15,7 @@ public partial class SetupWizard : Window
     public SetupWizard()
     {
         InitializeComponent();
+        UpdateStepVisuals();
     }
 
     private void OnNext(object sender, RoutedEventArgs e)
@@ -25,6 +26,7 @@ public partial class SetupWizard : Window
             BtnBack.IsEnabled = true;
             if (Pages.SelectedIndex == Pages.Items.Count - 1)
                 BtnNext.Content = LocalizationManager.Text("Action_Finish");
+            UpdateStepVisuals();
         }
         else
         {
@@ -40,7 +42,17 @@ public partial class SetupWizard : Window
             Pages.SelectedIndex--;
             BtnNext.Content = LocalizationManager.Text("Action_Next");
             BtnBack.IsEnabled = Pages.SelectedIndex > 0;
+            UpdateStepVisuals();
         }
+    }
+
+    private void UpdateStepVisuals()
+    {
+        var active = (System.Windows.Media.Brush)FindResource("AccentSoftBrush");
+        var inactive = System.Windows.Media.Brushes.Transparent;
+        StepOne.Background = Pages.SelectedIndex == 0 ? active : inactive;
+        StepTwo.Background = Pages.SelectedIndex == 1 ? active : inactive;
+        StepThree.Background = Pages.SelectedIndex == 2 ? active : inactive;
     }
 
     private void OnSkip(object sender, RoutedEventArgs e)

@@ -71,7 +71,7 @@
   <data name="Setup_RequirementsService" xml:space="preserve"><value>The OpenNetLimit service must be running for monitoring and limiting to work.</value></data>
   <data name="Setup_RequirementsStorage" xml:space="preserve"><value>Traffic rules, statistics, and logs are stored in %ProgramData%\OpenNetLimit.</value></data>
   <data name="Setup_RequirementsTitle" xml:space="preserve"><value>Requirements</value></data>
-  <data name="Setup_Title" xml:space="preserve"><value>OpenNetLimit - First-Run Setup</value></data>
+  <data name="Setup_Title" xml:space="preserve"><value>OpenNetLimit: First-Run Setup</value></data>
   <data name="Setup_WelcomeBody" xml:space="preserve"><value>OpenNetLimit monitors and controls per-application network bandwidth on your Windows PC.</value></data>
   <data name="Setup_WelcomeHint" xml:space="preserve"><value>This wizard will help you configure the essential settings. You can change these later at any time.</value></data>
   <data name="Setup_WelcomeTitle" xml:space="preserve"><value>Welcome to OpenNetLimit</value></data>
@@ -101,4 +101,27 @@
   <data name="History_Refresh" xml:space="preserve"><value>Refresh</value></data>
   <data name="Tray_Exit" xml:space="preserve"><value>Exit</value></data>
   <data name="Tray_Show" xml:space="preserve"><value>Show</value></data>
+  <data name="Main_Subtitle" xml:space="preserve"><value>Per-application bandwidth control for Windows</value></data>
+  <data name="Service_Label" xml:space="preserve"><value>ENGINE</value></data>
+  <data name="Metric_Download" xml:space="preserve"><value>DOWNLOAD</value></data>
+  <data name="Metric_Upload" xml:space="preserve"><value>UPLOAD</value></data>
+  <data name="Metric_LiveTotal" xml:space="preserve"><value>Live across all applications</value></data>
+  <data name="Metric_Applications" xml:space="preserve"><value>ACTIVE APPLICATIONS</value></data>
+  <data name="Metric_ApplicationsHint" xml:space="preserve"><value>Currently using the network</value></data>
+  <data name="Chart_LiveTitle" xml:space="preserve"><value>Live throughput</value></data>
+  <data name="Chart_LiveSubtitle" xml:space="preserve"><value>Combined download and upload activity</value></data>
+  <data name="Chart_WindowLabel" xml:space="preserve"><value>LAST 60 SECONDS</value></data>
+  <data name="ProcessList_Title" xml:space="preserve"><value>Applications</value></data>
+  <data name="ProcessList_Hint" xml:space="preserve"><value>Right-click an application to set or remove a bandwidth limit.</value></data>
+  <data name="History_Title" xml:space="preserve"><value>Bandwidth history</value></data>
+  <data name="History_Subtitle" xml:space="preserve"><value>Review received and sent data by application.</value></data>
+  <data name="Setup_StepWelcome" xml:space="preserve"><value>Welcome</value></data>
+  <data name="Setup_StepRequirements" xml:space="preserve"><value>Requirements</value></data>
+  <data name="Setup_StepReady" xml:space="preserve"><value>Ready</value></data>
+  <data name="Setup_StepOneOfThree" xml:space="preserve"><value>STEP 1 OF 3</value></data>
+  <data name="Setup_StepTwoOfThree" xml:space="preserve"><value>STEP 2 OF 3</value></data>
+  <data name="Setup_StepThreeOfThree" xml:space="preserve"><value>STEP 3 OF 3</value></data>
+  <data name="Setup_LocalNote" xml:space="preserve"><value>Rules and traffic history stay on this Windows PC.</value></data>
+  <data name="Setup_WelcomeCardTitle" xml:space="preserve"><value>See what is using your connection</value></data>
+  <data name="SetLimit_Subtitle" xml:space="preserve"><value>Set an independent ceiling for this application.</value></data>
 </root>

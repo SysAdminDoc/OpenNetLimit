@@ -71,7 +71,7 @@
   <data name="Setup_RequirementsService" xml:space="preserve"><value>El servicio de OpenNetLimit debe estar en ejecucion para supervisar y limitar trafico.</value></data>
   <data name="Setup_RequirementsStorage" xml:space="preserve"><value>Las reglas, estadisticas y registros se guardan en %ProgramData%\OpenNetLimit.</value></data>
   <data name="Setup_RequirementsTitle" xml:space="preserve"><value>Requisitos</value></data>
-  <data name="Setup_Title" xml:space="preserve"><value>OpenNetLimit - Configuracion inicial</value></data>
+  <data name="Setup_Title" xml:space="preserve"><value>OpenNetLimit: Configuracion inicial</value></data>
   <data name="Setup_WelcomeBody" xml:space="preserve"><value>OpenNetLimit supervisa y controla el ancho de banda de red por aplicacion en su PC Windows.</value></data>
   <data name="Setup_WelcomeHint" xml:space="preserve"><value>Este asistente le ayuda a configurar los ajustes esenciales. Puede cambiarlos mas tarde.</value></data>
   <data name="Setup_WelcomeTitle" xml:space="preserve"><value>Bienvenido a OpenNetLimit</value></data>
@@ -101,4 +101,27 @@
   <data name="History_Refresh" xml:space="preserve"><value>Actualizar</value></data>
   <data name="Tray_Exit" xml:space="preserve"><value>Salir</value></data>
   <data name="Tray_Show" xml:space="preserve"><value>Mostrar</value></data>
+  <data name="Main_Subtitle" xml:space="preserve"><value>Control de ancho de banda por aplicación para Windows</value></data>
+  <data name="Service_Label" xml:space="preserve"><value>MOTOR</value></data>
+  <data name="Metric_Download" xml:space="preserve"><value>DESCARGA</value></data>
+  <data name="Metric_Upload" xml:space="preserve"><value>CARGA</value></data>
+  <data name="Metric_LiveTotal" xml:space="preserve"><value>En vivo en todas las aplicaciones</value></data>
+  <data name="Metric_Applications" xml:space="preserve"><value>APLICACIONES ACTIVAS</value></data>
+  <data name="Metric_ApplicationsHint" xml:space="preserve"><value>Usando la red en este momento</value></data>
+  <data name="Chart_LiveTitle" xml:space="preserve"><value>Tráfico en vivo</value></data>
+  <data name="Chart_LiveSubtitle" xml:space="preserve"><value>Actividad combinada de descarga y carga</value></data>
+  <data name="Chart_WindowLabel" xml:space="preserve"><value>ÚLTIMOS 60 SEGUNDOS</value></data>
+  <data name="ProcessList_Title" xml:space="preserve"><value>Aplicaciones</value></data>
+  <data name="ProcessList_Hint" xml:space="preserve"><value>Haz clic derecho en una aplicación para establecer o quitar un límite.</value></data>
+  <data name="History_Title" xml:space="preserve"><value>Historial de ancho de banda</value></data>
+  <data name="History_Subtitle" xml:space="preserve"><value>Revisa los datos recibidos y enviados por aplicación.</value></data>
+  <data name="Setup_StepWelcome" xml:space="preserve"><value>Bienvenida</value></data>
+  <data name="Setup_StepRequirements" xml:space="preserve"><value>Requisitos</value></data>
+  <data name="Setup_StepReady" xml:space="preserve"><value>Listo</value></data>
+  <data name="Setup_StepOneOfThree" xml:space="preserve"><value>PASO 1 DE 3</value></data>
+  <data name="Setup_StepTwoOfThree" xml:space="preserve"><value>PASO 2 DE 3</value></data>
+  <data name="Setup_StepThreeOfThree" xml:space="preserve"><value>PASO 3 DE 3</value></data>
+  <data name="Setup_LocalNote" xml:space="preserve"><value>Las reglas y el historial de tráfico permanecen en este PC con Windows.</value></data>
+  <data name="Setup_WelcomeCardTitle" xml:space="preserve"><value>Descubre qué usa tu conexión</value></data>
+  <data name="SetLimit_Subtitle" xml:space="preserve"><value>Establece un límite independiente para esta aplicación.</value></data>
 </root>

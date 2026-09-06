@@ -248,7 +248,7 @@ public static class Program
     private static int PrintUsage()
     {
         Console.WriteLine("""
-            OpenNetLimit CLI - scriptable bandwidth rule management
+            OpenNetLimit CLI: scriptable bandwidth rule management
 
             Usage: onl <command> [options]
 

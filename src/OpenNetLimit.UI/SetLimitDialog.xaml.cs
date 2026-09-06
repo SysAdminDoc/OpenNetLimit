@@ -36,6 +36,11 @@ public partial class SetLimitDialog : Window, INotifyPropertyChanged
         InitializeComponent();
         DataContext = this;
         ErrorBorderBrush.Freeze();
+        if (MarketingCapture.IsEnabled)
+        {
+            DownloadBox.Text = "8192";
+            UploadBox.Text = "1024";
+        }
     }
 
     private void OnInputChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
