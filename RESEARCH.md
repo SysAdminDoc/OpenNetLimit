@@ -1,4 +1,8 @@
-# Research - OpenNetLimit
+# Research: OpenNetLimit
+
+## Brand direction
+
+The approved identity is `direction-03-selected-crossing-lanes-app-icon.png`. Its intersecting cyan and green traffic paths communicate bandwidth control at icon scale, while the white center gate creates an immediate control point. The dimensional first direction becomes noisy at small sizes, and the flat second direction lacks the finished app-container silhouette. All three originals remain in `assets/brand/concepts` so the design history is preserved. The prior social preview and an unused refresh study are stored separately in `assets/marketing/concepts`.
 
 ## Executive Summary
 OpenNetLimit is a Windows-only, .NET/WPF attempt to build an open-source NetLimiter-style per-application bandwidth limiter on top of WinDivert. Verified: the repository has a useful domain model and testable primitives for flow tracking, rule ordering, and token buckets, but the core service/engine and test suite do not currently build, so the highest-value direction is to turn the scaffold into a trustworthy local control plane before adding parity features. Priority opportunities: restore build/test health; align the WinDivert wrapper API and runtime packaging; secure the elevated named-pipe IPC boundary; define fail-safe service behavior and retained diagnostics; replace capture-thread sleeps with bounded packet scheduling; reconcile rule storage with live limiter state; wire the WPF shell to the service with honest disconnected/error states; build compatibility benchmarks for HVCI/VPN/tethering/IPv6; add an upgrade/security-audit path before .NET 8 support ends; delay remote/plugin novelty until local reliability is proven.

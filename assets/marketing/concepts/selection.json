@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "project": "OpenNetLimit",
+  "selectedConcepts": [],
+  "productionAsset": "../social-preview.png",
+  "archivedConcepts": [
+    {
+      "file": "social-preview-v1.0.0.png",
+      "status": "previous-production",
+      "reason": "This is the approved social preview before its release footer was updated for v1.0.1."
+    },
+    {
+      "file": "direction-01-version-refresh-study.png",
+      "status": "rejected",
+      "reason": "The study changed the established composition and output dimensions, so it was preserved for reference but not promoted to production.",
+      "request": "Change only the bottom-left version text from Version 1.0.0 to Version 1.0.1 while preserving the 1280 by 640 composition."
+    }
+  ],
+  "guidance": "Use the production asset for GitHub. Concepts in this folder preserve explored directions and should not replace the approved artwork without a new review."
+}

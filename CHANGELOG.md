@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.0.0 - 2026-09-06
+## 1.0.1 (2026-09-07)
+
+### Changed
+- Archived the original crossing-lanes logo directions and prior social artwork with machine-readable selection records
+- Preserved the approved app-icon concept as an untouched brand master
+- Refreshed all five product screenshots from the versioned desktop build
+- Updated the GitHub social preview footer for v1.0.1 without changing its approved composition
+- Rebuilt the self-contained Windows x64 release package and checksum
+
+## 1.0.0 (2026-09-06)
 
 ### Added
 - New OpenNetLimit logo, Windows icon family, product screenshots, and social preview artwork
