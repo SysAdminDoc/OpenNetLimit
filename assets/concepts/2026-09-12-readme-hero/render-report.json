@@ -1,0 +1,131 @@
+{
+  "width": 1280,
+  "height": 640,
+  "selectedCandidate": "candidate-2",
+  "containsReleaseNumber": false,
+  "sources": {
+    "logo": "assets/brand/opennetlimit-selected-master.png",
+    "screenshot": "assets/screenshots/02-live-traffic.png"
+  },
+  "final": {
+    "file": "readme-hero-final.png",
+    "sha256": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687"
+  },
+  "files": [
+    {
+      "file": "current-run-captures/01-first-run.png",
+      "sha256": "7f465cbb0acf40c88b2bf1fa7295d4c7f42696bbcfbfa2d042faef57e2505f54",
+      "bytes": 47723
+    },
+    {
+      "file": "current-run-captures/02-live-traffic.png",
+      "sha256": "e612e440dd7b0b4f84101724fc4a1f9ca268fb51c6541fee5bfd810de78ea59e",
+      "bytes": 107376
+    },
+    {
+      "file": "current-run-captures/03-bandwidth-history.png",
+      "sha256": "24481e369d8e1c922babf96c01d35d8be4668868b7dac6352a6e6af8c6adb400",
+      "bytes": 73450
+    },
+    {
+      "file": "current-run-captures/04-set-limit.png",
+      "sha256": "12270e0691f27b4bd5354e32cedb8f4351db8197f232094eae917af87ad531f3",
+      "bytes": 22532
+    },
+    {
+      "file": "current-run-captures/05-light-theme.png",
+      "sha256": "4dde2ba30a081ec59744e634a8a8d4a557dc6720caaf0fbb1ddfa32dadc61976",
+      "bytes": 106652
+    },
+    {
+      "file": "packaged-captures/01-first-run.png",
+      "sha256": "7f465cbb0acf40c88b2bf1fa7295d4c7f42696bbcfbfa2d042faef57e2505f54",
+      "bytes": 47723
+    },
+    {
+      "file": "packaged-captures/02-live-traffic.png",
+      "sha256": "e612e440dd7b0b4f84101724fc4a1f9ca268fb51c6541fee5bfd810de78ea59e",
+      "bytes": 107376
+    },
+    {
+      "file": "packaged-captures/03-bandwidth-history.png",
+      "sha256": "24481e369d8e1c922babf96c01d35d8be4668868b7dac6352a6e6af8c6adb400",
+      "bytes": 73450
+    },
+    {
+      "file": "packaged-captures/04-set-limit.png",
+      "sha256": "12270e0691f27b4bd5354e32cedb8f4351db8197f232094eae917af87ad531f3",
+      "bytes": 22532
+    },
+    {
+      "file": "packaged-captures/05-light-theme.png",
+      "sha256": "4dde2ba30a081ec59744e634a8a8d4a557dc6720caaf0fbb1ddfa32dadc61976",
+      "bytes": 106652
+    },
+    {
+      "file": "readme-hero-candidate-01-continuity.png",
+      "sha256": "1f0a280ef6ba68b12765a2c0acb56d5b99d6941d043f1e636e8649d0ac209045",
+      "bytes": 138009
+    },
+    {
+      "file": "readme-hero-candidate-02-product-led.png",
+      "sha256": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687",
+      "bytes": 135062
+    },
+    {
+      "file": "readme-hero-final.png",
+      "sha256": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687",
+      "bytes": 135062
+    },
+    {
+      "file": "review/candidate-01-640.png",
+      "sha256": "439f34727011fbaf1a2c6670963273e1f6847c47b8c878cbef554da446358694",
+      "bytes": 77405
+    },
+    {
+      "file": "review/candidate-01-960.png",
+      "sha256": "43cfe5c3f822f9c8df875a92b82ba011fb73339913e4dc15f58eb0861620ba62",
+      "bytes": 141077
+    },
+    {
+      "file": "review/candidate-02-640.png",
+      "sha256": "8cb40f2dea631303a89585892dc142a4fcfcd5901b14ffebad42d13f8760a79d",
+      "bytes": 80305
+    },
+    {
+      "file": "review/candidate-02-960.png",
+      "sha256": "56f999f9ddbbc7f8365e528951120292e397acc9074f6fc82d87ae5bb699de51",
+      "bytes": 148139
+    },
+    {
+      "file": "review/candidate-comparison.png",
+      "sha256": "b0c78f8a91da825489fda99e1460e8ed7df1425f87c4aec87ac3db45b2e4a24c",
+      "bytes": 300812
+    },
+    {
+      "file": "review/reference-and-candidates.png",
+      "sha256": "a0a8e925aef471fe4c1af593636b5f23bcd9158a0ede6ce736da9f2e12351288",
+      "bytes": 443538
+    },
+    {
+      "file": "review/selected-640.png",
+      "sha256": "8cb40f2dea631303a89585892dc142a4fcfcd5901b14ffebad42d13f8760a79d",
+      "bytes": 80305
+    },
+    {
+      "file": "review/selected-960.png",
+      "sha256": "56f999f9ddbbc7f8365e528951120292e397acc9074f6fc82d87ae5bb699de51",
+      "bytes": 148139
+    },
+    {
+      "file": "source/approved-logo-master.png",
+      "sha256": "01eebef1814a987b96ade26cd9a801908966fb846673306da5995084228c593a",
+      "bytes": 768983
+    },
+    {
+      "file": "source/previous-social-preview.png",
+      "sha256": "956a287f4a22f39f2c43090ebcb74e12e398e73f3505fde3ee96d295a40a0738",
+      "bytes": 313279
+    }
+  ]
+}

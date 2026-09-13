@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'artifacts'))
 $expectedPrefix = $repoRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$heroProject = Join-Path $repoRoot 'tools\OpenNetLimit.MarketingHero\OpenNetLimit.MarketingHero.csproj'
 
 if (-not $artifactRoot.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to clean an artifact path outside the repository: $artifactRoot"
@@ -17,6 +18,9 @@ $version = [string]$buildProperties.Project.PropertyGroup.Version
 if ([string]::IsNullOrWhiteSpace($version)) {
     throw 'Directory.Build.props does not contain a project version.'
 }
+
+dotnet run --project $heroProject -c Release -- --repo $repoRoot --select 2
+if ($LASTEXITCODE -ne 0) { throw 'The README hero render failed.' }
 
 if (Test-Path -LiteralPath $artifactRoot) {
     Remove-Item -LiteralPath $artifactRoot -Recurse -Force

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2 (2026-09-12)
+
+### Changed
+- Added a version-free README hero built from the approved crossing-lanes mark and a current product capture
+- Put the hero at the top of the README and removed the repeated live-dashboard view from the body
+- Replaced the versioned social artwork with the same evergreen composition
+- Archived the earlier card, both reviewed layouts, reduced-width proofs, and current private-desktop captures
+- Added a repeatable hero renderer and regression checks for placement, duplication, dimensions, copy, and selected-art parity
+
 ## 1.0.1 (2026-09-07)
 
 ### Changed

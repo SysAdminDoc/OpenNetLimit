@@ -23,6 +23,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{2329BF95
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenNetLimit.MarketingCapture", "tools\OpenNetLimit.MarketingCapture\OpenNetLimit.MarketingCapture.csproj", "{8EE9CD01-1628-4473-B70B-625EF1EEE894}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenNetLimit.MarketingHero", "tools\OpenNetLimit.MarketingHero\OpenNetLimit.MarketingHero.csproj", "{1FC45DA1-6593-4B60-BE71-D80A8F282B9B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +59,10 @@ Global
 		{8EE9CD01-1628-4473-B70B-625EF1EEE894}.Debug|Any CPU.Build.0 = Debug|x64
 		{8EE9CD01-1628-4473-B70B-625EF1EEE894}.Release|Any CPU.ActiveCfg = Release|x64
 		{8EE9CD01-1628-4473-B70B-625EF1EEE894}.Release|Any CPU.Build.0 = Release|x64
+		{1FC45DA1-6593-4B60-BE71-D80A8F282B9B}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{1FC45DA1-6593-4B60-BE71-D80A8F282B9B}.Debug|Any CPU.Build.0 = Debug|x64
+		{1FC45DA1-6593-4B60-BE71-D80A8F282B9B}.Release|Any CPU.ActiveCfg = Release|x64
+		{1FC45DA1-6593-4B60-BE71-D80A8F282B9B}.Release|Any CPU.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{A1B2C3D4-0001-0000-0000-000000000001} = {E0000001-0000-0000-0000-000000000001}
@@ -66,5 +72,6 @@ Global
 		{A1B2C3D4-0005-0000-0000-000000000005} = {E0000002-0000-0000-0000-000000000002}
 		{DE96B24A-59E4-4C12-8176-ECCC15620828} = {E0000001-0000-0000-0000-000000000001}
 		{8EE9CD01-1628-4473-B70B-625EF1EEE894} = {2329BF95-89AA-4AF1-8FAF-2011CABF459E}
+		{1FC45DA1-6593-4B60-BE71-D80A8F282B9B} = {2329BF95-89AA-4AF1-8FAF-2011CABF459E}
 	EndGlobalSection
 EndGlobal

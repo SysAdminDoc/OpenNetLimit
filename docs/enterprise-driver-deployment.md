@@ -59,6 +59,6 @@ Useful external references:
 
 ## Troubleshooting driver startup
 
-Check `%ProgramData%\OpenNetLimit\last-error.txt` first. Common causes include a non-elevated service process, an EDR block, or a Windows code-integrity policy that rejects the driver.
+Check `%ProgramData%\OpenNetLimit\last-error.txt` first. Common causes include a service process without administrator rights, an EDR block, or a Windows code-integrity policy that rejects the driver.
 
 OpenNetLimit records service events in the Windows Application event log under the `OpenNetLimit` source. The log includes driver load failures and the path that was checked.

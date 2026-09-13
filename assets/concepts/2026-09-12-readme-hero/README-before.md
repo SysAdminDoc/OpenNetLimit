@@ -1,11 +1,13 @@
-![OpenNetLimit dashboard and per-app bandwidth controls](assets/marketing/readme-hero.png)
+<p align="center">
+  <img src="assets/brand/opennetlimit-mark.png" width="128" alt="OpenNetLimit logo">
+</p>
 
 <h1 align="center">OpenNetLimit</h1>
 
 <p align="center"><strong>See which apps use your connection. Set the limits that matter.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-27C7F3?style=flat-square"></a>
+  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.0.1" src="https://img.shields.io/badge/version-1.0.1-27C7F3?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4BE5A2?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0A84FF?style=flat-square">
   <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-6D4AFF?style=flat-square">
@@ -18,6 +20,8 @@
   ·
   <a href="docs/automation-api.md">Automation guide</a>
 </p>
+
+![OpenNetLimit live traffic dashboard](assets/screenshots/02-live-traffic.png)
 
 OpenNetLimit gives Windows users a clear view of per-app traffic and direct control over bandwidth. It runs locally and stores traffic history in SQLite. Limits are enforced through WinDivert.
 
@@ -48,7 +52,7 @@ Use it when a download is wrecking a call or when a background app is chewing th
 
 The release ZIP contains a self-contained Windows x64 build. A separate .NET installation is not required.
 
-[Download OpenNetLimit 1.0.2](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
+[Download OpenNetLimit 1.0.1](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
 
 Each release includes a SHA-256 checksum file. Compare it before installation if the ZIP came from anywhere other than this repository.
 
@@ -127,7 +131,7 @@ Persistent state lives in `%ProgramData%\OpenNetLimit`. The UI communicates with
 
 ## Brand archive
 
-The original crossing-lanes logo directions are preserved in [`assets/brand/concepts`](assets/brand/concepts). The accompanying `selection.json` identifies the approved app-icon direction and its untouched master. Prior social artwork and an unused version-refresh study live in [`assets/marketing/concepts`](assets/marketing/concepts). The complete README hero review, including the rejected clipped layout and selected evergreen final, lives in [`assets/concepts/2026-09-12-readme-hero`](assets/concepts/2026-09-12-readme-hero). Production-ready artwork remains in `assets/brand`, `assets/marketing`, and `src/OpenNetLimit.UI/Assets`.
+The original crossing-lanes logo directions are preserved in [`assets/brand/concepts`](assets/brand/concepts). The accompanying `selection.json` identifies the approved app-icon direction and its untouched master. Prior social artwork and an unused version-refresh study live in [`assets/marketing/concepts`](assets/marketing/concepts). Production-ready artwork remains in `assets/brand`, `assets/marketing`, and `src/OpenNetLimit.UI/Assets`.
 
 ## License
 

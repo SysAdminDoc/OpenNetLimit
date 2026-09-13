@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "project": "OpenNetLimit",
+  "stableRepositoryId": "R_kgDOS__Lcg",
+  "decisionDate": "2026-09-12",
+  "selectedCandidate": "readme-hero-candidate-02-product-led.png",
+  "selectedFinal": "readme-hero-final.png",
+  "productionHero": "../../marketing/readme-hero.png",
+  "productionSocialPreview": "../../marketing/social-preview.png",
+  "readmeReference": "assets/marketing/readme-hero.png",
+  "readmeReferenceCount": 1,
+  "readmeFirstContent": true,
+  "containsReleaseNumber": false,
+  "dimensions": {
+    "width": 1280,
+    "height": 640
+  },
+  "hashes": {
+    "approvedLogoMaster": "01eebef1814a987b96ade26cd9a801908966fb846673306da5995084228c593a",
+    "liveTrafficCapture": "e612e440dd7b0b4f84101724fc4a1f9ca268fb51c6541fee5bfd810de78ea59e",
+    "previousSocialPreview": "956a287f4a22f39f2c43090ebcb74e12e398e73f3505fde3ee96d295a40a0738",
+    "rejectedCandidate": "1f0a280ef6ba68b12765a2c0acb56d5b99d6941d043f1e636e8649d0ac209045",
+    "selectedCandidate": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687",
+    "selectedFinal": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687",
+    "productionHero": "d9ac2cd9c7b2d1faaafe24eaed837d282794e9c12932606a9a9c267877fd9687"
+  },
+  "candidates": [
+    {
+      "file": "readme-hero-candidate-01-continuity.png",
+      "status": "rejected",
+      "reason": "The long headline clips and loses clarity at README width."
+    },
+    {
+      "file": "readme-hero-candidate-02-product-led.png",
+      "status": "selected",
+      "reason": "The user problem leads, the approved logo remains unchanged, and the real product view stays legible at both reviewed widths."
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "executable": "OpenNetLimit.UI.exe",
+  "isolatedDesktop": true,
+  "screenshots": [
+    {
+      "View": "setup",
+      "File": "01-first-run.png",
+      "Title": "OpenNetLimit: First-Run Setup",
+      "Width": 900,
+      "Height": 625,
+      "SampledColors": 70
+    },
+    {
+      "View": "live",
+      "File": "02-live-traffic.png",
+      "Title": "OpenNetLimit",
+      "Width": 1400,
+      "Height": 950,
+      "SampledColors": 50
+    },
+    {
+      "View": "history",
+      "File": "03-bandwidth-history.png",
+      "Title": "OpenNetLimit",
+      "Width": 1400,
+      "Height": 950,
+      "SampledColors": 23
+    },
+    {
+      "View": "limit",
+      "File": "04-set-limit.png",
+      "Title": "Set Bandwidth Limit",
+      "Width": 625,
+      "Height": 438,
+      "SampledColors": 57
+    },
+    {
+      "View": "live-light",
+      "File": "05-light-theme.png",
+      "Title": "OpenNetLimit",
+      "Width": 1400,
+      "Height": 950,
+      "SampledColors": 48
+    }
+  ]
+}
