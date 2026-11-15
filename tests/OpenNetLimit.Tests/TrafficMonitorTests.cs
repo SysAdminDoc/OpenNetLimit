@@ -9,7 +9,7 @@ public class TrafficMonitorTests
     [Fact]
     public void ReadingASnapshot_LeavesTheSpeedForTheNextReader()
     {
-        using var monitor = new TrafficMonitor();
+        using var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
         monitor.RecordBytes(1, "curl", 5000, isUpload: false);
         monitor.RecordBytes(1, "curl", 700, isUpload: true);
         monitor.SampleRates();
@@ -31,7 +31,7 @@ public class TrafficMonitorTests
     public void Snapshot_ShowsTheLimitAProcessIsHeldTo()
     {
         var limiter = new ProcessRateLimiter();
-        using var monitor = new TrafficMonitor(rateLimiter: limiter);
+        using var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), limiter, sampleOnTimer: false);
         monitor.RecordBytes(1, "curl", 5000, isUpload: false);
         monitor.RecordBytes(2, "git", 5000, isUpload: false);
         limiter.SetLimit(1, 262_144, 0);
@@ -52,7 +52,7 @@ public class TrafficMonitorTests
     [Fact]
     public void Usage_CountsEveryByteOnce_WhoeverElseReadsTheMonitor()
     {
-        using var monitor = new TrafficMonitor();
+        using var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
         monitor.RecordBytes(1, "curl", 1000, isUpload: false);
         monitor.RecordBytes(1, "curl", 300, isUpload: true);
         monitor.SampleRates();

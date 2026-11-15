@@ -12,7 +12,7 @@ public class BandwidthAlertTrackerTests : IDisposable
     [Fact]
     public void Update_FiresAlertWhenThresholdExceeded()
     {
-        var monitor = new TrafficMonitor();
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
         var tracker = new BandwidthAlertTracker(monitor);
         tracker.AddRule(new BandwidthAlertRule
         {
@@ -36,7 +36,7 @@ public class BandwidthAlertTrackerTests : IDisposable
     [Fact]
     public void Update_RespectsCooldown()
     {
-        var monitor = new TrafficMonitor();
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
         var tracker = new BandwidthAlertTracker(monitor);
         tracker.AddRule(new BandwidthAlertRule
         {
@@ -78,7 +78,7 @@ public class BandwidthAlertTrackerTests : IDisposable
     [Fact]
     public void SaveAndLoad_RoundTripsRules()
     {
-        var monitor = new TrafficMonitor();
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
         var tracker = new BandwidthAlertTracker(monitor);
         tracker.AddRule(new BandwidthAlertRule
         {

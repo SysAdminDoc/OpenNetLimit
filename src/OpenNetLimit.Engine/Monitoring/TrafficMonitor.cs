@@ -18,11 +18,21 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
 
     /// <param name="rateLimiter">Where the limit each process is held to is read from.</param>
     public TrafficMonitor(TimeSpan? snapshotInterval = null, IRateLimiter? rateLimiter = null)
+        : this(snapshotInterval ?? TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true)
     {
-        var interval = snapshotInterval ?? TimeSpan.FromSeconds(1);
-        _intervalSeconds = interval.TotalSeconds;
+    }
+
+    /// <summary>
+    /// With <paramref name="sampleOnTimer"/> off, rates are only sampled by calling
+    /// <see cref="SampleRates"/>, so a test can't lose its bytes to a timer tick mid-test.
+    /// </summary>
+    internal TrafficMonitor(TimeSpan snapshotInterval, IRateLimiter? rateLimiter, bool sampleOnTimer)
+    {
+        _intervalSeconds = snapshotInterval.TotalSeconds;
         _rateLimiter = rateLimiter;
-        _snapshotTimer = new Timer(OnSnapshotTick, null, interval, interval);
+        _snapshotTimer = sampleOnTimer
+            ? new Timer(OnSnapshotTick, null, snapshotInterval, snapshotInterval)
+            : new Timer(OnSnapshotTick, null, Timeout.Infinite, Timeout.Infinite);
     }
 
     public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null)
