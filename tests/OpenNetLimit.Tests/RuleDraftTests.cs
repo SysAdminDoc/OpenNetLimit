@@ -72,15 +72,109 @@ public sealed class RuleDraftTests
     }
 
     [Theory]
-    [InlineData("9:00", "")]
-    [InlineData("", "17:00")]
-    [InlineData("25:00", "17:00")]
-    [InlineData("9am", "5pm")]
-    public void HalfOrUnreadableHours_AreRefused(string start, string end)
+    [InlineData("9:00", "", DraftField.End)]
+    [InlineData("", "17:00", DraftField.Start)]
+    [InlineData("25:00", "17:00", DraftField.Start)]
+    [InlineData("9:00", "5pm", DraftField.End)]
+    [InlineData("9am", "5pm", DraftField.Start)]
+    public void HalfOrUnreadableHours_AreRefused(string start, string end, DraftField field)
     {
         var result = new RuleDraft { ProcessName = "steam", DownloadKbps = "100", ScheduleStart = start, ScheduleEnd = end }.Build(null);
 
         Assert.Equal("RuleEditor_BadTime", result.ErrorKey);
+        Assert.Equal(field, result.Field);
+    }
+
+    [Fact]
+    public void BadUploadNumber_PointsAtTheUploadBox()
+    {
+        var result = new RuleDraft { ProcessName = "chrome", DownloadKbps = "100", UploadKbps = "12a" }.Build(null);
+
+        Assert.Equal("RuleEditor_BadNumber", result.ErrorKey);
+        Assert.Equal(DraftField.Upload, result.Field);
+    }
+
+    [Fact]
+    public void CapWithNoSpeedLimit_IsAllowed()
+    {
+        var result = new RuleDraft
+        {
+            ProcessName = "onedrive", DownloadKbps = "0", UploadKbps = "",
+            HasQuota = true, QuotaMegabytes = "500", QuotaAction = QuotaAction.Block
+        }.Build(null);
+
+        var rule = Assert.IsType<BandwidthRule>(result.Rule);
+        Assert.Equal(RuleAction.Limit, rule.Action);
+        Assert.Equal(0, rule.DownloadBytesPerSecond);
+        Assert.Equal(0, rule.UploadBytesPerSecond);
+        Assert.Equal(500 * MB, rule.Quota!.LimitBytes);
+    }
+
+    [Theory]
+    [InlineData(9, 0, 30, 0, "09:00:30")]
+    [InlineData(9, 0, 0, 500, "09:00:00")]
+    [InlineData(9, 0, 0, 0, "09:00")]
+    public void Edit_KeepsTheExactHours(int hour, int minute, int second, int millisecond, string shown)
+    {
+        var start = new TimeOnly(hour, minute, second, millisecond);
+        var original = new BandwidthRule
+        {
+            ProcessName = "steam", DownloadBytesPerSecond = 100 * KB,
+            Schedule = new RuleSchedule { StartTime = start, EndTime = new TimeOnly(17, 0, 45) }
+        };
+        var draft = RuleDraft.From(original);
+
+        var rule = draft.Build(original).Rule!;
+
+        Assert.Equal(shown, draft.ScheduleStart);
+        Assert.Equal("17:00:45", draft.ScheduleEnd);
+        Assert.Equal(start, rule.Schedule!.StartTime);
+        Assert.Equal(new TimeOnly(17, 0, 45), rule.Schedule.EndTime);
+    }
+
+    [Fact]
+    public void TypedSeconds_AreRead()
+    {
+        var rule = new RuleDraft { ProcessName = "steam", DownloadKbps = "100", ScheduleStart = "9:00:30", ScheduleEnd = "17:00:00" }
+            .Build(null).Rule!;
+
+        Assert.Equal(new TimeOnly(9, 0, 30), rule.Schedule!.StartTime);
+    }
+
+    [Fact]
+    public void Edit_OfARuleWithOnlyAStartTime_CanStillBeSaved()
+    {
+        var original = new BandwidthRule
+        {
+            ProcessName = "steam", DownloadBytesPerSecond = 100 * KB,
+            Schedule = new RuleSchedule { StartTime = new TimeOnly(9, 0) }
+        };
+        var draft = RuleDraft.From(original);
+        draft.Name = "Renamed";
+
+        var rule = draft.Build(original).Rule;
+
+        Assert.NotNull(rule);
+        Assert.Equal("Renamed", rule.Name);
+        Assert.Equal(new TimeOnly(9, 0), rule.Schedule!.StartTime);
+        Assert.Null(rule.Schedule.EndTime);
+    }
+
+    [Fact]
+    public void Edit_ThatChangesALoneStartTime_AsksForTheEnd()
+    {
+        var original = new BandwidthRule
+        {
+            ProcessName = "steam", DownloadBytesPerSecond = 100 * KB,
+            Schedule = new RuleSchedule { StartTime = new TimeOnly(9, 0) }
+        };
+        var draft = RuleDraft.From(original);
+        draft.ScheduleStart = "10:00";
+
+        var result = draft.Build(original);
+
+        Assert.Equal("RuleEditor_BadTime", result.ErrorKey);
+        Assert.Equal(DraftField.End, result.Field);
     }
 
     [Fact]

@@ -255,7 +255,7 @@
   <data name="RuleEditor_SlowTo" xml:space="preserve"><value>Slow to</value></data>
   <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Enter a program name or a full path.</value></data>
   <data name="RuleEditor_BadNumber" xml:space="preserve"><value>Use whole numbers, like 512.</value></data>
-  <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Set a download or upload limit above 0, or pick another action.</value></data>
+  <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Set a download or upload limit above 0, add a data cap, or pick another action.</value></data>
   <data name="RuleEditor_BadTime" xml:space="preserve"><value>Enter both times as hours and minutes, like 09:00 and 17:30.</value></data>
   <data name="RuleEditor_NeedQuota" xml:space="preserve"><value>Enter a data cap above 0 MB.</value></data>
   <data name="RuleEditor_NeedThrottle" xml:space="preserve"><value>Enter the speed to slow it to, above 0 KB/s.</value></data>

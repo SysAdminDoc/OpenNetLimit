@@ -91,7 +91,7 @@ The rule applies right away and keeps applying after the app restarts. OpenNetLi
 
 The **Rules** tab lists every rule the service applies. **Add rule** opens a form where you pick the app by name or full path, then limit or block it. You can keep a rule to certain hours and days, or give it a daily, weekly or monthly data cap that blocks or slows the app once it's used up. Turning a rule off keeps it for later, and **Undo** brings back one you deleted.
 
-**Export** saves your rules to a JSON file and **Import** loads one, on this PC or another. Import also reads the `rules.json` the service keeps in `%ProgramData%\OpenNetLimit`. The alerts list under the rules tells you when an app, or every app, goes over a speed you pick. Changing rules or alerts needs the app running as administrator.
+**Export** saves your rules to a JSON file and **Import** loads one, on this PC or another. Import also reads the `rules.json` the service keeps in `%ProgramData%\OpenNetLimit`, which it saves every time a rule changes. The alerts list under the rules tells you when an app, or every app, goes over a speed you pick. Changing rules or alerts needs the app running as administrator.
 
 ### Check traffic history
 

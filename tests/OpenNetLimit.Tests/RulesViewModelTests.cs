@@ -6,6 +6,8 @@ using Xunit;
 
 namespace OpenNetLimit.Tests;
 
+/// <summary>These resolve text, so they can't run while another test switches the language.</summary>
+[Collection(CultureSwitchingCollection.Name)]
 public sealed class RulesViewModelTests : IDisposable
 {
     private readonly List<string> _sent = [];
@@ -219,6 +221,70 @@ public sealed class RulesViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_WhenTheReloadFails_SaysItWasDeletedAndWhyTheListIsOld()
+    {
+        _replies["RULES"] = $$"""[{"id":"{{Guid.NewGuid()}}","processName":"steam"}]""";
+        var vm = Create();
+        vm.CanEdit = true;
+        await vm.RefreshAsync();
+        _replies["RULES"] = null;
+
+        await vm.DeleteRuleAsync(vm.Rules[0]);
+
+        Assert.Equal(LocalizationManager.Format("Rules_Deleted", "steam") + " " + LocalizationManager.Text("Rules_NoService"), vm.Message);
+        Assert.True(vm.MessageIsError);
+        Assert.True(vm.CanUndo);
+    }
+
+    [Fact]
+    public async Task AlertsThatDontLoad_ShowTheErrorNotAnEmptyList()
+    {
+        _replies["ALERT_RULES"] = null;
+        var vm = Create();
+
+        await vm.RefreshAsync();
+
+        Assert.False(vm.HasNoAlerts);
+        Assert.True(vm.MessageIsError);
+        Assert.Equal(LocalizationManager.Text("Rules_NoService"), vm.Message);
+    }
+
+    [Fact]
+    public async Task AlertsThatStopLoading_KeepWhatTheyShowed()
+    {
+        _replies["ALERT_RULES"] = """[{"name":"Big download","thresholdBytesPerSecond":1024}]""";
+        var vm = Create();
+        await vm.RefreshAsync();
+        _replies["ALERT_RULES"] = """{"error":"Access denied"}""";
+
+        await vm.RefreshAsync();
+
+        Assert.Equal("Big download", Assert.Single(vm.Alerts).Name);
+        Assert.Equal(LocalizationManager.Format("Rules_ServiceError", "Access denied"), vm.Message);
+    }
+
+    [Fact]
+    public async Task QuotasThatDontLoad_ShowTheError()
+    {
+        _replies["QUOTAS"] = """{"error":"Access denied"}""";
+        var vm = Create();
+
+        await vm.RefreshAsync();
+
+        Assert.True(vm.MessageIsError);
+        Assert.Equal(LocalizationManager.Format("Rules_ServiceError", "Access denied"), vm.Message);
+    }
+
+    [Fact]
+    public void LoneTime_ShowsAsAlways()
+    {
+        // The engine only uses a time window with both ends.
+        var text = RuleRow.ScheduleOf(new RuleSchedule { StartTime = new TimeOnly(9, 0) });
+
+        Assert.Equal(LocalizationManager.Text("Rules_Always"), text);
+    }
+
+    [Fact]
     public async Task Undo_IsOffForAUserWhoCannotEdit()
     {
         _replies["RULES"] = $$"""[{"id":"{{Guid.NewGuid()}}","processName":"steam"}]""";
@@ -306,6 +372,9 @@ public sealed class RulesViewModelTests : IDisposable
     [InlineData("""{ "processName": "steam" }""")]
     [InlineData("not json")]
     [InlineData("")]
+    [InlineData("""[{ "processName": "steam" }, null]""")]
+    [InlineData("[1, 2]")]
+    [InlineData("""{ "version": 1, "rules": [null] }""")]
     public async Task Import_OfSomethingElse_SendsNothing(string content)
     {
         var path = Path.Combine(_folder, "other.json");

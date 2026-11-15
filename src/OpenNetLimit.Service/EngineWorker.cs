@@ -84,6 +84,7 @@ public class EngineWorker : BackgroundService
     private readonly string _dataDir;
     private readonly string _rulesPath;
     private readonly string _alertsPath;
+    private readonly object _saveLock = new();
     private readonly string _statsDbPath;
     private readonly string _lastErrorPath;
 
@@ -221,7 +222,11 @@ public class EngineWorker : BackgroundService
                 try { _reconciler.ReconcileAfterRuleChange(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Rule reconciliation failed"); }
             };
+            // Saved as they change, not only on a clean stop: a crash, a power cut or a killed
+            // service used to lose every rule and alert added since it started.
+            concreteEngine.OnRulesChanged += SaveRules;
         }
+        _alertTracker.OnRulesChanged += SaveAlerts;
 
         _quotaTracker.OnQuotaWarning += (name, state) =>
         {
@@ -666,19 +671,45 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to load rules from {Path}; starting with empty rule set", _rulesPath);
             RecordLastError($"Failed to load rules: {ex.Message}");
+            KeepUnreadable(_rulesPath);
+        }
+    }
+
+    /// <summary>
+    /// Copies a file that wouldn't load to <c>.unreadable</c> next to it, since the first rule
+    /// or alert change saves over it.
+    /// </summary>
+    private void KeepUnreadable(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Copy(path, path + ".unreadable", overwrite: true);
+                _logger.LogWarning("Kept a copy of {Path} as {Copy}", path, path + ".unreadable");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not keep a copy of {Path}", path);
         }
     }
 
     private void SaveRules()
     {
-        try
+        // Changes from the pipe and the REST API can land together. One at a time, the last
+        // save always has every change, and two saves don't fight over the same temp file.
+        lock (_saveLock)
         {
-            _ruleEngine.SaveRules(_rulesPath);
-            _logger.LogInformation("Saved rules to {Path}", _rulesPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to save rules to {Path}", _rulesPath);
+            try
+            {
+                _ruleEngine.SaveRules(_rulesPath);
+                _logger.LogInformation("Saved rules to {Path}", _rulesPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save rules to {Path}", _rulesPath);
+            }
         }
     }
 
@@ -694,19 +725,23 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to load alert rules from {Path}; starting with empty alert set", _alertsPath);
             RecordLastError($"Failed to load alert rules: {ex.Message}");
+            KeepUnreadable(_alertsPath);
         }
     }
 
     private void SaveAlerts()
     {
-        try
+        lock (_saveLock)
         {
-            _alertTracker.SaveRules(_alertsPath);
-            _logger.LogInformation("Saved alert rules to {Path}", _alertsPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to save alert rules to {Path}", _alertsPath);
+            try
+            {
+                _alertTracker.SaveRules(_alertsPath);
+                _logger.LogInformation("Saved alert rules to {Path}", _alertsPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save alert rules to {Path}", _alertsPath);
+            }
         }
     }
 

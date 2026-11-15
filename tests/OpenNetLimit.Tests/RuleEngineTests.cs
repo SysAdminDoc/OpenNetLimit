@@ -373,6 +373,87 @@ public class RuleEngineTests
         }
     }
 
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("""[{"processName":"chrome"},null]""")]
+    public void ImportRules_ListWithANull_IsRefusedAndAddsNothing(string json)
+    {
+        var engine = new RuleEngine();
+
+        var error = Assert.Throws<ArgumentException>(() => engine.ImportRules(json));
+
+        Assert.Contains("empty", error.Message);
+        Assert.Empty(engine.GetAllRules());
+    }
+
+    [Fact]
+    public void LoadRules_FileWithANullEntry_LoadsTheRest()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"onl-rules-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, """{"version":1,"rules":[null,{"processName":"chrome"}]}""");
+        try
+        {
+            var engine = new RuleEngine();
+            engine.LoadRules(path);
+
+            Assert.Equal("chrome", Assert.Single(engine.GetAllRules()).ProcessName);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RulesOfEqualPriority_KeepTheirOrderWhenAnotherIsAdded()
+    {
+        // The first match wins, so the order decides which rule applies. List.Sort is unstable
+        // past 16 items and shuffled equal rules on every add.
+        var engine = new RuleEngine();
+        for (var i = 0; i < 40; i++)
+            engine.AddRule(new BandwidthRule { ProcessName = $"app{i}", DownloadBytesPerSecond = 1024 });
+        var before = engine.GetAllRules().Select(r => r.Id).ToList();
+
+        engine.AddRule(new BandwidthRule { ProcessName = "steam", Priority = 5, DownloadBytesPerSecond = 1024 });
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+
+        var after = engine.GetAllRules();
+        Assert.Equal("steam", after[0].ProcessName);
+        Assert.Equal(before, after.Skip(1).Take(40).Select(r => r.Id));
+        Assert.Equal("chrome", after[^1].ProcessName);
+    }
+
+    [Fact]
+    public void RuleRemovedAndAddedBack_GoesBackWhereItWas()
+    {
+        var engine = new RuleEngine();
+        var rules = new[] { "first", "second", "third" }
+            .Select(name => new BandwidthRule { Name = name, ProcessName = "chrome", DownloadBytesPerSecond = 1024 })
+            .ToList();
+        rules.ForEach(engine.AddRule);
+        var second = engine.GetAllRules()[1];
+
+        engine.RemoveRule(second.Id);
+        engine.AddRule(second);
+
+        Assert.Equal(["first", "second", "third"], engine.GetAllRules().Select(r => r.Name));
+    }
+
+    [Fact]
+    public void RuleAddedBack_AfterTheOneItCameBeforeWentToo_GoesBeforeTheNext()
+    {
+        var engine = new RuleEngine();
+        foreach (var name in new[] { "a", "b", "c", "d" })
+            engine.AddRule(new BandwidthRule { Name = name, ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        var all = engine.GetAllRules();
+
+        engine.RemoveRule(all[1].Id);
+        engine.RemoveRule(all[2].Id);
+        engine.AddRule(all[1]);
+
+        Assert.Equal(["a", "b", "d"], engine.GetAllRules().Select(r => r.Name));
+    }
+
     [Fact]
     public void FindMatchingRule_WithRemotePort_FiltersCorrectly()
     {

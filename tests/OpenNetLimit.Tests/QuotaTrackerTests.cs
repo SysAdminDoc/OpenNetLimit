@@ -608,6 +608,88 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void UsedUpRule_RemovedAndPutBack_StaysUsedUp()
+    {
+        // Delete then Undo on the Rules tab started the cap over at zero.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        var exceeded = 0;
+        tracker.OnQuotaExceeded += (_, _) => exceeded++;
+        tracker.Update();
+
+        ruleEngine.RemoveRule(rule.Id);
+        tracker.Update();
+        monitor.RecordBytes(1, "chrome", 100, false);
+        ruleEngine.AddRule(rule.Clone());
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(1600, state.UsedBytes);
+        Assert.True(state.IsExceeded);
+        Assert.Equal(1, exceeded);
+    }
+
+    [Fact]
+    public void RemovedRule_PutBackAfterItsPeriodReset_CountsFromThen()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, Period = QuotaPeriod.Daily, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        ruleEngine.RemoveRule(rule.Id);
+        tracker.Update();
+        tracker.ResetPeriod(QuotaPeriod.Daily);
+        ruleEngine.AddRule(rule.Clone());
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
+    public void RuleRemovedRightBeforeAReset_PutBackLater_DoesNotChargeTheAppsWholeHistory()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, Period = QuotaPeriod.Daily, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        ruleEngine.RemoveRule(rule.Id);
+        tracker.ResetPeriod(QuotaPeriod.Daily);
+        tracker.Update();
+        ruleEngine.AddRule(rule.Clone());
+        tracker.Update();
+
+        Assert.Equal(0, tracker.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
     public void GetAllQuotaStates_ReturnsAll()
     {
         var ruleEngine = new RuleEngine();

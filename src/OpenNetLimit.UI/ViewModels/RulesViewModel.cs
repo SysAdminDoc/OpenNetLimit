@@ -36,6 +36,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
     private Dictionary<Guid, QuotaUsage> _quotas = [];
     private Func<Task>? _undo;
     private bool _loaded;
+    private bool _alertsLoaded;
 
     public RulesViewModel(Func<string, Task<string?>> send)
     {
@@ -49,7 +50,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
 
     // Only a list the service sent can be empty. Before that the message line says what's wrong.
     public bool HasNoRules => _loaded && Rules.Count == 0;
-    public bool HasNoAlerts => _loaded && Alerts.Count == 0;
+    public bool HasNoAlerts => _alertsLoaded && Alerts.Count == 0;
 
     private RuleRow? _selectedRule;
     public RuleRow? SelectedRule
@@ -119,20 +120,51 @@ public sealed class RulesViewModel : INotifyPropertyChanged
     /// <summary>Reloads rules, quota use and alerts from the service.</summary>
     public async Task RefreshAsync()
     {
+        if (await ReloadAsync() is { } error)
+            ShowError(error);
+    }
+
+    /// <summary>
+    /// Reloads everything. Returns what didn't load, or null. A list that didn't come keeps what
+    /// it showed, so a failed read never looks like the service has no alerts.
+    /// </summary>
+    private async Task<string?> ReloadAsync()
+    {
         var rulesReply = await _send("RULES");
         if (ReadList<BandwidthRule>(rulesReply) is not { } rules)
-        {
-            ShowError(ErrorOf(rulesReply) ?? LocalizationManager.Text("Rules_NoService"));
-            return;
-        }
-        var quotas = ReadList<QuotaUsage>(await _send("QUOTAS")) ?? [];
-        var alerts = ReadList<BandwidthAlertRule>(await _send("ALERT_RULES")) ?? [];
+            return ErrorOf(rulesReply) ?? LocalizationManager.Text("Rules_NoService");
+        var quotasReply = await _send("QUOTAS");
+        var quotas = ReadList<QuotaUsage>(quotasReply);
+        var alertsReply = await _send("ALERT_RULES");
+        var alerts = ReadList<BandwidthAlertRule>(alertsReply);
 
         _rules = rules;
-        _quotas = quotas.GroupBy(q => q.RuleId).ToDictionary(g => g.Key, g => g.First());
-        _alerts = alerts;
+        if (quotas is not null)
+            _quotas = quotas.GroupBy(q => q.RuleId).ToDictionary(g => g.Key, g => g.First());
+        if (alerts is not null)
+        {
+            _alerts = alerts;
+            _alertsLoaded = true;
+        }
         _loaded = true;
         Rebuild();
+        if (quotas is null)
+            return ErrorOf(quotasReply) ?? LocalizationManager.Text("Rules_NoService");
+        if (alerts is null)
+            return ErrorOf(alertsReply) ?? LocalizationManager.Text("Rules_NoService");
+        return null;
+    }
+
+    /// <summary>
+    /// Reloads after a change and says it's done. When the reload fails, both show: the change
+    /// went through, and the list may be out of date.
+    /// </summary>
+    private async Task ReloadAfterChangeAsync(string done)
+    {
+        if (await ReloadAsync() is { } error)
+            ShowError($"{done} {error}");
+        else
+            ShowInfo(done);
     }
 
     /// <summary>Sample rules and alerts for README screenshots.</summary>
@@ -165,7 +197,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             new BandwidthAlertRule { Name = "Big download", Direction = RuleDirection.Download, ThresholdBytesPerSecond = 50 * RuleDraft.BytesPerMegabyte },
             new BandwidthAlertRule { Name = "Stream upload", ProcessName = "obs64", Direction = RuleDirection.Upload, ThresholdBytesPerSecond = 4 * RuleDraft.BytesPerMegabyte, CooldownSeconds = 600 }
         ];
-        _loaded = true;
+        _loaded = _alertsLoaded = true;
         CanEdit = true;
         Rebuild();
         SelectedRule = Rules.FirstOrDefault(r => r.Rule == onedrive);
@@ -179,8 +211,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
         if (error is not null)
             return error;
         _undo = null;
-        await RefreshAsync();
-        ShowInfo(LocalizationManager.Format(isNew ? "Rules_Added" : "Rules_Saved", RuleRow.TargetOf(rule)));
+        await ReloadAfterChangeAsync(LocalizationManager.Format(isNew ? "Rules_Added" : "Rules_Saved", RuleRow.TargetOf(rule)));
         return null;
     }
 
@@ -195,8 +226,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             return;
         }
         _undo = null;
-        await RefreshAsync();
-        ShowInfo(LocalizationManager.Format(enabled ? "Rules_TurnedOn" : "Rules_TurnedOff", row.Target));
+        await ReloadAfterChangeAsync(LocalizationManager.Format(enabled ? "Rules_TurnedOn" : "Rules_TurnedOff", row.Target));
     }
 
     /// <summary>Deletes right away. The message bar offers to put it back.</summary>
@@ -209,7 +239,6 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             return;
         }
         var removed = row.Rule.Clone();
-        await RefreshAsync();
         SetUndo(async () =>
         {
             var undoError = await SendWriteAsync($"ADD_RULE {JsonSerializer.Serialize(removed, JsonOptions)}");
@@ -218,10 +247,9 @@ public sealed class RulesViewModel : INotifyPropertyChanged
                 ShowError(undoError);
                 return;
             }
-            await RefreshAsync();
-            ShowInfo(LocalizationManager.Format("Rules_Restored", row.Target));
+            await ReloadAfterChangeAsync(LocalizationManager.Format("Rules_Restored", row.Target));
         });
-        ShowInfo(LocalizationManager.Format("Rules_Deleted", row.Target));
+        await ReloadAfterChangeAsync(LocalizationManager.Format("Rules_Deleted", row.Target));
     }
 
     public async Task<string?> SaveAlertAsync(BandwidthAlertRule alert, bool isNew)
@@ -231,8 +259,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
         if (error is not null)
             return error;
         _undo = null;
-        await RefreshAsync();
-        ShowInfo(LocalizationManager.Format(isNew ? "Alerts_Added" : "Alerts_Saved", AlertRow.NameOf(alert)));
+        await ReloadAfterChangeAsync(LocalizationManager.Format(isNew ? "Alerts_Added" : "Alerts_Saved", AlertRow.NameOf(alert)));
         return null;
     }
 
@@ -245,7 +272,6 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             return;
         }
         var removed = row.Alert;
-        await RefreshAsync();
         SetUndo(async () =>
         {
             var undoError = await SendWriteAsync($"ADD_ALERT_RULE {JsonSerializer.Serialize(removed, JsonOptions)}");
@@ -254,10 +280,9 @@ public sealed class RulesViewModel : INotifyPropertyChanged
                 ShowError(undoError);
                 return;
             }
-            await RefreshAsync();
-            ShowInfo(LocalizationManager.Format("Alerts_Restored", row.Name));
+            await ReloadAfterChangeAsync(LocalizationManager.Format("Alerts_Restored", row.Name));
         });
-        ShowInfo(LocalizationManager.Format("Alerts_Deleted", row.Name));
+        await ReloadAfterChangeAsync(LocalizationManager.Format("Alerts_Deleted", row.Name));
     }
 
     public async Task UndoAsync()
@@ -326,8 +351,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             return;
         }
         _undo = null;
-        await RefreshAsync();
-        ShowInfo(LocalizationManager.Format("Rules_Imported", rules.Count, Path.GetFileName(path)));
+        await ReloadAfterChangeAsync(LocalizationManager.Format("Rules_Imported", rules.Count, Path.GetFileName(path)));
     }
 
     /// <summary>Rebuilds the rows in the current language.</summary>
@@ -457,8 +481,13 @@ public sealed class RulesViewModel : INotifyPropertyChanged
     /// </summary>
     private static JsonArray? ParseImport(string text)
     {
-        if (ParseArray(text) is { } rules)
-            return rules;
+        var rules = ParseArray(text) ?? ParseWrapped(text);
+        // Every rule is an object. A null or a number in the list isn't a rule file.
+        return rules is not null && rules.All(rule => rule is JsonObject) ? rules : null;
+    }
+
+    private static JsonArray? ParseWrapped(string text)
+    {
         try
         {
             return JsonNode.Parse(text) is JsonObject file && file["rules"] is JsonArray wrapped
@@ -531,7 +560,9 @@ public sealed class RuleRow
 
     internal static string ScheduleOf(RuleSchedule? schedule)
     {
-        if (schedule is null || (schedule.StartTime is null && schedule.ActiveDays is not { Length: > 0 }))
+        // The engine only uses a time window with both ends, so a lone time still means always.
+        if (schedule is null ||
+            (schedule is not { StartTime: not null, EndTime: not null } && schedule.ActiveDays is not { Length: > 0 }))
             return LocalizationManager.Text("Rules_Always");
 
         var culture = CultureInfo.CurrentCulture;

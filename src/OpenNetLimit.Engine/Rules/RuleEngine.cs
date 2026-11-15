@@ -13,6 +13,14 @@ public class RuleEngine : IRuleEngine
     private readonly object _lock = new();
     private readonly List<BandwidthRule> _rules = [];
 
+    /// <summary>
+    /// Where each recently removed rule sat: the id of the rule after it, or null when it was
+    /// last. Adding it back with its id (the Rules tab's undo) puts it there again, so it still
+    /// matches before the rules of equal priority it came before.
+    /// </summary>
+    private readonly Dictionary<Guid, Guid?> _removedBefore = [];
+    private const int MaxRemembered = 64;
+
     public event Action? OnRulesChanged;
 
     // The converter lets an imported or hand-edited file name its enums ("action": "Block")
@@ -33,8 +41,8 @@ public class RuleEngine : IRuleEngine
             // its id, so a new rule whose id is taken gets its own.
             if (rule.Id == Guid.Empty || _rules.Any(r => r.Id == rule.Id))
                 rule.Id = Guid.NewGuid();
-            _rules.Add(rule);
-            _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+            _rules.Insert(PlaceFor(rule.Id), rule);
+            SortByPriority();
         }
         OnRulesChanged?.Invoke();
     }
@@ -43,9 +51,47 @@ public class RuleEngine : IRuleEngine
     {
         lock (_lock)
         {
+            var index = _rules.FindIndex(r => r.Id == ruleId);
+            if (index >= 0)
+            {
+                if (_removedBefore.Count >= MaxRemembered)
+                    _removedBefore.Clear();
+                _removedBefore[ruleId] = index + 1 < _rules.Count ? _rules[index + 1].Id : null;
+            }
             _rules.RemoveAll(r => r.Id == ruleId);
         }
         OnRulesChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Where a rule being added goes: back before the rule it came before when it was removed
+    /// lately, or else at the end. Caller holds the lock.
+    /// </summary>
+    private int PlaceFor(Guid id)
+    {
+        if (!_removedBefore.Remove(id, out var next))
+            return _rules.Count;
+        // The rule it came before may be gone too; then it goes before that one's successor.
+        for (var hops = 0; next is { } nextId && hops < MaxRemembered; hops++)
+        {
+            var index = _rules.FindIndex(r => r.Id == nextId);
+            if (index >= 0)
+                return index;
+            next = _removedBefore.GetValueOrDefault(nextId);
+        }
+        return _rules.Count;
+    }
+
+    /// <summary>
+    /// Highest priority first. Rules of equal priority keep their order, since the first one
+    /// that matches wins; List.Sort is unstable and could swap them on any change.
+    /// Caller holds the lock.
+    /// </summary>
+    private void SortByPriority()
+    {
+        var sorted = _rules.OrderByDescending(r => r.Priority).ToList();
+        _rules.Clear();
+        _rules.AddRange(sorted);
     }
 
     public void UpdateRule(BandwidthRule rule)
@@ -57,8 +103,8 @@ public class RuleEngine : IRuleEngine
             if (index >= 0)
                 _rules[index] = rule;
             else
-                _rules.Add(rule);
-            _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+                _rules.Insert(PlaceFor(rule.Id), rule);
+            SortByPriority();
         }
         OnRulesChanged?.Invoke();
     }
@@ -154,13 +200,15 @@ public class RuleEngine : IRuleEngine
         }
 
         if (rules is null) return;
+        // A hand-edited file can hold a null entry. It has nothing to keep, and the rest still loads.
+        rules.RemoveAll(r => r is null);
         GiveEachItsOwnId(rules);
 
         lock (_lock)
         {
             _rules.Clear();
             _rules.AddRange(rules);
-            _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+            SortByPriority();
         }
     }
 
@@ -223,13 +271,17 @@ public class RuleEngine : IRuleEngine
                 else
                     _rules.Add(rule);
             }
-            _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+            SortByPriority();
         }
         OnRulesChanged?.Invoke();
     }
 
-    private static void ValidateRule(BandwidthRule rule)
+    private static void ValidateRule(BandwidthRule? rule)
     {
+        // An import list with a null in it threw a NullReferenceException, which dropped the
+        // client's connection instead of telling it what was wrong.
+        if (rule is null)
+            throw new ArgumentException("A rule in the list is empty.");
         if (string.IsNullOrWhiteSpace(rule.ProcessName) && string.IsNullOrWhiteSpace(rule.ProcessPath))
             throw new ArgumentException("Rule must specify at least ProcessName or ProcessPath.");
     }

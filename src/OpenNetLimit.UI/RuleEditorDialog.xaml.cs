@@ -139,7 +139,7 @@ public partial class RuleEditorDialog : Window
         var result = ReadDraft().Build(_original);
         if (result.ErrorKey is { } key)
         {
-            ShowError(LocalizationManager.Text(key), FieldFor(key));
+            ShowError(LocalizationManager.Text(key), FieldFor(result.Field));
             return;
         }
 
@@ -156,13 +156,15 @@ public partial class RuleEditorDialog : Window
             DialogResult = true;
     }
 
-    private WpfControl? FieldFor(string errorKey) => errorKey switch
+    private WpfControl? FieldFor(DraftField field) => field switch
     {
-        "RuleEditor_NeedTarget" => ProgramBox,
-        "RuleEditor_BadNumber" or "RuleEditor_NeedLimit" => DownloadBox,
-        "RuleEditor_BadTime" => StartBox,
-        "RuleEditor_NeedQuota" => QuotaBox,
-        "RuleEditor_NeedThrottle" => ThrottleBox,
+        DraftField.Target => ProgramBox,
+        DraftField.Download => DownloadBox,
+        DraftField.Upload => UploadBox,
+        DraftField.Start => StartBox,
+        DraftField.End => EndBox,
+        DraftField.Quota => QuotaBox,
+        DraftField.Throttle => ThrottleBox,
         _ => null
     };
 

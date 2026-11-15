@@ -148,6 +148,20 @@ public class PipeServerTests
         Assert.Empty(rules.GetAllRules());
     }
 
+    [Fact]
+    public async Task ImportWithANullRule_IsRefusedWithAReason()
+    {
+        // It threw a NullReferenceException, which dropped the client's connection.
+        var rules = new RuleEngine();
+        var server = CreateServer(rules, new RecordingLogger(), "unused");
+
+        var reply = await server.ProcessCommandAsync("IMPORT_RULES", """[{"processName":"chrome"},null]""", CancellationToken.None);
+
+        Assert.Contains("\"error\"", reply);
+        Assert.Contains("empty", reply);
+        Assert.Empty(rules.GetAllRules());
+    }
+
     private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
         ControlPlaneState? controlPlane = null)
     {

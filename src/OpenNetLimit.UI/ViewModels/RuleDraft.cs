@@ -3,8 +3,11 @@ using OpenNetLimit.Core.Models;
 
 namespace OpenNetLimit.UI.ViewModels;
 
-/// <summary>A rule built from the editor, or the resource key that says what to fix.</summary>
-public sealed record RuleDraftResult(BandwidthRule? Rule, string? ErrorKey);
+/// <summary>The editor field an error is about, so the dialog can put the cursor there.</summary>
+public enum DraftField { None, Target, Download, Upload, Start, End, Quota, Throttle }
+
+/// <summary>A rule built from the editor, or the resource key that says what to fix and where.</summary>
+public sealed record RuleDraftResult(BandwidthRule? Rule, string? ErrorKey, DraftField Field = DraftField.None);
 
 /// <summary>
 /// The rule editor's fields as the user typed them. <see cref="Build"/> checks them and turns
@@ -18,7 +21,7 @@ public sealed class RuleDraft
     public const long BytesPerMegabyte = 1024 * 1024;
     private const long DefaultThrottleBytesPerSecond = 10 * BytesPerKilobyte;
     private const int DefaultWarningPercent = 80;
-    private static readonly string[] TimeFormats = ["H:mm", "HH:mm"];
+    private static readonly string[] TimeFormats = ["H:mm", "HH:mm", "H:mm:ss", "HH:mm:ss"];
 
     public string Name { get; set; } = string.Empty;
     public string ProcessName { get; set; } = string.Empty;
@@ -51,8 +54,8 @@ public sealed class RuleDraft
             // Show what the engine applies: a direction the rule leaves out isn't limited.
             DownloadKbps = Units(rule.Direction is RuleDirection.Upload ? 0 : rule.DownloadBytesPerSecond, BytesPerKilobyte),
             UploadKbps = Units(rule.Direction is RuleDirection.Download ? 0 : rule.UploadBytesPerSecond, BytesPerKilobyte),
-            ScheduleStart = rule.Schedule?.StartTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
-            ScheduleEnd = rule.Schedule?.EndTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
+            ScheduleStart = rule.Schedule?.StartTime is { } start ? FormatTime(start) : string.Empty,
+            ScheduleEnd = rule.Schedule?.EndTime is { } end ? FormatTime(end) : string.Empty,
             GroupName = rule.GroupName ?? string.Empty,
             Enabled = rule.Enabled,
             HasQuota = rule.Quota is not null
@@ -77,7 +80,7 @@ public sealed class RuleDraft
         // Explorer's "Copy as path" wraps the path in quotes.
         var processPath = ProcessPath.Trim().Trim('"').Trim();
         if (processName.Length == 0 && processPath.Length == 0)
-            return Fail("RuleEditor_NeedTarget");
+            return Fail("RuleEditor_NeedTarget", DraftField.Target);
 
         rule.Name = Name.Trim();
         rule.ProcessName = processName.Length == 0 ? null : processName;
@@ -90,28 +93,30 @@ public sealed class RuleDraft
         {
             var originalDown = original is { Direction: not RuleDirection.Upload } ? original.DownloadBytesPerSecond : 0;
             var originalUp = original is { Direction: not RuleDirection.Download } ? original.UploadBytesPerSecond : 0;
-            if (!TryBytes(DownloadKbps, BytesPerKilobyte, originalDown, out var down) ||
-                !TryBytes(UploadKbps, BytesPerKilobyte, originalUp, out var up))
-                return Fail("RuleEditor_BadNumber");
-            if (down == 0 && up == 0)
-                return Fail("RuleEditor_NeedLimit");
+            if (!TryBytes(DownloadKbps, BytesPerKilobyte, originalDown, out var down))
+                return Fail("RuleEditor_BadNumber", DraftField.Download);
+            if (!TryBytes(UploadKbps, BytesPerKilobyte, originalUp, out var up))
+                return Fail("RuleEditor_BadNumber", DraftField.Upload);
+            // With a data cap, no speed limit is fine: the rule only acts once the cap runs out.
+            if (down == 0 && up == 0 && !HasQuota)
+                return Fail("RuleEditor_NeedLimit", DraftField.Download);
             rule.Direction = RuleDirection.Both;
             rule.DownloadBytesPerSecond = down;
             rule.UploadBytesPerSecond = up;
         }
 
-        var start = ScheduleStart.Trim();
-        var end = ScheduleEnd.Trim();
-        TimeOnly? startTime = null, endTime = null;
-        if (start.Length > 0 || end.Length > 0)
-        {
-            if (!TryTime(start, out var parsedStart) || !TryTime(end, out var parsedEnd))
-                return Fail("RuleEditor_BadTime");
-            startTime = parsedStart;
-            endTime = parsedEnd;
-        }
+        var oldStart = original?.Schedule?.StartTime;
+        var oldEnd = original?.Schedule?.EndTime;
+        if (!ReadTime(ScheduleStart, oldStart, out var startTime))
+            return Fail("RuleEditor_BadTime", DraftField.Start);
+        if (!ReadTime(ScheduleEnd, oldEnd, out var endTime))
+            return Fail("RuleEditor_BadTime", DraftField.End);
+        // A time window needs both ends. A lone time the rule already had (set through the API,
+        // where it does nothing) is left as it was, so the rest of the rule can still be edited.
+        if (startTime.HasValue != endTime.HasValue && (startTime != oldStart || endTime != oldEnd))
+            return Fail("RuleEditor_BadTime", startTime is null ? DraftField.Start : DraftField.End);
         var days = Enumerable.Range(0, 7).Where(i => Days[i]).Select(i => (DayOfWeek)i).ToArray();
-        rule.Schedule = startTime is null && days.Length == 0
+        rule.Schedule = startTime is null && endTime is null && days.Length == 0
             ? null
             : new RuleSchedule { StartTime = startTime, EndTime = endTime, ActiveDays = days.Length > 0 ? days : null };
 
@@ -123,11 +128,11 @@ public sealed class RuleDraft
 
         var oldQuota = original?.Quota;
         if (!TryBytes(QuotaMegabytes, BytesPerMegabyte, oldQuota?.LimitBytes ?? 0, out var quotaBytes) || quotaBytes == 0)
-            return Fail("RuleEditor_NeedQuota");
+            return Fail("RuleEditor_NeedQuota", DraftField.Quota);
         var throttle = oldQuota?.ThrottleBytesPerSecond ?? DefaultThrottleBytesPerSecond;
         if (QuotaAction == QuotaAction.Throttle &&
             (!TryBytes(ThrottleKbps, BytesPerKilobyte, throttle, out throttle) || throttle == 0))
-            return Fail("RuleEditor_NeedThrottle");
+            return Fail("RuleEditor_NeedThrottle", DraftField.Throttle);
         rule.Quota = new QuotaConfig
         {
             LimitBytes = quotaBytes,
@@ -139,7 +144,11 @@ public sealed class RuleDraft
         return new RuleDraftResult(rule, null);
     }
 
-    private static RuleDraftResult Fail(string key) => new(null, key);
+    private static RuleDraftResult Fail(string key, DraftField field) => new(null, key, field);
+
+    /// <summary>Hours and minutes, plus the seconds when the time has any, so an edit doesn't drop them.</summary>
+    internal static string FormatTime(TimeOnly time) =>
+        time.ToString(time.Second == 0 && time.Millisecond == 0 ? "HH:mm" : "HH:mm:ss", CultureInfo.InvariantCulture);
 
     /// <summary>Whole units, rounded up so a rule set in bytes never shows as 0.</summary>
     internal static string Units(long bytes, long unit) =>
@@ -162,8 +171,26 @@ public sealed class RuleDraft
         return true;
     }
 
-    private static bool TryTime(string text, out TimeOnly time) =>
-        TimeOnly.TryParseExact(text, TimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+    /// <summary>
+    /// Reads a time, or none from an empty field. Text that still reads as
+    /// <paramref name="original"/> keeps it exactly.
+    /// </summary>
+    private static bool ReadTime(string text, TimeOnly? original, out TimeOnly? time)
+    {
+        time = null;
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0)
+            return true;
+        if (original is { } kept && trimmed == FormatTime(kept))
+        {
+            time = kept;
+            return true;
+        }
+        if (!TimeOnly.TryParseExact(trimmed, TimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            return false;
+        time = parsed;
+        return true;
+    }
 }
 
 /// <summary>An alert built from the editor, or the resource key that says what to fix.</summary>

@@ -12,6 +12,15 @@ public class QuotaTracker
     /// overwrote each other's limit, and a rule edited to another app carried its used-up state over.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, QuotaState> _quotas = new();
+
+    /// <summary>
+    /// States of rules removed lately, so a rule put back (the Rules tab's undo, or an export
+    /// imported again) carries on with what it had used instead of starting over at zero.
+    /// Only read and written under <see cref="_updateLock"/>.
+    /// </summary>
+    private readonly Dictionary<Guid, QuotaState> _removed = [];
+    private const int MaxRemoved = 256;
+
     private readonly IRuleEngine _ruleEngine;
     private readonly ITrafficMonitor _trafficMonitor;
 
@@ -79,13 +88,20 @@ public class QuotaTracker
         var live = rules.Select(r => r.Id).ToHashSet();
         foreach (var ruleId in _quotas.Keys)
         {
-            if (!live.Contains(ruleId))
-                _quotas.TryRemove(ruleId, out _);
+            if (!live.Contains(ruleId) && _quotas.TryRemove(ruleId, out var gone))
+            {
+                if (_removed.Count >= MaxRemoved)
+                    _removed.Clear();
+                _removed[ruleId] = gone;
+            }
         }
 
         foreach (var rule in rules)
         {
             long totalBytes = UsageOf(rule, processes);
+
+            if (!_quotas.ContainsKey(rule.Id) && _removed.Remove(rule.Id, out var kept) && kept.IsFor(rule))
+                _quotas[rule.Id] = kept;
 
             // A rule added later, or pointed at a different app, counts from now. The app's
             // earlier traffic can't be split by quota period, so it isn't charged.
@@ -213,10 +229,22 @@ public class QuotaTracker
             var processes = _trafficMonitor.GetAllProcesses();
             var rules = _ruleEngine.GetAllRules();
 
+            // A removed rule's use belongs to the period that just ended. Put back later, it
+            // counts from then, like any new rule.
+            foreach (var id in _removed.Where(p => p.Value.Period == period).Select(p => p.Key).ToList())
+                _removed.Remove(id);
+
             foreach (var state in _quotas.Values.Where(s => s.Period == period))
             {
                 var rule = rules.FirstOrDefault(r => r.Id == state.RuleId);
-                long currentTotal = rule is not null ? UsageOf(rule, processes) : 0;
+                if (rule is null)
+                {
+                    // Its rule went after the last update. A baseline of 0 would charge the
+                    // apps' whole history if the rule came back, so drop it instead.
+                    _quotas.TryRemove(state.RuleId, out _);
+                    continue;
+                }
+                long currentTotal = UsageOf(rule, processes);
 
                 lock (state)
                 {

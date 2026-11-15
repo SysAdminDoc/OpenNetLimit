@@ -20,6 +20,7 @@ public sealed class EngineWorkerTests : IDisposable
     private readonly string _dataDir = Path.Combine(Path.GetTempPath(), $"onl-engine-{Guid.NewGuid():N}");
     private readonly RuleEngine _rules = new();
     private readonly TrafficMonitor _monitor = new();
+    private readonly BandwidthAlertTracker _alerts;
     private readonly ControlPlaneState _controlPlane = new();
     private readonly DriverPreflightTests.FakeDriverService _driver = new();
     private string[] _programsUsingWinDivert = [];
@@ -31,7 +32,10 @@ public sealed class EngineWorkerTests : IDisposable
     private TaskCompletionSource _pipeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private string RulesPath => Path.Combine(_dataDir, "rules.json");
+    private string AlertsPath => Path.Combine(_dataDir, "alerts.json");
     private string StayPausedPath => Path.Combine(_dataDir, "paused");
+
+    public EngineWorkerTests() => _alerts = new BandwidthAlertTracker(_monitor);
 
     [Fact]
     public async Task InterceptorFailure_StillServesTheControlPipeWithTheReason()
@@ -97,6 +101,52 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.True(status.Running);
         Assert.Null(status.EngineError);
         Assert.Contains("\"steam\"", File.ReadAllText(RulesPath));
+    }
+
+    // A crash or power cut used to lose every change made since the service started.
+    [Fact]
+    public async Task RuleAdded_IsSavedRightAway()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+
+        _rules.AddRule(new BandwidthRule { ProcessName = "steam.exe", DownloadBytesPerSecond = 500_000 });
+        var saved = File.ReadAllText(RulesPath);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("\"steam\"", saved);
+    }
+
+    [Fact]
+    public async Task AlertAdded_IsSavedRightAway()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+
+        _alerts.AddRule(new BandwidthAlertRule { Name = "Big download", ThresholdBytesPerSecond = 1024 });
+        var saved = File.ReadAllText(AlertsPath);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("Big download", saved);
+    }
+
+    [Fact]
+    public async Task UnreadableRulesFile_IsKeptBeforeAChangeSavesOverIt()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+
+        _rules.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(broken, File.ReadAllText(RulesPath + ".unreadable"));
+        Assert.Contains("\"chrome\"", File.ReadAllText(RulesPath));
     }
 
     [Fact]
@@ -623,7 +673,7 @@ public sealed class EngineWorkerTests : IDisposable
             new FlowTracker(),
             _monitor,
             RunPipe,
-            new BandwidthAlertTracker(_monitor),
+            _alerts,
             new PluginManager(new PluginOptions { Enabled = false, PluginDirectory = Path.Combine(_dataDir, "plugins") },
                 NullLogger<PluginManager>.Instance),
             _controlPlane,

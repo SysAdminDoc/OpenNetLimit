@@ -255,7 +255,7 @@
   <data name="RuleEditor_SlowTo" xml:space="preserve"><value>Reducir a</value></data>
   <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Escribe un nombre de programa o una ruta completa.</value></data>
   <data name="RuleEditor_BadNumber" xml:space="preserve"><value>Usa números enteros, como 512.</value></data>
-  <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Pon un límite de descarga o de subida mayor que 0, o elige otra acción.</value></data>
+  <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Pon un límite de descarga o de subida mayor que 0, añade un límite de datos o elige otra acción.</value></data>
   <data name="RuleEditor_BadTime" xml:space="preserve"><value>Escribe las dos horas con horas y minutos, como 09:00 y 17:30.</value></data>
   <data name="RuleEditor_NeedQuota" xml:space="preserve"><value>Escribe un límite de datos mayor que 0 MB.</value></data>
   <data name="RuleEditor_NeedThrottle" xml:space="preserve"><value>Escribe la velocidad a la que reducirla, mayor que 0 KB/s.</value></data>

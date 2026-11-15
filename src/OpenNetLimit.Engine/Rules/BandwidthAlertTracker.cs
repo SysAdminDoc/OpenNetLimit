@@ -24,6 +24,9 @@ public class BandwidthAlertTracker
 
     public event Action<BandwidthAlertEvent>? OnAlert;
 
+    /// <summary>Raised after an alert rule is added, changed or removed. Loading a file doesn't raise it.</summary>
+    public event Action? OnRulesChanged;
+
     public BandwidthAlertTracker(ITrafficMonitor trafficMonitor)
     {
         _trafficMonitor = trafficMonitor;
@@ -50,6 +53,7 @@ public class BandwidthAlertTracker
             _rules.RemoveAll(r => r.Id == rule.Id);
             _rules.Add(CopyRule(rule));
         }
+        OnRulesChanged?.Invoke();
     }
 
     public void UpdateRule(BandwidthAlertRule rule) => AddRule(rule);
@@ -58,6 +62,7 @@ public class BandwidthAlertTracker
     {
         lock (_lock)
             _rules.RemoveAll(r => r.Id == id);
+        OnRulesChanged?.Invoke();
     }
 
     public IReadOnlyList<BandwidthAlertEvent> GetRecentEvents(int maxCount = 100)

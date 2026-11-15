@@ -241,6 +241,12 @@
                         <Style x:Key="TrimmedCell" TargetType="TextBlock">
                             <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                             <Setter Property="ToolTip" Value="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                            <Style.Triggers>
+                                <!-- An empty cell (no name, no group) shows no empty tooltip box. -->
+                                <Trigger Property="Text" Value="">
+                                    <Setter Property="ToolTip" Value="{x:Null}"/>
+                                </Trigger>
+                            </Style.Triggers>
                         </Style>
                     </Grid.Resources>
                     <Grid.RowDefinitions>
