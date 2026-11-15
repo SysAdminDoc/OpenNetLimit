@@ -236,23 +236,26 @@ public class RuleEngine : IRuleEngine
     /// Both rules are kept, since a hand-edited file may reuse one id for different rules.
     /// The new id comes from the old one and how many times it was seen, so loading or importing
     /// the same file again gives the same ids, and an import replaces those rules instead of
-    /// adding them again.
+    /// adding them again. It never takes an id another rule in the file already has. An empty id
+    /// gets a random one, as in <see cref="AddRule"/>: one derived from the empty id would be the
+    /// same in every file, so importing a second file would overwrite the first one's rule.
     /// </summary>
     private static void GiveEachItsOwnId(List<BandwidthRule> rules)
     {
-        var seen = new HashSet<Guid>();
+        var taken = rules.Where(r => r.Id != Guid.Empty).Select(r => r.Id).ToHashSet();
+        var kept = new HashSet<Guid>();
         var timesSeen = new Dictionary<Guid, int>();
         foreach (var rule in rules)
         {
-            if (rule.Id != Guid.Empty && seen.Add(rule.Id))
+            if (rule.Id != Guid.Empty && kept.Add(rule.Id))
                 continue;
             var original = rule.Id;
             int count = timesSeen.GetValueOrDefault(original);
             Guid id;
             do
             {
-                id = DerivedId(original, ++count);
-            } while (!seen.Add(id));
+                id = original == Guid.Empty ? Guid.NewGuid() : DerivedId(original, ++count);
+            } while (!taken.Add(id));
             timesSeen[original] = count;
             rule.Id = id;
         }

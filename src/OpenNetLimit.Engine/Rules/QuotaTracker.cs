@@ -95,27 +95,31 @@ public class QuotaTracker
 
             lock (state)
             {
-                bool limitChanged = state.LimitBytes != rule.Quota!.LimitBytes;
+                bool limitRaised = rule.Quota!.LimitBytes > state.LimitBytes;
+                bool levelsChanged = rule.Quota.LimitBytes != state.LimitBytes
+                    || rule.Quota.WarningPercent != state.WarningPercent;
                 state.LimitBytes = rule.Quota.LimitBytes;
                 state.UsedBytes = totalBytes - state.BaselineBytes;
                 state.Period = rule.Quota.Period;
                 state.WarningPercent = rule.Quota.WarningPercent;
                 state.Action = rule.Quota.OnExceeded;
 
-                // A raised limit gives the app its traffic back, and nearing or crossing the new
-                // one notifies again. Only a limit change does this: usage can't be trusted to only grow.
-                if (limitChanged && state.PercentUsed < 100)
+                // Only a raised limit gives a used-up app its traffic back. Usage can drop (an
+                // app's bytes stop counting when its path changes), so being under a lowered
+                // limit proves nothing. A new limit or warning level that leaves usage under the
+                // warning level warns again on the way up.
+                if (state.IsExceeded)
                 {
-                    if (state.IsExceeded)
+                    if (limitRaised && state.PercentUsed < 100)
                     {
                         state.IsExceeded = false;
                         state.ExceededNotified = false;
                         state.WarningNotified = false;
                     }
-                    else if (state.PercentUsed < state.WarningPercent)
-                    {
-                        state.WarningNotified = false;
-                    }
+                }
+                else if (levelsChanged && state.PercentUsed < state.WarningPercent)
+                {
+                    state.WarningNotified = false;
                 }
 
                 // Each alert carries a copy taken here: the live state can change, or be reset,

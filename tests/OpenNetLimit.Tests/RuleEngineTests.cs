@@ -287,6 +287,35 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void ImportRules_TwoFilesWithAZeroId_KeepBothRules()
+    {
+        var engine = new RuleEngine();
+        const string zero = "00000000-0000-0000-0000-000000000000";
+
+        engine.ImportRules($$"""[{"id":"{{zero}}","processName":"chrome"}]""");
+        engine.ImportRules($$"""[{"id":"{{zero}}","processName":"firefox"}]""");
+
+        Assert.Equal(["chrome", "firefox"], engine.GetAllRules().Select(r => r.ProcessName).Order());
+    }
+
+    [Fact]
+    public void ImportRules_ANewIdNeverTakesOneALaterRuleInTheFileHas()
+    {
+        var id = Guid.NewGuid();
+        var earlier = new RuleEngine();
+        earlier.ImportRules($$"""[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"}]""");
+        var givenToFirefox = earlier.GetAllRules().Single(r => r.ProcessName == "firefox").Id;
+
+        var engine = new RuleEngine();
+        engine.ImportRules($$"""[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"},{"id":"{{givenToFirefox}}","processName":"steam"}]""");
+
+        var rules = engine.GetAllRules();
+        Assert.Equal(3, rules.Count);
+        Assert.Equal(givenToFirefox, rules.Single(r => r.ProcessName == "steam").Id);
+        Assert.Equal(3, rules.Select(r => r.Id).Distinct().Count());
+    }
+
+    [Fact]
     public void LoadRules_TwoRulesSharingAnId_GetTheSameIdsEveryTime()
     {
         var id = Guid.NewGuid();

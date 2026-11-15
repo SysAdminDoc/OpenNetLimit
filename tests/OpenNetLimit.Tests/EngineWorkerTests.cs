@@ -202,6 +202,7 @@ public sealed class EngineWorkerTests : IDisposable
 
     public void Dispose()
     {
+        _monitor.Dispose();
         try
         {
             if (Directory.Exists(_dataDir))

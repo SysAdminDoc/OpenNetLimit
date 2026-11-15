@@ -197,11 +197,9 @@ public class EngineWorker : BackgroundService
         };
 
         LoadRules();
-        // The first quota update sets where the saved quotas start counting. Done here, a quota
-        // added before the 30 s timer's first tick counts from when it was added, like any later one.
-        _quotaTracker.Update();
         LoadAlerts();
         LoadPlugins();
+        StartQuotaCounts();
         _reconciler.Reconcile();
         _stateLoaded = true;
     }
@@ -419,6 +417,24 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to load plugins");
             RecordLastError($"Failed to load plugins: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The first quota update sets where the saved quotas start counting. Run at load, a quota
+    /// added before the 30 s timer's first tick counts from when it was added, like any later
+    /// one. It runs after the plugins load so an alert it raises reaches them.
+    /// </summary>
+    private void StartQuotaCounts()
+    {
+        try
+        {
+            _quotaTracker?.Update();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "The first quota update failed; quotas count from the next one");
+            RecordLastError($"Failed to start quota counts: {ex.Message}");
         }
     }
 
