@@ -25,6 +25,19 @@ public sealed class ServiceRuleUiTests
     }
 
     [Fact]
+    public void RowFor_KeepsAProcessesRow_ButNotForTheNextProcessWithItsId()
+    {
+        var seen = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var svchost = new ProcessViewModel { ProcessId = 200, ProcessName = "svchost", FirstSeenAt = seen };
+        var rows = new Dictionary<uint, ProcessViewModel> { [200] = svchost };
+
+        Assert.Same(svchost, ProcessRowText.RowFor(rows, new ProcessTrafficInfo { ProcessId = 200, ProcessName = "svchost", FirstSeenAt = seen }));
+        Assert.Null(ProcessRowText.RowFor(rows, new ProcessTrafficInfo { ProcessId = 200, ProcessName = "chrome", FirstSeenAt = seen }));
+        Assert.Null(ProcessRowText.RowFor(rows, new ProcessTrafficInfo { ProcessId = 200, ProcessName = "svchost", FirstSeenAt = seen.AddSeconds(3) }));
+        Assert.Null(ProcessRowText.RowFor(rows, new ProcessTrafficInfo { ProcessId = 204, ProcessName = "svchost", FirstSeenAt = seen }));
+    }
+
+    [Fact]
     public void ProtectedReason_IsNullWhenRulesApply()
     {
         Assert.Null(ProcessRowText.ProtectedReason(new ProcessTrafficInfo { ProcessName = "svchost", Services = ["BITS"] }));

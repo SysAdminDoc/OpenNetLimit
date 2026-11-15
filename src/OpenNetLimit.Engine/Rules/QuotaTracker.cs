@@ -82,7 +82,7 @@ public class QuotaTracker
     {
         var allRules = _ruleEngine.GetAllRules(out var quotaStops);
         var rules = QuotaRules(allRules);
-        var processes = _trafficMonitor.GetAllProcesses();
+        var processes = _trafficMonitor.GetUsageTotals();
         bool firstUpdate = !_started;
         _started = true;
 
@@ -252,7 +252,7 @@ public class QuotaTracker
     {
         lock (_updateLock)
         {
-            var processes = _trafficMonitor.GetAllProcesses();
+            var processes = _trafficMonitor.GetUsageTotals();
             var rules = _ruleEngine.GetAllRules();
 
             // A removed rule's use belongs to the period that just ended. Put back later, it

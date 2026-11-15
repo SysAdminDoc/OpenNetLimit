@@ -11,6 +11,17 @@ public static class ProcessRowText
     public static bool IsServiceHost(string? processName) =>
         string.Equals(ProcessNames.Normalize(processName), BandwidthRule.ServiceHostName, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The row already showing <paramref name="process"/>, or null when it needs its own. Windows
+    /// gives an exited process's ID to a later one, which the service counts from its own first
+    /// sighting, so a row with the ID but another first sighting or name was the earlier process.
+    /// </summary>
+    public static ProcessViewModel? RowFor(IReadOnlyDictionary<uint, ProcessViewModel> rows, ProcessTrafficInfo process) =>
+        rows.TryGetValue(process.ProcessId, out var row) && row.FirstSeenAt == process.FirstSeenAt
+            && string.Equals(row.ProcessName, process.ProcessName, StringComparison.OrdinalIgnoreCase)
+            ? row
+            : null;
+
     /// <summary>The name, followed by the services a svchost runs, since every svchost looks the same otherwise.</summary>
     public static string DisplayName(string processName, IReadOnlyList<string>? services) =>
         IsServiceHost(processName) && services is { Count: > 0 }

@@ -13,7 +13,33 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     private readonly IServiceHosts? _serviceHosts;
     private readonly double _intervalSeconds;
     private readonly object _usageLock = new();
-    private readonly Dictionary<uint, (long Received, long Sent)> _usageMarks = new();
+    private readonly Dictionary<ProcessTrafficInfo, (long Received, long Sent)> _usageMarks =
+        new(ReferenceEqualityComparer.Instance);
+
+    private readonly HoldProcess? _holdProcess;
+    private readonly Func<DateTime> _utcNow;
+    private readonly object _sampleLock = new();
+
+    /// <summary>The process behind each entry, held until it exits. Only used under <see cref="_sampleLock"/>.</summary>
+    private readonly Dictionary<uint, Held> _held = new();
+
+    /// <summary>
+    /// Guards <see cref="_exited"/> and <see cref="_retired"/>, and an entry's move from
+    /// <see cref="_processes"/> to <see cref="_exited"/>, so quotas never count it twice or not at all.
+    /// </summary>
+    private readonly object _exitedLock = new();
+
+    /// <summary>Processes that exited lately. The usage history still takes their last bytes.</summary>
+    private readonly List<(ProcessTrafficInfo Info, DateTime ExitedAt)> _exited = [];
+
+    /// <summary>What exited processes moved, per program, path and services, so quotas keep counting it.</summary>
+    private readonly Dictionary<string, ProcessTrafficInfo> _retired = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How long an exited process is kept on its own before its bytes join its program's total.
+    /// The usage history takes what's new every 10 seconds, so this is well past its last take.
+    /// </summary>
+    internal TimeSpan ExitedKeptFor { get; init; } = TimeSpan.FromMinutes(10);
 
     public event Action<TrafficSnapshot>? OnSnapshot;
 
@@ -26,15 +52,26 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     }
 
     /// <summary>
+    /// The service's monitor. It holds each process it counts, so Windows can't give the ID to
+    /// another process unseen: one that exits leaves the list, and the next process with its ID
+    /// starts its own entry instead of adding to the old one.
+    /// </summary>
+    public static TrafficMonitor ForService(IRateLimiter rateLimiter, IServiceHosts serviceHosts) =>
+        new(TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true, serviceHosts, HeldProcess.Hold);
+
+    /// <summary>
     /// With <paramref name="sampleOnTimer"/> off, rates are only sampled by calling
     /// <see cref="SampleRates"/>, so a test can't lose its bytes to a timer tick mid-test.
+    /// Without <paramref name="holdProcess"/> no process is held and none leaves the list.
     /// </summary>
     internal TrafficMonitor(TimeSpan snapshotInterval, IRateLimiter? rateLimiter, bool sampleOnTimer,
-        IServiceHosts? serviceHosts = null)
+        IServiceHosts? serviceHosts = null, HoldProcess? holdProcess = null, Func<DateTime>? utcNow = null)
     {
         _intervalSeconds = snapshotInterval.TotalSeconds;
         _rateLimiter = rateLimiter;
         _serviceHosts = serviceHosts;
+        _holdProcess = holdProcess;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _snapshotTimer = sampleOnTimer
             ? new Timer(OnSnapshotTick, null, snapshotInterval, snapshotInterval)
             : new Timer(OnSnapshotTick, null, Timeout.Infinite, Timeout.Infinite);
@@ -121,34 +158,130 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         return _processes.Values.ToList();
     }
 
+    public IReadOnlyList<ProcessTrafficInfo> GetUsageTotals()
+    {
+        lock (_exitedLock)
+        {
+            var all = new List<ProcessTrafficInfo>(_processes.Count + _exited.Count + _retired.Count);
+            all.AddRange(_processes.Values);
+            foreach (var (info, _) in _exited)
+                all.Add(info);
+            all.AddRange(_retired.Values);
+            return all;
+        }
+    }
+
     /// <summary>
     /// Closes the current window: each process's speed becomes what it moved during it, and its
     /// limit is read from the rate limiter. The monitor's timer calls this once per interval.
     /// Snapshots used to do this themselves, so the timer, the stats recorder, the app and the
     /// API each zeroed the counters for the others and every one of them read short speeds.
+    /// A process that exited leaves the list here.
     /// </summary>
     public void SampleRates()
     {
-        foreach (var (pid, info) in _processes)
+        lock (_sampleLock)
         {
-            long down = 0, up = 0;
-            if (_counters.TryGetValue(pid, out var counter))
+            foreach (var (pid, info) in _processes)
             {
-                down = (long)Math.Round(Interlocked.Exchange(ref counter.DownloadBytes, 0) / _intervalSeconds);
-                up = (long)Math.Round(Interlocked.Exchange(ref counter.UploadBytes, 0) / _intervalSeconds);
-            }
-            info.CurrentDownloadBytesPerSecond = down;
-            info.CurrentUploadBytesPerSecond = up;
-            ReadServices(info);
+                long down = 0, up = 0;
+                if (_counters.TryGetValue(pid, out var counter))
+                {
+                    down = (long)Math.Round(Interlocked.Exchange(ref counter.DownloadBytes, 0) / _intervalSeconds);
+                    up = (long)Math.Round(Interlocked.Exchange(ref counter.UploadBytes, 0) / _intervalSeconds);
+                }
+                if (HasExited(pid, info))
+                {
+                    Retire(pid, info);
+                    continue;
+                }
+                info.CurrentDownloadBytesPerSecond = down;
+                info.CurrentUploadBytesPerSecond = up;
+                ReadServices(info);
 
-            if (_rateLimiter is not null)
-            {
-                bool limited = _rateLimiter.TryGetLimit(pid, out var downLimit, out var upLimit);
-                info.DownloadLimitBytesPerSecond = limited && downLimit > 0 ? downLimit : null;
-                info.UploadLimitBytesPerSecond = limited && upLimit > 0 ? upLimit : null;
+                if (_rateLimiter is not null)
+                {
+                    bool limited = _rateLimiter.TryGetLimit(pid, out var downLimit, out var upLimit);
+                    info.DownloadLimitBytesPerSecond = limited && downLimit > 0 ? downLimit : null;
+                    info.UploadLimitBytesPerSecond = limited && upLimit > 0 ? upLimit : null;
+                }
             }
+            FoldExited();
         }
     }
+
+    /// <summary>Whether the process behind the entry is gone. It's held from its first window on.</summary>
+    private bool HasExited(uint processId, ProcessTrafficInfo info)
+    {
+        if (_holdProcess is null)
+            return false;
+        if (!_held.TryGetValue(processId, out var held) || !ReferenceEquals(held.Info, info))
+        {
+            held?.Process.Dispose();
+            _held.Remove(processId);
+            var process = _holdProcess(processId, info.FirstSeenAt);
+            if (process is null)
+                return true;
+            _held[processId] = held = new Held(info, process);
+        }
+        return held.Process.HasExited;
+    }
+
+    /// <summary>
+    /// Takes an exited process off the list, then lets go of it. Its ID can't go to another
+    /// process before that, so the next one with it starts its own entry.
+    /// </summary>
+    private void Retire(uint processId, ProcessTrafficInfo info)
+    {
+        info.CurrentDownloadBytesPerSecond = 0;
+        info.CurrentUploadBytesPerSecond = 0;
+        info.DownloadLimitBytesPerSecond = null;
+        info.UploadLimitBytesPerSecond = null;
+        lock (_exitedLock)
+        {
+            _processes.TryRemove(KeyValuePair.Create(processId, info));
+            _exited.Add((info, _utcNow()));
+        }
+        _counters.TryRemove(processId, out _);
+        if (_held.Remove(processId, out var held))
+            held.Process.Dispose();
+    }
+
+    /// <summary>Adds processes that exited a while ago to their program's total, so memory doesn't grow.</summary>
+    private void FoldExited()
+    {
+        var cutoff = _utcNow() - ExitedKeptFor;
+        lock (_exitedLock)
+        {
+            _exited.RemoveAll(exited =>
+            {
+                if (exited.ExitedAt > cutoff)
+                    return false;
+                var info = exited.Info;
+                var key = string.Join('\n', info.ProcessName, info.ProcessPath,
+                    string.Join(',', info.Services ?? []));
+                if (!_retired.TryGetValue(key, out var total))
+                {
+                    _retired[key] = total = new ProcessTrafficInfo
+                    {
+                        ProcessName = info.ProcessName,
+                        ProcessPath = info.ProcessPath,
+                        Services = info.Services,
+                        ServiceName = info.ServiceName,
+                        IsProtected = info.IsProtected,
+                        NetworkingServices = info.NetworkingServices,
+                        FirstSeenAt = info.FirstSeenAt
+                    };
+                }
+                total.AddBytesReceived(info.TotalBytesReceived);
+                total.AddBytesSent(info.TotalBytesSent);
+                total.LastActivityAt = info.LastActivityAt;
+                return true;
+            });
+        }
+    }
+
+    private sealed record Held(ProcessTrafficInfo Info, IHeldProcess Process);
 
     /// <summary>The speeds from the last closed window. Reading it changes nothing.</summary>
     public TrafficSnapshot TakeSnapshot()
@@ -183,24 +316,33 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         {
             long totalDown = 0, totalUp = 0;
             var processes = new List<ProcessTrafficInfo>();
-            var seen = new HashSet<uint>();
+            var seen = new HashSet<ProcessTrafficInfo>(ReferenceEqualityComparer.Instance);
 
-            foreach (var (pid, info) in _processes)
+            // Processes that exited lately too: what they moved before exiting is still new here.
+            List<ProcessTrafficInfo> counted;
+            lock (_exitedLock)
             {
-                seen.Add(pid);
+                counted = [.. _processes.Values];
+                foreach (var (info, _) in _exited)
+                    counted.Add(info);
+            }
+
+            foreach (var info in counted)
+            {
+                seen.Add(info);
                 long received = info.TotalBytesReceived;
                 long sent = info.TotalBytesSent;
-                var mark = _usageMarks.GetValueOrDefault(pid);
+                var mark = _usageMarks.GetValueOrDefault(info);
                 long down = received >= mark.Received ? received - mark.Received : received;
                 long up = sent >= mark.Sent ? sent - mark.Sent : sent;
-                _usageMarks[pid] = (received, sent);
+                _usageMarks[info] = (received, sent);
                 totalDown += down;
                 totalUp += up;
                 processes.Add(Copy(info, down, up));
             }
 
-            foreach (var pid in _usageMarks.Keys.Where(pid => !seen.Contains(pid)).ToList())
-                _usageMarks.Remove(pid);
+            foreach (var info in _usageMarks.Keys.Where(info => !seen.Contains(info)).ToList())
+                _usageMarks.Remove(info);
 
             return new TrafficSnapshot
             {
@@ -244,6 +386,12 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     public void Dispose()
     {
         _snapshotTimer.Dispose();
+        lock (_sampleLock)
+        {
+            foreach (var held in _held.Values)
+                held.Process.Dispose();
+            _held.Clear();
+        }
         GC.SuppressFinalize(this);
     }
 

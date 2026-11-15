@@ -679,7 +679,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             activePids.Add(proc.ProcessId);
 
-            if (existingByPid.TryGetValue(proc.ProcessId, out var existing))
+            var existing = ProcessRowText.RowFor(existingByPid, proc);
+            if (existing is not null)
             {
                 existing.DownloadDisplay = ProcessViewModel.FormatBytes(proc.CurrentDownloadBytesPerSecond);
                 existing.UploadDisplay = ProcessViewModel.FormatBytes(proc.CurrentUploadBytesPerSecond);
@@ -698,10 +699,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             else
             {
+                if (existingByPid.Remove(proc.ProcessId, out var replaced))
+                    Processes.Remove(replaced);
                 Processes.Add(new ProcessViewModel
                 {
                     ProcessId = proc.ProcessId,
                     ProcessName = proc.ProcessName,
+                    FirstSeenAt = proc.FirstSeenAt,
                     Services = proc.Services,
                     ProtectedReason = ProcessRowText.ProtectedReason(proc),
                     DownloadDisplay = ProcessViewModel.FormatBytes(proc.CurrentDownloadBytesPerSecond),
@@ -906,6 +910,9 @@ public class ProcessViewModel : INotifyPropertyChanged
 {
     public uint ProcessId { get; init; }
     public string ProcessName { get; init; } = string.Empty;
+
+    /// <summary>When the service first saw the process, which tells it apart from an earlier one with its ID.</summary>
+    public DateTime FirstSeenAt { get; init; }
 
     private IReadOnlyList<string>? _services;
 
