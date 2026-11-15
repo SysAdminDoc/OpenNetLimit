@@ -146,6 +146,21 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task StopWhileTheEngineIsStillStarting_IsNotAnEngineError()
+    {
+        var interceptor = new FakeInterceptor { StartWaitsForStop = true };
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+
+        await worker.StartAsync(CancellationToken.None);
+        await interceptor.Started.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+        var status = _controlPlane.GetDiagnostics();
+
+        Assert.Null(status.EngineError);
+        Assert.False(File.Exists(Path.Combine(_dataDir, "last-error.txt")));
+    }
+
+    [Fact]
     public void StartFailure_MissingDll_SaysWhatIsMissing()
     {
         var message = EngineWorker.DescribeStartFailure(new DllNotFoundException("Unable to load DLL 'WinDivert.dll'"));
@@ -221,6 +236,10 @@ public sealed class EngineWorkerTests : IDisposable
         public FakeInterceptor(Exception? startFailure = null) => _startFailure = startFailure;
 
         public bool StartCalled { get; private set; }
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Like a start waiting on another program's driver load: it ends when the service stops.</summary>
+        public bool StartWaitsForStop { get; init; }
         public bool IsRunning { get; set; }
         public long TotalBlocked => 0;
         public long TotalDelayed => 0;
@@ -230,8 +249,11 @@ public sealed class EngineWorkerTests : IDisposable
         public Task StartAsync(CancellationToken cancellationToken)
         {
             StartCalled = true;
+            Started.TrySetResult();
             if (_startFailure is not null)
                 throw _startFailure;
+            if (StartWaitsForStop)
+                return Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
             IsRunning = true;
             return Task.CompletedTask;
         }

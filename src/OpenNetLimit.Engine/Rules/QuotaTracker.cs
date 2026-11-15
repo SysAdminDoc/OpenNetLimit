@@ -95,7 +95,7 @@ public class QuotaTracker
 
             lock (state)
             {
-                bool limitRaised = rule.Quota!.LimitBytes > state.LimitBytes;
+                bool raisedPastUsedUp = rule.Quota!.LimitBytes > state.UsedUpAtLimitBytes;
                 bool levelsChanged = rule.Quota.LimitBytes != state.LimitBytes
                     || rule.Quota.WarningPercent != state.WarningPercent;
                 state.LimitBytes = rule.Quota.LimitBytes;
@@ -104,13 +104,14 @@ public class QuotaTracker
                 state.WarningPercent = rule.Quota.WarningPercent;
                 state.Action = rule.Quota.OnExceeded;
 
-                // Only a raised limit gives a used-up app its traffic back. Usage can drop (an
-                // app's bytes stop counting when its path changes), so being under a lowered
-                // limit proves nothing. A new limit or warning level that leaves usage under the
-                // warning level warns again on the way up.
+                // Only a limit above the one the quota ran out at gives a used-up app its traffic
+                // back. Usage can drop (an app's bytes stop counting when its path changes), so
+                // being under a lower limit proves nothing, even one raised again since. A new
+                // limit or warning level that leaves usage under the warning level warns again on
+                // the way up.
                 if (state.IsExceeded)
                 {
-                    if (limitRaised && state.PercentUsed < 100)
+                    if (raisedPastUsedUp && state.PercentUsed < 100)
                     {
                         state.IsExceeded = false;
                         state.ExceededNotified = false;
@@ -127,6 +128,7 @@ public class QuotaTracker
                 if (state.PercentUsed >= 100 && !state.ExceededNotified)
                 {
                     state.IsExceeded = true;
+                    state.UsedUpAtLimitBytes = state.LimitBytes;
                     state.ExceededNotified = true;
                     notifications.Add((OnQuotaExceeded, DisplayName(rule), CopyState(state)));
                 }
@@ -245,6 +247,9 @@ public class QuotaState
     public bool IsExceeded { get; set; }
     public bool WarningNotified { get; set; }
     public bool ExceededNotified { get; set; }
+
+    /// <summary>The limit in force when the quota was used up. Only a higher limit lifts it.</summary>
+    internal long UsedUpAtLimitBytes { get; set; }
     public int PercentUsed => LimitBytes > 0 ? (int)(UsedBytes * 100 / LimitBytes) : 0;
 
     /// <summary>Whether this state still counts the apps <paramref name="rule"/> matches.</summary>

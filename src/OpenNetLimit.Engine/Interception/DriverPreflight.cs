@@ -26,7 +26,7 @@ public sealed class DriverPreflight
     /// in the service's own session from registering mid-check. A program in a user session is
     /// caught by the re-read and the stopped check instead.
     /// </summary>
-    private const string InstallMutexName = "WinDivertDriverInstallMutex";
+    internal const string InstallMutexName = "WinDivertDriverInstallMutex";
     private static readonly TimeSpan InstallLockLimit = TimeSpan.FromSeconds(5);
 
     /// <summary>ERROR_SERVICE_MARKED_FOR_DELETE: deleted, but a handle to it is still open.</summary>
@@ -187,8 +187,8 @@ public sealed class DriverPreflight
     /// <summary>
     /// The file a service ImagePath names. Kernel driver paths come as <c>\??\C:\...</c>,
     /// <c>\??\UNC\server\...</c>, <c>\SystemRoot\...</c> or <c>System32\drivers\...</c>.
-    /// Null for an empty path or a kernel object path such as <c>\Device\...</c>, which a
-    /// user-mode check can't follow.
+    /// Null for an empty path or a kernel object path such as <c>\Device\...</c> or
+    /// <c>\??\GLOBALROOT\...</c>, which a user-mode check can't follow.
     /// </summary>
     internal static string? ImagePathToFile(string? imagePath, string? systemRoot = null)
     {
@@ -200,7 +200,12 @@ public sealed class DriverPreflight
         if (path.StartsWith(@"\??\UNC\", StringComparison.OrdinalIgnoreCase) || path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
             return @"\\" + path[@"\??\UNC\".Length..];
         if (path.StartsWith(@"\??\", StringComparison.Ordinal) || path.StartsWith(@"\\?\", StringComparison.Ordinal))
-            return path[4..];
+        {
+            // GLOBALROOT\Device\... and Volume{GUID}\... are object paths too. Taken as relative
+            // paths they'd never exist, and a driver that does exist could be removed.
+            string rest = path[4..];
+            return rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] == '\\' ? rest : null;
+        }
         if (path.StartsWith(@"\SystemRoot\", StringComparison.OrdinalIgnoreCase))
             return Path.Combine(systemRoot, path[@"\SystemRoot\".Length..]);
         if (path.StartsWith('\\') && !path.StartsWith(@"\\", StringComparison.Ordinal))
@@ -234,9 +239,19 @@ public sealed class DriverPreflight
         }
     }
 
-    private static IDisposable? LockInstall()
+    internal static IDisposable? LockInstall()
     {
-        var mutex = new Mutex(false, InstallMutexName);
+        Mutex mutex;
+        try
+        {
+            mutex = new Mutex(false, InstallMutexName);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException or IOException)
+        {
+            // Without the lock the registration is left alone, and the open keeps its own error.
+            Trace.TraceWarning($"Taking WinDivert's install lock failed: {ex.Message}");
+            return null;
+        }
         try
         {
             if (mutex.WaitOne(InstallLockLimit))
@@ -260,7 +275,7 @@ public sealed class DriverPreflight
         }
     }
 
-    private static void Sleep(TimeSpan delay, CancellationToken cancellationToken)
+    internal static void Sleep(TimeSpan delay, CancellationToken cancellationToken)
     {
         cancellationToken.WaitHandle.WaitOne(delay);
         cancellationToken.ThrowIfCancellationRequested();

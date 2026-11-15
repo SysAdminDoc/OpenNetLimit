@@ -249,18 +249,102 @@ public class DriverPreflightTests
     [Fact]
     public void RegistrationChangedWhileItWasChecked_IsLeftAloneAndOpenedAgain()
     {
+        RecordingLock? installLock = null;
+        var lockHeldAtEachRead = new List<bool>();
         var service = new FakeDriverService(DriverServiceState.Stopped) { ImagePath = GoneDriver };
         service.AfterImagePathRead = s =>
         {
+            lockHeldAtEachRead.Add(installLock?.Held == true);
             s.ImagePath = @"C:\Tools\NewVpn\WinDivert64.sys";
-            s.AfterImagePathRead = null;
         };
 
-        var diagnosis = Preflight(service, null, OurDriver).DiagnoseMissingFile(OurFolder);
+        var diagnosis = Preflight(service, () => installLock = new RecordingLock(), null, OurDriver).DiagnoseMissingFile(OurFolder);
 
         Assert.True(diagnosis.RetryOpen);
         Assert.Equal(0, service.DeleteAttempts);
         Assert.Contains("changed it", diagnosis.Reason);
+        // The second read is the one that counts, so it has to happen under the lock.
+        Assert.Equal(new[] { false, true }, lockHeldAtEachRead);
+        Assert.False(installLock!.Held);
+    }
+
+    [Fact]
+    public void RegistrationOnAVolumePath_IsNeverRemoved()
+    {
+        // Taken as a relative path this never exists, which used to get a live driver removed.
+        const string volumePath = @"\??\GLOBALROOT\Device\HarddiskVolume3\Tools\WinDivert64.sys";
+        var service = new FakeDriverService(DriverServiceState.Stopped) { ImagePath = volumePath };
+
+        var diagnosis = Preflight(service, null, OurDriver).DiagnoseMissingFile(OurFolder);
+
+        Assert.False(diagnosis.RetryOpen);
+        Assert.Equal(0, service.DeleteAttempts);
+        Assert.Contains(volumePath, diagnosis.Reason);
+    }
+
+    [Fact]
+    public void InstallLock_KeepsOtherThreadsOutUntilItIsReleased()
+    {
+        var installLock = DriverPreflight.LockInstall();
+        Assert.NotNull(installLock);
+        try
+        {
+            Assert.False(InstallMutexIsFreeForAnotherThread());
+        }
+        finally
+        {
+            installLock.Dispose();
+        }
+        Assert.True(InstallMutexIsFreeForAnotherThread());
+    }
+
+    [Fact]
+    public void RealSleep_EndsWhenTheServiceStops()
+    {
+        using var stopping = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        Assert.Throws<OperationCanceledException>(() => DriverPreflight.Sleep(TimeSpan.FromSeconds(30), stopping.Token));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"Took {watch.Elapsed}");
+    }
+
+    [Fact]
+    public void RealSleep_WaitsWhenNotStopped()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        DriverPreflight.Sleep(TimeSpan.FromMilliseconds(50), CancellationToken.None);
+
+        Assert.True(watch.Elapsed >= TimeSpan.FromMilliseconds(40), $"Took {watch.Elapsed}");
+    }
+
+    /// <summary>The mutex is reentrant on the thread that holds it, so another thread tries.</summary>
+    private static bool InstallMutexIsFreeForAnotherThread()
+    {
+        bool taken = false;
+        var thread = new Thread(() =>
+        {
+            using var mutex = new Mutex(false, DriverPreflight.InstallMutexName);
+            try
+            {
+                taken = mutex.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                taken = true;
+            }
+            if (taken)
+                mutex.ReleaseMutex();
+        });
+        thread.Start();
+        thread.Join();
+        return taken;
+    }
+
+    private sealed class RecordingLock : IDisposable
+    {
+        public bool Held { get; private set; } = true;
+        public void Dispose() => Held = false;
     }
 
     [Fact]
@@ -333,6 +417,9 @@ public class DriverPreflightTests
     [InlineData(@"System32\drivers\WinDivert64.sys", @"D:\Win\System32\drivers\WinDivert64.sys")]
     [InlineData(@"C:\Tools\WinDivert64.sys", @"C:\Tools\WinDivert64.sys")]
     [InlineData(@"\Device\HarddiskVolume3\Tools\WinDivert64.sys", null)]
+    [InlineData(@"\??\GLOBALROOT\Device\HarddiskVolume3\Tools\WinDivert64.sys", null)]
+    [InlineData(@"\??\Volume{1b3c5e7a-0000-0000-0000-100000000000}\Tools\WinDivert64.sys", null)]
+    [InlineData(@"\\?\Volume{1b3c5e7a-0000-0000-0000-100000000000}\Tools\WinDivert64.sys", null)]
     [InlineData("", null)]
     public void ImagePath_IsTurnedIntoTheFileItNames(string imagePath, string? expected)
     {

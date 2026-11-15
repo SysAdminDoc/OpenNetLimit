@@ -449,6 +449,39 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void LimitLoweredThenRaised_StaysUsedUpUntilAboveTheLimitItRanOutAt()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new ListedProcesses();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        var counted = monitor.Add("chrome", 1100);
+        monitor.Add("chrome", 600);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+        Assert.True(tracker.GetQuotaState("chrome")!.IsExceeded);
+        monitor.Processes.Remove(counted);
+
+        rule.Quota!.LimitBytes = 500;
+        ruleEngine.UpdateRule(rule);
+        tracker.Update();
+        rule.Quota.LimitBytes = 700;
+        ruleEngine.UpdateRule(rule);
+        tracker.Update();
+        bool usedUpAt700 = tracker.GetQuotaState("chrome")!.IsExceeded;
+        rule.Quota.LimitBytes = 1200;
+        ruleEngine.UpdateRule(rule);
+        tracker.Update();
+
+        Assert.True(usedUpAt700);
+        Assert.False(tracker.GetQuotaState("chrome")!.IsExceeded);
+    }
+
+    [Fact]
     public void UsedUpQuotaThatWarnedFirst_WarnsAgainAfterTheLimitIsRaised()
     {
         var ruleEngine = new RuleEngine();
