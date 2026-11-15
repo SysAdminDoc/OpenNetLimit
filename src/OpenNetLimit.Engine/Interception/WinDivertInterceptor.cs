@@ -462,8 +462,9 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         // out as System's UDP: the tunnel's own side doesn't count. DNS, DHCP and NTP don't
         // count, DNS that falls back to TCP for a big answer included. Those come from svchost,
         // but the flow layer pins plenty of short-lived flows on System when the socket tables
-        // miss them, and DNS opens a socket per lookup. So System keeps the pass for packets a
-        // lookup's size, and a kernel VPN's full packets on port 53 or 123 still count.
+        // miss them, and DNS opens a socket per lookup. So System keeps the pass for TCP and for
+        // UDP packets a lookup's size. Kernel VPNs are UDP, so their full packets on port 53 or
+        // 123 still count.
         // A svchost running only networking services (DNS over HTTPS included, and IKEEXT,
         // which carries Windows' own IKEv2 VPN) counts for nothing, and no app limit applies to
         // any of them.
@@ -471,7 +472,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             ProcessProtection.None => true,
             ProcessProtection.Windows => remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547)
-                || (kernel && payloadLength > LookupPayloadMax),
+                || (kernel && protocol == TransportProtocol.Udp && payloadLength > LookupPayloadMax),
             _ => false
         };
         return new PacketLimits(
@@ -520,7 +521,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
     /// <paramref name="side"/> says what crossing its interface means for the whole-PC limit: a
     /// VPN tunnel whose encrypted side the limit counts on the real adapter isn't counted here
-    /// as well, and past a dial-up link or a tunnel counted here, the far end isn't local.
+    /// as well, and past a dial-up link a private address isn't the local network.
     /// </summary>
     internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
         ProcessProtection protection, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
@@ -529,7 +530,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         delay = TimeSpan.Zero;
         bool pcLimitCounts = side != TunnelAdapters.Side.CountedOnItsCarrier
             && PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback,
-                acrossInternet: side == TunnelAdapters.Side.CountsHere);
+                pastALink: side == TunnelAdapters.Side.PastALink);
         var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow, pcLimitCounts,
             limiter.HasLimit(processId), kernel: processId == SocketOwners.SystemProcessId);
         if (!limits.Any)

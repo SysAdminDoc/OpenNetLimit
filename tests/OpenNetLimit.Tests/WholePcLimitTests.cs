@@ -270,7 +270,6 @@ public sealed class WholePcLimitTests
     [InlineData(TransportProtocol.Udp, 53)]
     [InlineData(TransportProtocol.Udp, 123)]
     [InlineData(TransportProtocol.Udp, 67)]
-    [InlineData(TransportProtocol.Tcp, 53)]
     public void TheKernel_FullPacketsOnTheDnsDhcpOrNtpPorts_Count(TransportProtocol protocol, int remotePort)
     {
         var kernel = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength: 1400,
@@ -291,7 +290,10 @@ public sealed class WholePcLimitTests
     [InlineData(TransportProtocol.Udp, 123, 48, false)]
     [InlineData(TransportProtocol.Udp, 67, 300, false)]
     [InlineData(TransportProtocol.Tcp, 53, 512, false)]
+    // A big answer over TCP comes in full segments, and kernel VPNs are UDP.
+    [InlineData(TransportProtocol.Tcp, 53, 1400, false)]
     // Its other ports count at any size.
+    [InlineData(TransportProtocol.Tcp, 443, 60, true)]
     [InlineData(TransportProtocol.Udp, 51820, 60, true)]
     public void TheKernel_ALookupSizedPacketOnThosePorts_StaysFree(TransportProtocol protocol, int remotePort,
         int payloadLength, bool counts)
@@ -428,23 +430,77 @@ public sealed class WholePcLimitTests
     }
 
     [Fact]
-    public void Charge_PastAVpnOrDialUpLink_APrivateAddressIsNoLocalTraffic()
+    public void Charge_PastADialUpOrWindowsVpnLink_APrivateAddressIsNoLocalTraffic()
     {
-        // A company network behind a VPN uses private addresses. Past an IPsec tunnel or
-        // Windows' own VPN link, that's the only place its traffic counts, local network or not.
+        // A company network behind a VPN uses private addresses. Past Windows' own VPN link,
+        // that's the only place its traffic counts, local network or not.
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
-            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", side: TunnelAdapters.Side.CountsHere));
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", side: TunnelAdapters.Side.PastALink));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "fd12:3456::1", side: TunnelAdapters.Side.PastALink));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40"));
+        // Link-local and multicast never get past the link, and traffic within the PC never counts.
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "169.254.10.1", side: TunnelAdapters.Side.PastALink));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "224.0.0.251", side: TunnelAdapters.Side.PastALink));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "fe80::1", side: TunnelAdapters.Side.PastALink));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "127.0.0.5", side: TunnelAdapters.Side.PastALink));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", loopback: true,
+                side: TunnelAdapters.Side.PastALink));
+    }
+
+    [Fact]
+    public void Charge_OnATunnelCountedHere_ThePrivateAddressesInsideStayLocal()
+    {
+        // Every tunnel counts here while some uncounted carrier is out, IPsec domain isolation
+        // included, so a WireGuard tunnel to 10.x would count inside and again as its UDP.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", side: TunnelAdapters.Side.CountsHere));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", side: TunnelAdapters.Side.CountsHere));
+    }
+
+    [Fact]
+    public void Charge_OnATunnelCountedOnItsCarrier_NothingCountsEvenWithTheLocalNetworkIncluded()
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000) with { IncludeLan = true });
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
             ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40"));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
             ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40",
                 side: TunnelAdapters.Side.CountedOnItsCarrier));
-        // Traffic within the PC still never counts.
-        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", loopback: true,
-                side: TunnelAdapters.Side.CountsHere));
+    }
+
+    [Theory]
+    [InlineData("10.1.2.3", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("192.168.1.1", true)]
+    [InlineData("fd00::1", true)]
+    [InlineData("fec0::1", true)]
+    [InlineData("::ffff:10.1.2.3", true)]
+    [InlineData("8.8.8.8", true)]
+    [InlineData("169.254.1.1", false)]
+    [InlineData("fe80::1", false)]
+    [InlineData("224.0.0.251", false)]
+    [InlineData("255.255.255.255", false)]
+    [InlineData("ff02::1", false)]
+    [InlineData("0.0.0.0", false)]
+    [InlineData("127.0.0.5", false)]
+    [InlineData("::1", false)]
+    public void PastALink_PrivateAddressesCount_ButNotWhatStaysOnTheLink(string remote, bool counts)
+    {
+        Assert.Equal(counts, PcLimitScope.Applies(Down(1000), isUpload: false, IPAddress.Parse(remote), loopback: false,
+            pastALink: true));
     }
 
     [Fact]

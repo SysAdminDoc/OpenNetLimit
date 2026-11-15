@@ -220,8 +220,8 @@ public class TunnelAdaptersTests
 
         Assert.Equal(TunnelAdapters.Side.CountedOnItsCarrier, adapters.SideOf(40));
         Assert.Equal(TunnelAdapters.Side.Ordinary, adapters.SideOf(11));
-        // A dial-up link counts where it is, and what's past it isn't the local network.
-        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(30));
+        // A dial-up link counts where it is, and a private address past it isn't the local network.
+        Assert.Equal(TunnelAdapters.Side.PastALink, adapters.SideOf(30));
 
         // ESP that arrives unasked can come from anywhere, one on a tunnel is inside it, and UDP
         // is counted where it crosses.
@@ -236,7 +236,7 @@ public class TunnelAdaptersTests
         adapters.SawUnparsed(esp, 11, outbound: true);
         Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(40));
         Assert.Equal(TunnelAdapters.Side.Ordinary, adapters.SideOf(11));
-        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(30));
+        Assert.Equal(TunnelAdapters.Side.PastALink, adapters.SideOf(30));
         fake.Now = 14_999;
         Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(40));
         fake.Now = 15_000;

@@ -30,11 +30,17 @@ internal sealed class TunnelAdapters
         CountedOnItsCarrier,
 
         /// <summary>
-        /// A dial-up link, Windows' own VPNs included, or a tunnel whose encrypted side can't be
-        /// counted. It counts here, and what's at the far end is out past it whatever its address,
-        /// so a VPN's private addresses aren't taken for the local network.
+        /// A tunnel whose encrypted side can't be counted right now. It counts here, and the local
+        /// network only when the limit includes it, as on an ordinary adapter.
         /// </summary>
-        CountsHere
+        CountsHere,
+
+        /// <summary>
+        /// A dial-up link, Windows' own VPNs included. It counts here, and a private address at the
+        /// far end is out past it (a company network behind the VPN), so it isn't taken for the
+        /// local network.
+        /// </summary>
+        PastALink
     }
 
     private sealed record Snapshot(FrozenSet<uint> Known, FrozenSet<uint> Tunnels, FrozenSet<uint> Links, long ReadAtMs);
@@ -139,7 +145,7 @@ internal sealed class TunnelAdapters
             return _nowMs() - Volatile.Read(ref _uncountedCarrierAtMs) >= UncountedCarrierCountsForMs
                 ? Side.CountedOnItsCarrier
                 : Side.CountsHere;
-        return _snapshot.Links.Contains(interfaceIndex) ? Side.CountsHere : Side.Ordinary;
+        return _snapshot.Links.Contains(interfaceIndex) ? Side.PastALink : Side.Ordinary;
     }
 
     /// <summary>
