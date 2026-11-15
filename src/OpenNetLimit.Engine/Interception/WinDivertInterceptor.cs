@@ -90,7 +90,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _serviceHosts = serviceHosts;
         _preflight = new DriverPreflight(driverService);
         _socketOwners = new SocketOwners(flowTracker, OsSocketTable.Read,
-            processId => new ProcessIdentity(ResolveProcessName(processId), ProcessImage.PathOf(processId)));
+            processId => new ProcessIdentity(ResolveProcessName(processId), ProcessImage.PathOf(processId)),
+            HeldProcess.StartedAt);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

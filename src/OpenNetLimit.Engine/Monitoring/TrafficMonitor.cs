@@ -187,6 +187,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     /// </summary>
     public void SampleRates()
     {
+        List<(uint ProcessId, IHeldProcess? Process)>? retired = null;
         lock (_sampleLock)
         {
             // A tick already on its way when the monitor was disposed would hold processes again.
@@ -202,7 +203,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
                 }
                 if (HasExited(pid, info))
                 {
-                    Retire(pid, info);
+                    (retired ??= []).Add((pid, Retire(pid, info)));
                     continue;
                 }
                 info.CurrentDownloadBytesPerSecond = down;
@@ -218,6 +219,11 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             }
             FoldExited();
         }
+        // Out of the lock: the socket owners may be mid-read of the socket tables, and the next
+        // tick shouldn't wait for that.
+        if (retired is not null)
+            foreach (var (pid, process) in retired)
+                LetGo(pid, process);
     }
 
     /// <summary>Whether the process behind the entry is gone. It's held from its first window on.</summary>
@@ -238,10 +244,10 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     }
 
     /// <summary>
-    /// Takes an exited process off the list, then lets go of it. Its ID can't go to another
-    /// process before that, so the next one with it starts its own entry.
+    /// Takes an exited process off the list, and hands back what holds it, for <see cref="LetGo"/>.
+    /// Its ID can't go to another process before that, so the next one with it starts its own entry.
     /// </summary>
-    private void Retire(uint processId, ProcessTrafficInfo info)
+    private IHeldProcess? Retire(uint processId, ProcessTrafficInfo info)
     {
         info.CurrentDownloadBytesPerSecond = 0;
         info.CurrentUploadBytesPerSecond = 0;
@@ -254,10 +260,16 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         }
         _counters.TryRemove(processId, out _);
         _held.Remove(processId, out var held);
+        return held?.Process;
+    }
+
+    /// <summary>Drops an exited process's flows, then lets go of it.</summary>
+    private void LetGo(uint processId, IHeldProcess? process)
+    {
         // While it's held the ID can't be reused, so these flows are all the exited process's.
-        // When the ID already went to a newer process, that one's flows stay.
-        _flows?.ForgetProcess(processId, held?.Process.IdReusedAt);
-        held?.Process.Dispose();
+        // When it wasn't, flows named since the ID was free may be the next process's, and stay.
+        _flows?.ForgetProcess(processId, process?.IdFreeSince);
+        process?.Dispose();
     }
 
     /// <summary>Adds processes that exited a while ago to their program's total, so memory doesn't grow.</summary>

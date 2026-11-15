@@ -21,25 +21,33 @@ internal sealed class SocketOwners
 
     private readonly record struct SocketKey(TransportProtocol Protocol, IPAddress Address, ushort Port);
 
-    private readonly record struct Owner(uint ProcessId, ProcessIdentity Identity);
+    /// <param name="StartedAt">When the process started, to tell it from a later one with its ID.</param>
+    /// <param name="IdentifiedAt">When the read that named it began. The name held from then on.</param>
+    private readonly record struct Owner(uint ProcessId, ProcessIdentity Identity, long? StartedAt, DateTime IdentifiedAt);
 
     private readonly IFlowTracker _flowTracker;
     private readonly Func<IReadOnlyList<OpenSocket>> _readSockets;
     private readonly Func<uint, ProcessIdentity> _identify;
+    private readonly Func<uint, long?> _startedAt;
     private readonly Func<long> _clock;
+    private readonly Func<DateTime> _utcNow;
     private readonly ConcurrentDictionary<FlowKey, (SocketKey Socket, uint ProcessId)> _adopted = new();
     private readonly object _refreshLock = new();
     private volatile Dictionary<SocketKey, Owner> _owners = new();
     private long _lastReadStarted = long.MinValue;
 
+    /// <param name="startedAt">When the process with an ID started, or null when that can't be read.</param>
     /// <param name="clock">Timestamps on the clock WinDivert stamps events with (QueryPerformanceCounter).</param>
+    /// <param name="utcNow">The clock the flow tracker and the traffic monitor go by.</param>
     public SocketOwners(IFlowTracker flowTracker, Func<IReadOnlyList<OpenSocket>> readSockets, Func<uint, ProcessIdentity> identify,
-        Func<long>? clock = null)
+        Func<uint, long?> startedAt, Func<long>? clock = null, Func<DateTime>? utcNow = null)
     {
         _flowTracker = flowTracker;
         _readSockets = readSockets;
         _identify = identify;
+        _startedAt = startedAt;
         _clock = clock ?? Stopwatch.GetTimestamp;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         flowTracker.ForgettingProcess += Forget;
     }
 
@@ -69,23 +77,21 @@ internal sealed class SocketOwners
     private void RefreshLocked()
     {
         Volatile.Write(ref _lastReadStarted, _clock());
-        var previous = _owners;
-        var known = previous.Values
+        var readAt = _utcNow();
+        var known = _owners.Values
             .GroupBy(owner => owner.ProcessId)
-            .ToDictionary(group => group.Key, group => group.First().Identity);
+            .ToDictionary(group => group.Key, group => group.First());
 
+        var named = new Dictionary<uint, Owner>();
         var owners = new Dictionary<SocketKey, Owner>();
         foreach (var socket in _readSockets())
         {
             var key = new SocketKey(socket.Protocol, Normalize(socket.LocalAddress), socket.LocalPort);
             if (owners.ContainsKey(key))
                 continue;
-            if (!known.TryGetValue(socket.ProcessId, out var identity))
-            {
-                identity = _identify(socket.ProcessId);
-                known[socket.ProcessId] = identity;
-            }
-            owners[key] = new Owner(socket.ProcessId, identity);
+            if (!named.TryGetValue(socket.ProcessId, out var owner))
+                named[socket.ProcessId] = owner = Name(socket.ProcessId, known, readAt);
+            owners[key] = owner;
         }
         _owners = owners;
 
@@ -96,6 +102,20 @@ internal sealed class SocketOwners
             _flowTracker.UnregisterFlow(flowKey);
             _adopted.TryRemove(flowKey, out _);
         }
+    }
+
+    /// <summary>
+    /// The name the last read gave the ID, while the process that has it started when that one
+    /// did. A process that exits with only a listening socket never sends a packet, so nothing
+    /// tells this to forget it, and Windows can give its ID to another program meanwhile.
+    /// </summary>
+    private Owner Name(uint processId, Dictionary<uint, Owner> known, DateTime readAt)
+    {
+        // Read before the name, so a process that takes the ID in between is named again next time.
+        long? startedAt = _startedAt(processId);
+        if (startedAt is not null && known.TryGetValue(processId, out var last) && last.StartedAt == startedAt)
+            return last with { IdentifiedAt = readAt };
+        return new Owner(processId, _identify(processId), startedAt, readAt);
     }
 
     /// <summary>
@@ -133,7 +153,7 @@ internal sealed class SocketOwners
             {
                 processId = owner.ProcessId;
                 identity = owner.Identity;
-                _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path);
+                _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path, owner.IdentifiedAt);
                 return true;
             }
             if (_flowTracker.LookupConnection(flowKey) is { IsActive: true } known && known.FlowKey == flowKey
@@ -143,8 +163,9 @@ internal sealed class SocketOwners
                 return false;
             }
         }
+        var identifiedAt = _utcNow();
         identity = _identify(processId);
-        _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path);
+        _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path, identifiedAt);
         return true;
     }
 
@@ -171,7 +192,9 @@ internal sealed class SocketOwners
 
         var flowKey = new FlowKey(packetKey.Protocol, ends.LocalAddress, (ushort)ends.LocalPort,
             ends.RemoteAddress, (ushort)ends.RemotePort);
-        _flowTracker.RegisterFlow(flowKey, owner.ProcessId, owner.Identity.Name, owner.Identity.Path);
+        // Named as of the read, which can be 30 seconds old. When the process exited since and
+        // its ID went to another, the flow goes with it.
+        _flowTracker.RegisterFlow(flowKey, owner.ProcessId, owner.Identity.Name, owner.Identity.Path, owner.IdentifiedAt);
         _adopted[flowKey] = (socket, owner.ProcessId);
         return true;
     }

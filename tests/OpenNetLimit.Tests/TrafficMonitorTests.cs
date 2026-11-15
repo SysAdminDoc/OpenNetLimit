@@ -87,7 +87,7 @@ public class TrafficMonitorTests
     private sealed class FakeProcess : IHeldProcess
     {
         public bool HasExited { get; set; }
-        public DateTime? IdReusedAt { get; init; }
+        public DateTime? IdFreeSince { get; init; }
         public bool LetGo { get; private set; }
         public Action? OnLetGo { get; init; }
 
@@ -146,7 +146,7 @@ public class TrafficMonitorTests
         clock += TimeSpan.FromSeconds(1);
         // Chrome got the ID and connected before the next sample.
         flows.RegisterFlow(Flow(2), 200, "chrome", ChromePath);
-        _running[200] = new FakeProcess { HasExited = true, IdReusedAt = clock };
+        _running[200] = new FakeProcess { HasExited = true, IdFreeSince = clock };
         using var monitor = Held(flows: flows);
         monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
         monitor.SampleRates();
@@ -163,7 +163,8 @@ public class TrafficMonitorTests
         var names = new Dictionary<uint, string> { [200] = "svchost" };
         var local = Flow(1).LocalAddress;
         var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, local, 1, 200) };
-        var owners = new SocketOwners(flows, () => sockets.ToList(), processId => new ProcessIdentity(names[processId], null));
+        var owners = new SocketOwners(flows, () => sockets.ToList(), processId => new ProcessIdentity(names[processId], null),
+            _ => 1);
         owners.Refresh();
         Assert.True(owners.TryAdopt(Flow(1), isOutbound: true));
         var svchost = new FakeProcess();
@@ -185,6 +186,66 @@ public class TrafficMonitorTests
         owners.Refresh();
         Assert.True(owners.TryAdopt(Flow(2), isOutbound: true));
         Assert.Equal("chrome", flows.LookupConnection(Flow(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void ALatePacketNamedBeforeTheIdWentToAnotherProcess_GoesWithTheOldOne()
+    {
+        var clock = _now;
+        var flows = new FlowTracker(() => clock);
+        var local = Flow(1).LocalAddress;
+        var names = new Dictionary<uint, string> { [200] = "svchost" };
+        var started = new Dictionary<uint, long?> { [200] = 1 };
+        var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, local, 1, 200) };
+        var owners = new SocketOwners(flows, () => sockets.ToList(), processId => new ProcessIdentity(names[processId], null),
+            processId => started[processId], utcNow: () => clock);
+        owners.Refresh();
+
+        // svchost exits before the monitor holds it, and Windows gives its ID to chrome.
+        clock += TimeSpan.FromSeconds(1);
+        var chromeStarted = clock;
+        names[200] = "chrome";
+        started[200] = 2;
+        clock += TimeSpan.FromSeconds(1);
+        // A late packet on svchost's connection, before the socket tables are read again.
+        Assert.True(owners.TryAdopt(Flow(1), isOutbound: true));
+        // Chrome opens a connection of its own, found by the next read.
+        sockets[0] = new OpenSocket(TransportProtocol.Tcp, local, 2, 200);
+        owners.Refresh();
+        Assert.True(owners.TryAdopt(Flow(2), isOutbound: true));
+
+        _running[200] = new FakeProcess { HasExited = true, IdFreeSince = chromeStarted };
+        using var monitor = Held(flows: flows);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+
+        Assert.Null(flows.LookupConnection(Flow(1)));
+        Assert.Equal("chrome", flows.LookupConnection(Flow(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void ForgettingAnExitedProcess_DoesntHoldUpTheNextSample()
+    {
+        var flows = new FlowTracker();
+        var svchost = new FakeProcess();
+        _running[200] = svchost;
+        using var monitor = Held(flows: flows);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+        svchost.HasExited = true;
+        bool? sampledMeanwhile = null;
+        // The socket owners can be in the middle of reading the socket tables when told to forget.
+        flows.ForgettingProcess += _ =>
+        {
+            var other = new Thread(monitor.SampleRates);
+            other.Start();
+            sampledMeanwhile = other.Join(TimeSpan.FromSeconds(5));
+        };
+
+        monitor.SampleRates();
+
+        Assert.True(sampledMeanwhile);
+        Assert.True(svchost.LetGo);
     }
 
     [Fact]
@@ -310,7 +371,9 @@ public class TrafficMonitorTests
         using var replaced = HeldProcess.Hold(processId, child.StartTime.ToUniversalTime().AddSeconds(-5));
         Assert.NotNull(replaced);
         Assert.True(replaced.HasExited);
-        Assert.Equal(child.StartTime.ToUniversalTime(), replaced.IdReusedAt);
+        // A tick past its start stamp, which can be up to 15.6 ms behind when it really started.
+        Assert.InRange(replaced.IdFreeSince!.Value - child.StartTime.ToUniversalTime(),
+            TimeSpan.FromMilliseconds(15.625), TimeSpan.FromMilliseconds(20));
 
         using var held = HeldProcess.Hold(processId, DateTime.UtcNow);
         Assert.NotNull(held);
@@ -320,5 +383,27 @@ public class TrafficMonitorTests
         child.Kill();
         child.WaitForExit();
         Assert.True(held.HasExited);
+    }
+
+    [Fact]
+    public void HeldProcess_ForAnIdNoProcessHas_SaysSinceWhenItWasFree()
+    {
+        var before = DateTime.UtcNow;
+        using var gone = HeldProcess.Hold(uint.MaxValue - 3, before.AddMinutes(-1));
+        var after = DateTime.UtcNow;
+
+        Assert.NotNull(gone);
+        Assert.True(gone.HasExited);
+        Assert.InRange(gone.IdFreeSince!.Value, before, after);
+    }
+
+    [Fact]
+    public void HeldProcess_StartedAt_ReadsWhenARealProcessStarted()
+    {
+        using var self = Process.GetCurrentProcess();
+
+        Assert.Equal(self.StartTime.ToUniversalTime().ToFileTimeUtc(), HeldProcess.StartedAt((uint)self.Id));
+        Assert.Equal(0, HeldProcess.StartedAt(4));
+        Assert.Null(HeldProcess.StartedAt(uint.MaxValue - 3));
     }
 }

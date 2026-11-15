@@ -23,6 +23,13 @@ public class ConnectionInfo
     public string ProcessName { get; set; } = string.Empty;
     public string? ProcessPath { get; set; }
     public DateTime EstablishedAt { get; init; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// When the process with <see cref="ProcessId"/> was last known to be the one named here.
+    /// Windows hands an exited process's ID to the next one, and a name read before then can be
+    /// the old one's.
+    /// </summary>
+    public DateTime IdentifiedAt { get; init; } = DateTime.UtcNow;
     public DateTime? ClosedAt { get; set; }
 
     private long _bytesSent;

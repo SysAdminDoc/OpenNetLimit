@@ -18,6 +18,8 @@ public class SocketOwnersTests
     {
         public List<OpenSocket> Sockets { get; } = [];
         public List<uint> Identified { get; } = [];
+        /// <summary>When each process started. One that isn't listed started at 1.</summary>
+        public Dictionary<uint, long?> Started { get; } = [];
         public int Reads { get; private set; }
         public long Now { get; set; }
 
@@ -29,7 +31,7 @@ public class SocketOwnersTests
         {
             Identified.Add(pid);
             return new ProcessIdentity($"app{pid}", $@"C:\Apps\app{pid}.exe");
-        }, () => Now);
+        }, pid => Started.GetValueOrDefault(pid, 1), clock: () => Now);
     }
 
     private const uint SystemPid = SocketOwners.SystemProcessId;
@@ -301,6 +303,28 @@ public class SocketOwnersTests
 
         Assert.Single(tracker.GetActiveConnections());
         Assert.Equal([4242u], tables.Identified);
+    }
+
+    [Fact]
+    public void AnIdThatWentToAnotherProcess_IsNamedAgain()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Udp, Local, 5353, 4242));
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+
+        // The process exited with only a listening socket, so nothing told the owners to forget
+        // it, and Windows gave its ID to another program, which opened a socket of its own.
+        tables.Started[4242] = 2;
+        tables.Sockets[0] = new OpenSocket(TransportProtocol.Tcp, Local, 51000, 4242);
+        owners.Refresh();
+        // One that can't be opened can't be told apart, so it's named every time.
+        tables.Started[4242] = null;
+        owners.Refresh();
+        owners.Refresh();
+
+        Assert.Equal([4242u, 4242u, 4242u, 4242u], tables.Identified);
     }
 
     [Fact]

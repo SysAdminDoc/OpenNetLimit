@@ -99,12 +99,49 @@ public class FlowTrackerTests
         tracker.UnregisterFlow(MakeFlowKey(2));
         tracker.RegisterFlow(MakeFlowKey(3), 200, "chrome", null);
 
-        tracker.ForgetProcess(200, establishedBefore: reusedAt);
+        tracker.ForgetProcess(200, identifiedBefore: reusedAt);
 
         Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
         // Closing it after the new process started doesn't make it the new one's.
         Assert.Null(tracker.LookupConnection(MakeFlowKey(2)));
         Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(3))?.ProcessName);
+    }
+
+    [Fact]
+    public void ForgetProcess_GoesByWhenTheFlowWasNamed_NotWhenItWasRegistered()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var tablesRead = now;
+        now += TimeSpan.FromSeconds(1);
+        var reusedAt = now;
+        now += TimeSpan.FromSeconds(1);
+        // A late packet adopted under the name a read of the socket tables gave the ID before chrome had it.
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, identifiedAt: tablesRead);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null);
+
+        tracker.ForgetProcess(200, identifiedBefore: reusedAt);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void RegisterFlow_ForTheSameProcessAgain_KeepsWhenItWasEstablished()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var established = now;
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null);
+        now += TimeSpan.FromSeconds(1);
+
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null);
+        tracker.RegisterFlow(MakeFlowKey(2), 300, "curl", null);
+
+        Assert.Equal(established, tracker.LookupConnection(MakeFlowKey(1))?.EstablishedAt);
+        Assert.Equal(now, tracker.LookupConnection(MakeFlowKey(1))?.IdentifiedAt);
+        Assert.Equal(now, tracker.LookupConnection(MakeFlowKey(2))?.EstablishedAt);
     }
 
     [Fact]

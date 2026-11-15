@@ -20,7 +20,8 @@ public class FlowTracker : IFlowTracker
 
     public event Action<uint>? ForgettingProcess;
 
-    public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath)
+    public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath,
+        DateTime? identifiedAt = null)
     {
         var registeredAt = _utcNow();
         var connection = new ConnectionInfo
@@ -29,7 +30,8 @@ public class FlowTracker : IFlowTracker
             ProcessId = processId,
             ProcessName = processName,
             ProcessPath = processPath,
-            EstablishedAt = registeredAt
+            EstablishedAt = registeredAt,
+            IdentifiedAt = identifiedAt ?? registeredAt
         };
         _flows.AddOrUpdate(flowKey, connection, (_, existing) =>
         {
@@ -42,7 +44,9 @@ public class FlowTracker : IFlowTracker
                 ProcessId = processId,
                 ProcessName = processName,
                 ProcessPath = processPath,
-                EstablishedAt = registeredAt,
+                // Named again, it's still the connection it was.
+                EstablishedAt = existing.ProcessId == processId ? existing.EstablishedAt : registeredAt,
+                IdentifiedAt = identifiedAt ?? registeredAt,
                 ClosedAt = existing.ClosedAt
             };
             updated.AddBytesSent(existing.BytesSent);
@@ -67,6 +71,7 @@ public class FlowTracker : IFlowTracker
                 ProcessName = existing.ProcessName,
                 ProcessPath = existing.ProcessPath,
                 EstablishedAt = existing.EstablishedAt,
+                IdentifiedAt = existing.IdentifiedAt,
                 ClosedAt = _utcNow()
             };
             if (_flows.TryUpdate(flowKey, closed, existing))
@@ -74,14 +79,14 @@ public class FlowTracker : IFlowTracker
         }
     }
 
-    public void ForgetProcess(uint processId, DateTime? establishedBefore = null)
+    public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
         ForgettingProcess?.Invoke(processId);
         foreach (var (flowKey, connection) in _flows)
         {
             // Only the exact entry seen: a flow registered again meanwhile is someone else's.
             if (connection.ProcessId == processId
-                && (establishedBefore is null || connection.EstablishedAt < establishedBefore))
+                && (identifiedBefore is null || connection.IdentifiedAt < identifiedBefore))
                 _flows.TryRemove(KeyValuePair.Create(flowKey, connection));
         }
     }
