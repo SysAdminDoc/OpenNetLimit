@@ -363,15 +363,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var remotePort = endpoints.RemotePort;
                 var protocolStr = flowKey.Protocol.ToString();
                 var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
-                // From the last read of the service list. Reading it here would stall every packet.
-                var services = _serviceHosts.ServicesIn(processId.Value);
-                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
-                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain, services: services);
-                var protection = ProtectedProcesses.Of(processName, services, connection?.ProcessPath);
-                bool isProtected = protection != ProcessProtection.None;
-                // A Block rule and a used-up quota that blocks both drop the packet here.
+                var (matchingRule, protection) = Attribute(_ruleEngine, _serviceHosts, processId.Value, processName,
+                    connection?.ProcessPath, remoteAddr, remotePort, protocolStr, resolvedDomain);
                 bool blockedByRule = matchingRule?.Action == RuleAction.Block;
-                if (!isProtected && (blockedByRule || _rateLimiter.IsBlocked(processId.Value)))
+                if (Drops(protection, matchingRule, _rateLimiter.IsBlocked(processId.Value)))
                 {
                     Interlocked.Increment(ref _totalBlocked);
                     // Dropped bytes never reached the app, so they don't count as its traffic or
@@ -470,6 +465,29 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     }
 
     private const int DnsPort = 53;
+
+    /// <summary>
+    /// The rule a packet falls under and how far rules may touch its process. Both go by the
+    /// services the last read found in it, so a rule on DoSvc reaches a svchost running only
+    /// DoSvc, and a svchost that also runs DNS or DHCP stays out of reach.
+    /// </summary>
+    internal static (BandwidthRule? Rule, ProcessProtection Protection) Attribute(IRuleEngine ruleEngine,
+        IServiceHosts serviceHosts, uint processId, string processName, string? processPath,
+        IPAddress remoteAddress, int remotePort, string protocol, string? resolvedDomain)
+    {
+        // From the last read of the service list. Reading it here would stall every packet.
+        var services = serviceHosts.ServicesIn(processId);
+        var rule = ruleEngine.FindMatchingRule(processName, processPath, remoteAddress, remotePort, protocol,
+            resolvedDomain: resolvedDomain, services: services);
+        return (rule, ProtectedProcesses.Of(processName, services, processPath));
+    }
+
+    /// <summary>
+    /// Whether a packet is dropped: a Block rule or a used-up quota that blocks, on a process
+    /// rules may touch. Dropping what a protected process sends could take the PC offline.
+    /// </summary>
+    internal static bool Drops(ProcessProtection protection, BandwidthRule? matchingRule, bool quotaBlocked) =>
+        protection == ProcessProtection.None && (matchingRule?.Action == RuleAction.Block || quotaBlocked);
 
     /// <summary>What happens to a packet once it's charged to its limits.</summary>
     internal enum PacketFate { Send, Delay, Drop }

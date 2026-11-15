@@ -266,6 +266,37 @@ public class ServiceRuleTests
     }
 
     [Fact]
+    public void BlockOnAService_DropsWhatItsSvchostSends_ButNeverOneThatAlsoRunsDns()
+    {
+        var rules = new RuleEngine();
+        var hosts = new FakeServiceHosts();
+        hosts.Set(201, "DoSvc");
+        hosts.Set(202, "DoSvc", "Dnscache");
+        var block = new BandwidthRule { ServiceName = "DoSvc", Action = RuleAction.Block };
+        rules.AddRule(block);
+
+        (BandwidthRule? Rule, bool Dropped) Packet(uint processId, bool quotaBlocked = false)
+        {
+            var (rule, protection) = WinDivertInterceptor.Attribute(rules, hosts, processId, "svchost", SvchostPath,
+                IPAddress.Parse("93.184.216.34"), 443, "Tcp", resolvedDomain: null);
+            return (rule, WinDivertInterceptor.Drops(protection, rule, quotaBlocked));
+        }
+
+        Assert.Equal(block.Id, Packet(201).Rule?.Id);
+        Assert.True(Packet(201).Dropped);
+        // Blocking DoSvc there would cut DNS for the whole PC.
+        Assert.Equal(block.Id, Packet(202).Rule?.Id);
+        Assert.False(Packet(202).Dropped);
+        // Nothing reaches a svchost the last read hasn't seen, so it's kept safe until a read names its services.
+        Assert.Null(Packet(203).Rule);
+        Assert.False(Packet(203).Dropped);
+        // A used-up quota that blocks stops a plain svchost but never one Windows needs.
+        Assert.True(Packet(201, quotaBlocked: true).Dropped);
+        Assert.False(Packet(202, quotaBlocked: true).Dropped);
+        Assert.False(Packet(203, quotaBlocked: true).Dropped);
+    }
+
+    [Fact]
     public void QuotaOnAService_CountsTheSvchostItRunsIn_AndStopsItWhenUsedUp()
     {
         var hosts = new FakeServiceHosts();
