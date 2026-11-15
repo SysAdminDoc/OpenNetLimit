@@ -26,8 +26,16 @@ public static class ProtectedProcesses
 {
     private static readonly FrozenSet<string> Names = new[]
     {
-        "services", "lsass", "csrss", "wininit", "smss",
-        "dns", "dhcp", "dnscache", "System", "ntoskrnl"
+        "services", "lsass", "csrss", "wininit", "smss", "System", "ntoskrnl"
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Processes that send nothing but name resolution and addressing. The Windows DNS Server
+    /// answers TCP queries from local port 53, which the remote-port DNS check never sees.
+    /// </summary>
+    private static readonly FrozenSet<string> NetworkingNames = new[]
+    {
+        "dns", "dhcp", "dnscache"
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -46,6 +54,8 @@ public static class ProtectedProcesses
     /// <param name="services">The services running in the process, null when there are none or they aren't known.</param>
     public static ProcessProtection Of(string processName, IReadOnlyList<string>? services)
     {
+        if (NetworkingNames.Contains(processName))
+            return ProcessProtection.Networking;
         if (Names.Contains(processName))
             return ProcessProtection.Windows;
         if (!ServiceHosts.IsServiceHost(processName))

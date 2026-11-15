@@ -171,6 +171,11 @@ public class ServiceHostsTests
 
     [Theory]
     [InlineData("lsass", null, ProcessProtection.Windows)]
+    // The Windows DNS Server only ever sends DNS, its replies from local port 53 included.
+    [InlineData("dns", null, ProcessProtection.Networking)]
+    [InlineData("DNS", null, ProcessProtection.Networking)]
+    [InlineData("dhcp", null, ProcessProtection.Networking)]
+    [InlineData("services", null, ProcessProtection.Windows)]
     [InlineData("chrome", null, ProcessProtection.None)]
     [InlineData("spoolsv", "Spooler", ProcessProtection.None)]
     // A svchost whose services aren't known yet is kept safe until they are.
