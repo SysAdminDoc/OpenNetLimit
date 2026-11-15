@@ -77,6 +77,8 @@ public class EngineWorker : BackgroundService
     private Timer? _scheduleTimer;
     private long _lastQuotaResetCheckTicks = DateTime.Now.Date.Ticks;
     private volatile string? _engineError;
+    private const string StoppedAfterErrors =
+        "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
     private volatile bool _engineStarted;
     private volatile bool _stopping;
     private bool _stateLoaded;
@@ -199,6 +201,7 @@ public class EngineWorker : BackgroundService
         _controlPlane.ResumeHandler = ResumeAsync;
         _controlPlane.PcLimitProvider = () => _pcLimit;
         _controlPlane.PcLimitHandler = SetPcLimit;
+        _controlPlane.PcLimitChangeHandler = ChangePcLimit;
         return base.StartAsync(cancellationToken);
     }
 
@@ -498,15 +501,21 @@ public class EngineWorker : BackgroundService
             // Only a driver this start loads gets unloaded again if it fails. One another program
             // loaded while we were paused stays as it is.
             bool driverWasUnloaded = wasPaused && _driverUnloader.IsUnloaded();
+            // Before anything changes, so a status read that sees any of it isn't taken as settled.
+            Interlocked.Increment(ref _engineChangeVersion);
             lock (_driverReasonLock)
             {
-                _engineError = null;
+                // A paused engine reads as paused while it starts. One that failed keeps saying
+                // why until the retry ends, so a read meanwhile isn't a failure with no reason.
+                if (wasPaused)
+                    _engineError = null;
+                else if (_engineError is null && _engineStarted)
+                    _engineError = StoppedAfterErrors;
                 _resumeRefusal = null;
             }
             // The program the reason names may have closed since the last poll. An unloaded
             // driver says nothing holds it, so the name goes.
             MarkDriverChanging(LoadingReason, nothingHoldsIt: driverWasUnloaded);
-            Interlocked.Increment(ref _engineChangeVersion);
             try
             {
                 try
@@ -522,6 +531,7 @@ public class EngineWorker : BackgroundService
                 // Still paused while it starts, so a status read meanwhile isn't an error.
                 if (await TryStartInterceptorAsync(_shutdown.Token))
                 {
+                    _engineError = null;
                     _paused = false;
                     SetDriverReason(null);
                     _stayPaused = SetStayPausedMarker(false);
@@ -785,8 +795,9 @@ public class EngineWorker : BackgroundService
 
     /// <summary>
     /// Whether <paramref name="candidate"/> is a name this service gives a kept copy of
-    /// <paramref name="name"/>: <c>.unreadable</c>, or <c>.unreadable-N</c> from 2 up. Other files
-    /// that start the same way, like notes someone saved next to it, aren't copies.
+    /// <paramref name="name"/>: <c>.unreadable</c>, or <c>.unreadable-N</c> from 2 up, written
+    /// without leading zeros. Other files that start the same way, like notes someone saved next
+    /// to it or a copy renamed to <c>-02</c>, aren't copies.
     /// </summary>
     internal static bool IsKeptCopy(string candidate, string name)
     {
@@ -795,7 +806,7 @@ public class EngineWorker : BackgroundService
             return false;
         var rest = candidate.AsSpan(prefix.Length);
         return rest.IsEmpty
-            || (rest.Length > 1 && rest[0] == '-'
+            || (rest.Length > 1 && rest[0] == '-' && rest[1] != '0'
                 && int.TryParse(rest[1..], NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= 2);
     }
 
@@ -879,13 +890,20 @@ public class EngineWorker : BackgroundService
     }
 
     /// <summary>Applies a whole-PC limit right away and keeps it for the next start.</summary>
-    private WholePcLimit SetPcLimit(WholePcLimit limit)
+    private WholePcLimit SetPcLimit(WholePcLimit limit) => UpdatePcLimit(_ => limit);
+
+    /// <summary>Applies a change to part of the whole-PC limit, like <see cref="SetPcLimit"/>.</summary>
+    private WholePcLimit ChangePcLimit(WholePcLimitChange change) => UpdatePcLimit(change.ApplyTo);
+
+    private WholePcLimit UpdatePcLimit(Func<WholePcLimit, WholePcLimit> update)
     {
-        if (limit.Problem() is { } problem)
-            throw new ArgumentException(problem, nameof(limit));
-        // Under the save lock, so two changes that land together are saved in the order applied.
+        // Under the save lock, so two changes that land together are saved in the order applied,
+        // and a change to part of it applies to the limit the one before it left.
         lock (_saveLock)
         {
+            var limit = update(_pcLimit);
+            if (limit.Problem() is { } problem)
+                throw new ArgumentException(problem, nameof(update));
             _rateLimiter.SetPcLimit(limit);
             _pcLimit = limit;
             var temp = _pcLimitPath + ".tmp";
@@ -900,8 +918,8 @@ public class EngineWorker : BackgroundService
                 _logger.LogError(ex, "Failed to save the whole-PC limit to {Path}", _pcLimitPath);
                 RecordLastError($"The whole-PC limit is in effect but wasn't saved, so a restart will lose it: {ex.Message}");
             }
+            return limit;
         }
-        return limit;
     }
 
     private void LoadAlerts()
@@ -1157,18 +1175,21 @@ public class EngineWorker : BackgroundService
         // engine starts, so either one finishing between the two reads above can pair "not
         // paused" with "not running". Only a read no pause or resume overlapped can call that a crash.
         bool settled = (changeVersion & 1) == 0 && changeVersion == Volatile.Read(ref _engineChangeVersion);
-        if (!settled && !running && !paused)
+        // A resume can also finish during the driver recheck above, pairing "paused" from before
+        // it with "running" from after it.
+        if (!settled && running == paused)
         {
             // A whole pause and resume can pass between the reads above. Read what they left,
-            // the error included: a resume clears it or sets a new one.
+            // the error included: a resume clears it or sets a new one. Both can still be true:
+            // a pause raises the flag before it stops the engine, and that reads as paused.
             running = _interceptor.IsRunning;
-            paused = !running && _paused;
+            paused = _paused;
             if (paused)
                 driverLoadedReason = _driverLoadedReason;
             engineError = _engineError;
         }
         if (engineError is null && settled && _engineStarted && !running && !_stopping && !paused)
-            engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
+            engineError = StoppedAfterErrors;
 
         return new DiagnosticInfo
         {

@@ -6,6 +6,7 @@ using System.Security.Principal;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.Rules;
@@ -276,20 +277,60 @@ public class PipeServerTests
         Assert.Contains("\"downloadBytesPerSecond\":0", read);
     }
 
-    // The limit is saved state too, so a service that couldn't load its state can't take it.
     [Fact]
-    public async Task PcLimit_WhileChangesAreRefused_SaysWhyButStillReads()
+    public async Task PcLimitChange_SetsOnlyWhatItGives()
+    {
+        // The app's dialog sends what was typed in. The rest is whatever is in effect when it
+        // arrives, not what the dialog showed.
+        var current = new WholePcLimit { DownloadBytesPerSecond = 2_097_152, IncludeLan = true };
+        var controlPlane = new ControlPlaneState { PcLimitChangeHandler = change => current = change.ApplyTo(current) };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("CHANGE_PC_LIMIT", """{"uploadBytesPerSecond":524288}""", CancellationToken.None);
+
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true }, current);
+        Assert.Contains("\"downloadBytesPerSecond\":2097152", reply);
+        Assert.True(IpcProtocol.RequiresAdmin("CHANGE_PC_LIMIT"));
+    }
+
+    [Theory]
+    [InlineData("{}", "give downloadBytesPerSecond, uploadBytesPerSecond or includeLan")]
+    [InlineData("""{"includeLan":null}""", "be null. Leave it out")]
+    [InlineData("""{"uploadBytesPerSecond":-1}""", "negative")]
+    [InlineData("""{"upload":1}""", "upload")]
+    [InlineData("""{"includeLan":true,"IncludeLan":false}""", "more than once")]
+    [InlineData("[]", "invalid whole-PC limit")]
+    [InlineData("""{"includeLan":""", "invalid JSON")]
+    public async Task PcLimitChange_ThatIsntOne_IsRefused(string payload, string why)
+    {
+        var applied = false;
+        var controlPlane = new ControlPlaneState { PcLimitChangeHandler = change => { applied = true; return WholePcLimit.Off; } };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("CHANGE_PC_LIMIT", payload, CancellationToken.None);
+
+        Assert.Contains("\"error\"", reply);
+        Assert.Contains(why, reply);
+        Assert.False(applied);
+    }
+
+    // The limit is saved state too, so a service that couldn't load its state can't take it.
+    [Theory]
+    [InlineData("SET_PC_LIMIT")]
+    [InlineData("CHANGE_PC_LIMIT")]
+    public async Task PcLimit_WhileChangesAreRefused_SaysWhyButStillReads(string command)
     {
         var applied = false;
         var controlPlane = new ControlPlaneState
         {
             ChangesRefused = "not running as administrator",
             PcLimitProvider = () => new WholePcLimit { UploadBytesPerSecond = 2048 },
-            PcLimitHandler = limit => { applied = true; return limit; }
+            PcLimitHandler = limit => { applied = true; return limit; },
+            PcLimitChangeHandler = change => { applied = true; return WholePcLimit.Off; }
         };
         var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
 
-        var reply = await server.ProcessCommandAsync("SET_PC_LIMIT", """{"uploadBytesPerSecond":1024}""", CancellationToken.None);
+        var reply = await server.ProcessCommandAsync(command, """{"uploadBytesPerSecond":1024}""", CancellationToken.None);
         var read = await server.ProcessCommandAsync("PC_LIMIT", string.Empty, CancellationToken.None);
 
         Assert.Contains("not running as administrator", reply);

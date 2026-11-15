@@ -1,4 +1,3 @@
-using System.Text.Json;
 using OpenNetLimit.Core.Models;
 
 namespace OpenNetLimit.UI.ViewModels;
@@ -9,11 +8,6 @@ namespace OpenNetLimit.UI.ViewModels;
 /// </summary>
 internal sealed class PcLimitCard
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
     /// <summary>The limit every app shares, as the service last reported it.</summary>
     public WholePcLimit Limit { get; private set; } = WholePcLimit.Off;
 
@@ -70,17 +64,10 @@ internal sealed class PcLimitCard
         return true;
     }
 
-    private static WholePcLimit? Parse(string? json)
-    {
-        if (json is null)
-            return null;
-        try
-        {
-            return JsonSerializer.Deserialize<WholePcLimit>(json, JsonOptions);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+    /// <summary>
+    /// A reply that's a limit, read as strictly as the service reads one. Any JSON object used to
+    /// pass, with what it lacked read as 0, so {"ok":true} showed the limit as off.
+    /// </summary>
+    private static WholePcLimit? Parse(string? json) =>
+        json is null ? null : WholePcLimit.Parse(json, out _);
 }

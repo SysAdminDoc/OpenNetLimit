@@ -25,7 +25,7 @@ public sealed record WholePcLimit
             ? "A whole-PC limit can't be negative. Use 0 for no limit."
             : null;
 
-    private static readonly JsonSerializerOptions ReadOptions = new()
+    internal static readonly JsonSerializerOptions ReadOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true
@@ -43,31 +43,9 @@ public sealed record WholePcLimit
         try
         {
             using var doc = JsonDocument.Parse(json ?? string.Empty);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                problem = "invalid whole-PC limit: send a JSON object like {\"downloadBytesPerSecond\":1048576}";
+            if (FieldsIn(doc.RootElement, out problem) is not { } seen)
                 return null;
-            }
-            var hasRate = false;
-            var seen = new HashSet<string>();
-            foreach (var field in doc.RootElement.EnumerateObject())
-            {
-                var known = Array.Find(Fields, f => f.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
-                if (known is null)
-                {
-                    problem = $"invalid whole-PC limit: there's no field \"{field.Name}\". It takes downloadBytesPerSecond, uploadBytesPerSecond and includeLan";
-                    return null;
-                }
-                // The last copy would win, so a second spelling of a rate set to 0 switched the
-                // limit off with no word, the same as a misspelled field used to.
-                if (!seen.Add(known))
-                {
-                    problem = $"invalid whole-PC limit: {known} is in it more than once";
-                    return null;
-                }
-                hasRate |= known != "includeLan";
-            }
-            if (!hasRate)
+            if (!seen.Contains("downloadBytesPerSecond") && !seen.Contains("uploadBytesPerSecond"))
             {
                 problem = "invalid whole-PC limit: give downloadBytesPerSecond, uploadBytesPerSecond or both, with 0 for no limit that way";
                 return null;
@@ -75,6 +53,106 @@ public sealed record WholePcLimit
             var limit = doc.RootElement.Deserialize<WholePcLimit>(ReadOptions)!;
             problem = limit.Problem();
             return problem is null ? limit : null;
+        }
+        catch (JsonException ex)
+        {
+            problem = $"invalid JSON: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The fields <paramref name="root"/> gives, by their names here, or null with what's wrong
+    /// in <paramref name="problem"/>: it isn't an object, or it has a field this doesn't know or
+    /// one field twice.
+    /// </summary>
+    internal static HashSet<string>? FieldsIn(JsonElement root, out string? problem)
+    {
+        problem = null;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            problem = "invalid whole-PC limit: send a JSON object like {\"downloadBytesPerSecond\":1048576}";
+            return null;
+        }
+        var seen = new HashSet<string>();
+        foreach (var field in root.EnumerateObject())
+        {
+            var known = Array.Find(Fields, f => f.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
+            if (known is null)
+            {
+                problem = $"invalid whole-PC limit: there's no field \"{field.Name}\". It takes downloadBytesPerSecond, uploadBytesPerSecond and includeLan";
+                return null;
+            }
+            // The last copy would win, so a second spelling of a rate set to 0 switched the
+            // limit off with no word, the same as a misspelled field used to.
+            if (!seen.Add(known))
+            {
+                problem = $"invalid whole-PC limit: {known} is in it more than once";
+                return null;
+            }
+        }
+        return seen;
+    }
+}
+
+/// <summary>
+/// A change to part of the whole-PC limit. A field left null keeps what's in effect when the
+/// change is applied, so a change made elsewhere since the client last read the limit isn't undone.
+/// </summary>
+public sealed record WholePcLimitChange
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DownloadBytesPerSecond { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? UploadBytesPerSecond { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IncludeLan { get; init; }
+
+    [JsonIgnore]
+    public bool IsEmpty => DownloadBytesPerSecond is null && UploadBytesPerSecond is null && IncludeLan is null;
+
+    /// <summary>The limit <paramref name="current"/> becomes with this change.</summary>
+    public WholePcLimit ApplyTo(WholePcLimit current) => current with
+    {
+        DownloadBytesPerSecond = DownloadBytesPerSecond ?? current.DownloadBytesPerSecond,
+        UploadBytesPerSecond = UploadBytesPerSecond ?? current.UploadBytesPerSecond,
+        IncludeLan = IncludeLan ?? current.IncludeLan
+    };
+
+    /// <summary>
+    /// Reads a change a client sent, or gives what's wrong with it in <paramref name="problem"/>.
+    /// It's checked like a whole limit, except that any one field is enough. A field set to null
+    /// is a problem rather than a field left alone, so a client can't mean one and get the other.
+    /// </summary>
+    public static WholePcLimitChange? Parse(string? json, out string? problem)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json ?? string.Empty);
+            if (WholePcLimit.FieldsIn(doc.RootElement, out problem) is not { } seen)
+                return null;
+            if (seen.Count == 0)
+            {
+                problem = "invalid whole-PC limit change: give downloadBytesPerSecond, uploadBytesPerSecond or includeLan";
+                return null;
+            }
+            foreach (var field in doc.RootElement.EnumerateObject())
+            {
+                if (field.Value.ValueKind == JsonValueKind.Null)
+                {
+                    problem = $"invalid whole-PC limit change: {field.Name} can't be null. Leave it out to keep it as it is";
+                    return null;
+                }
+            }
+            var change = doc.RootElement.Deserialize<WholePcLimitChange>(WholePcLimit.ReadOptions)!;
+            if (change.DownloadBytesPerSecond < 0 || change.UploadBytesPerSecond < 0)
+            {
+                problem = "A whole-PC limit can't be negative. Use 0 for no limit.";
+                return null;
+            }
+            return change;
         }
         catch (JsonException ex)
         {

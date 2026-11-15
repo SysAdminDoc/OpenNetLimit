@@ -31,6 +31,12 @@ public sealed class ControlPlaneState
     /// <summary>Sets the whole-PC limit, keeps it for the next start and returns it.</summary>
     public Func<WholePcLimit, WholePcLimit>? PcLimitHandler { get; set; }
 
+    /// <summary>
+    /// Changes part of the whole-PC limit, applied to the limit in effect at that moment, then
+    /// keeps it like <see cref="PcLimitHandler"/> and returns the result.
+    /// </summary>
+    public Func<WholePcLimitChange, WholePcLimit>? PcLimitChangeHandler { get; set; }
+
     public WholePcLimit GetPcLimit() => PcLimitProvider?.Invoke() ?? WholePcLimit.Off;
 
     public DiagnosticInfo GetDiagnostics() =>

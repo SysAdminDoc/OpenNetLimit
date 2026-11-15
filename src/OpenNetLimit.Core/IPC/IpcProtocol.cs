@@ -16,7 +16,7 @@ public static class IpcProtocol
     {
         "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "VERIFY_PROCESS", "GEOIP",
         "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE", "RELOAD_PLUGINS",
-        "PAUSE", "RESUME", "SET_PC_LIMIT"
+        "PAUSE", "RESUME", "SET_PC_LIMIT", "CHANGE_PC_LIMIT"
     };
 
     public static bool IsValidCommand(string command) =>

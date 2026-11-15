@@ -175,8 +175,8 @@ public partial class MainWindow : Window
         dialog.Owner = this;
         if (dialog.ShowDialog() != true)
             return;
-        // The poll keeps going while the dialog is open, so what was left alone is read now.
-        await _viewModel.SetPcLimitAsync(PcLimitText.FromDialog(_viewModel.PcLimit,
+        // Only what was typed in. The service keeps the rest as it is when the change arrives.
+        await _viewModel.ChangePcLimitAsync(PcLimitText.FromDialog(
             dialog.DownloadEdited ? dialog.DownloadKBps : null,
             dialog.UploadEdited ? dialog.UploadKBps : null,
             dialog.IncludeLanChanged ? dialog.IncludeLan : null));

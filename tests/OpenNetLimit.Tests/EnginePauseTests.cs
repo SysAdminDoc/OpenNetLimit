@@ -264,6 +264,26 @@ public sealed class EnginePauseTests
 
         Assert.Equal("ab cd" + numberSign + " e…", fitted);
     }
+
+    [Fact]
+    public void Fit_KeepsTheSpaceASignHoldsWhenTheCutEndsOnIt()
+    {
+        // Trimming spaces before the ellipsis took the sign's own space too, so it joined the
+        // ellipsis anyway: when the cut lands right after the sign, and when it lands on a space
+        // of its own that follows it.
+        var numberSign = ((char)0x0600).ToString();
+
+        Assert.Equal("abcd" + numberSign + " …", TrayNotice.Fit("abcd" + numberSign + " efghij", 7));
+        Assert.Equal("ab" + numberSign + " …", TrayNotice.Fit("ab" + numberSign + "  cdefgh", 6));
+    }
+
+    [Fact]
+    public void Fit_BackAtAWordEnd_LeavesOutWhatCameAfterIt()
+    {
+        // The trim before the ellipsis looks only at what's kept. Starting from the last
+        // character that fit would put back the word after the space, up to its tab.
+        Assert.Equal("abcd…", TrayNotice.Fit("abcd ef\tghij", 9));
+    }
 }
 
 /// <summary>These resolve text, so they can't run while another test switches the language.</summary>

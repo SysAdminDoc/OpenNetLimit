@@ -227,7 +227,7 @@ public class PipeServer
     private static readonly HashSet<string> RuleChanges = new(StringComparer.OrdinalIgnoreCase)
     {
         "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE",
-        "SET_PC_LIMIT"
+        "SET_PC_LIMIT", "CHANGE_PC_LIMIT"
     };
 
     internal Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
@@ -265,6 +265,7 @@ public class PipeServer
             "RESUME" => Resume(ct),
             "PC_LIMIT" => Task.FromResult(JsonSerializer.Serialize(_controlPlane.GetPcLimit(), JsonOptions)),
             "SET_PC_LIMIT" => Task.FromResult(SetPcLimit(payload)),
+            "CHANGE_PC_LIMIT" => Task.FromResult(ChangePcLimit(payload)),
             _ => Task.FromResult(ErrorResponse("unknown command"))
         };
     }
@@ -303,6 +304,19 @@ public class PipeServer
             return ErrorResponse("engine control unavailable");
         return WholePcLimit.Parse(payload, out var problem) is { } limit
             ? JsonSerializer.Serialize(set(limit), JsonOptions)
+            : ErrorResponse(problem!);
+    }
+
+    /// <summary>
+    /// Changes only the fields sent. The app's dialog sends what was typed in, so a change made
+    /// from the CLI while it was open isn't undone by the values it showed.
+    /// </summary>
+    private string ChangePcLimit(string payload)
+    {
+        if (_controlPlane.PcLimitChangeHandler is not { } change)
+            return ErrorResponse("engine control unavailable");
+        return WholePcLimitChange.Parse(payload, out var problem) is { } parsed
+            ? JsonSerializer.Serialize(change(parsed), JsonOptions)
             : ErrorResponse(problem!);
     }
 

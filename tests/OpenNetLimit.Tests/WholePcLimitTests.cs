@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
@@ -6,6 +7,7 @@ using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.UI;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
+using SharpDivert;
 using Xunit;
 using Cli = OpenNetLimit.CLI.Program;
 
@@ -353,6 +355,39 @@ public sealed class WholePcLimitTests
     }
 
     [Fact]
+    public void Charge_AnAppWithItsOwnLimit_StillWaitsForTheWholePcLimit()
+    {
+        // Its own limit has room. Charging only that one would let it past the shared one.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+        limiter.SetLimit(AppPid, downloadBytesPerSecond: 100_000_000, uploadBytesPerSecond: 0);
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, isProtected: false, "203.0.113.9"));
+    }
+
+    [Fact]
+    public void Charge_WithItsAppsQueueFull_IsDroppedAndChargesNothing()
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+        using var scheduler = new PacketScheduler();
+        var address = new WinDivertAddress[1];
+        for (var i = 0; i < PacketScheduler.MaxQueuePerProcess; i++)
+            scheduler.Enqueue(AppPid, new byte[40], address, TimeSpan.FromSeconds(1));
+
+        var full = WinDivertInterceptor.Charge(limiter, scheduler, AppPid, isProtected: false, TransportProtocol.Tcp,
+            443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
+            loopback: false, out var noDelay);
+        var other = WinDivertInterceptor.Charge(limiter, scheduler, AppPid + 1, isProtected: false, TransportProtocol.Tcp,
+            443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
+            loopback: false, out var otherDelay);
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Drop, full);
+        Assert.Equal(TimeSpan.Zero, noDelay);
+        // Another app's packet waits for its own 1000 bytes only.
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, other);
+        Assert.Equal(TimeSpan.FromSeconds(0.1), otherDelay);
+    }
+
+    [Fact]
     public void Charge_PastTheLongestWait_IsDropped()
     {
         var limiter = LimiterWithItsPcLimitUsedUp(Down(1_000));
@@ -577,24 +612,48 @@ public sealed class WholePcLimitTests
     [InlineData(1L, 500, 1024)]
     public void Dialog_KeepsTheExactRateUnlessItWasTypedIn(long? kilobytes, long now, long bytes)
     {
-        var limit = PcLimitText.FromDialog(new WholePcLimit { DownloadBytesPerSecond = now, UploadBytesPerSecond = now },
-            kilobytes, kilobytes, includeLan: null);
+        var limit = PcLimitText.FromDialog(kilobytes, kilobytes, includeLan: null)
+            .ApplyTo(new WholePcLimit { DownloadBytesPerSecond = now, UploadBytesPerSecond = now });
 
         Assert.Equal(bytes, limit.DownloadBytesPerSecond);
         Assert.Equal(bytes, limit.UploadBytesPerSecond);
     }
 
     [Fact]
-    public void Dialog_LeftAlone_KeepsAChangeMadeWhileItWasOpen()
+    public void Dialog_LeftAlone_SendsOnlyWhatWasTypedIn()
     {
-        // The dialog showed 1 MB/s, then the CLI set 2 MB/s and counted the local network.
-        // OK after typing only an upload rate put the old download rate back.
-        var now = new WholePcLimit { DownloadBytesPerSecond = 2_097_152, IncludeLan = true };
+        // The dialog showed 1 MB/s, then the CLI set 2 MB/s and counted the local network. OK
+        // after typing only an upload rate sent the 1 MB/s the dialog last read, which put the
+        // old download rate back whenever the app hadn't polled since.
+        var sent = PcLimitText.FromDialog(downloadKBps: null, uploadKBps: 512, includeLan: null);
 
-        var sent = PcLimitText.FromDialog(now, downloadKBps: null, uploadKBps: 512, includeLan: null);
+        Assert.Equal("""{"uploadBytesPerSecond":524288}""", JsonSerializer.Serialize(sent, CamelCase));
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true },
+            sent.ApplyTo(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, IncludeLan = true }));
+        Assert.False(PcLimitText.FromDialog(null, null, includeLan: false).ApplyTo(Down(1) with { IncludeLan = true }).IncludeLan);
+        Assert.True(PcLimitText.FromDialog(null, null, null).IsEmpty);
+    }
 
-        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true }, sent);
-        Assert.False(PcLimitText.FromDialog(now, null, null, includeLan: false).IncludeLan);
+    private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    [Fact]
+    public void Change_ReadsWhatTheAppSends()
+    {
+        var change = PcLimitText.FromDialog(1, null, includeLan: true);
+
+        var read = WholePcLimitChange.Parse(JsonSerializer.Serialize(change, CamelCase), out var problem);
+
+        Assert.Null(problem);
+        Assert.Equal(change, read);
+    }
+
+    [Theory]
+    [InlineData("""{"includeLan":true}""")]
+    [InlineData("""{"downloadBytesPerSecond":0}""")]
+    public void Change_TakesAnyOneField(string json)
+    {
+        Assert.NotNull(WholePcLimitChange.Parse(json, out var problem));
+        Assert.Null(problem);
     }
 }
 
@@ -665,12 +724,16 @@ public sealed class PcLimitCardTests
         Assert.Equal(PcLimitText.Scope(card.Limit), card.Hint);
     }
 
-    [Fact]
-    public void AnAnswerThatIsntALimit_ShowsTheOneSent()
+    [Theory]
+    [InlineData("OK")]
+    // Any JSON object read as a limit, with what it lacked as 0, so these showed it as off.
+    [InlineData("{}")]
+    [InlineData("""{"ok":true}""")]
+    public void AnAnswerThatIsntALimit_ShowsTheOneSent(string reply)
     {
         var card = new PcLimitCard();
 
-        card.Answered("OK", OneMeg);
+        card.Answered(reply, OneMeg);
 
         Assert.Null(card.Error);
         Assert.Equal(OneMeg, card.Limit);
@@ -715,6 +778,8 @@ public sealed class PcLimitCardTests
     [InlineData("""{"error":"unknown command"}""")]
     [InlineData(null)]
     [InlineData("not json")]
+    [InlineData("{}")]
+    [InlineData("""{"ok":true}""")]
     public void APollWithNoLimitInIt_ChangesNothing(string? reply)
     {
         var card = new PcLimitCard();

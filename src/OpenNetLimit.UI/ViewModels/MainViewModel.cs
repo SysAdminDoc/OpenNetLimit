@@ -226,13 +226,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(PcLimitHintIsError));
     }
 
-    /// <summary>Sets the whole-PC limit. What went wrong shows on its card.</summary>
-    public async Task SetPcLimitAsync(WholePcLimit limit)
+    /// <summary>
+    /// Changes the fields of the whole-PC limit that <paramref name="change"/> gives. What went
+    /// wrong shows on its card. A change with nothing in it sends nothing.
+    /// </summary>
+    public async Task ChangePcLimitAsync(WholePcLimitChange change)
     {
+        if (change.IsEmpty)
+            return;
         var reply = _client.State == ConnectionState.Connected
-            ? await _client.SendCommandAsync($"SET_PC_LIMIT {JsonSerializer.Serialize(limit, JsonOptions)}")
+            ? await _client.SendCommandAsync($"CHANGE_PC_LIMIT {JsonSerializer.Serialize(change, JsonOptions)}")
             : null;
-        _pcLimitCard.Answered(reply, limit);
+        _pcLimitCard.Answered(reply, change.ApplyTo(_pcLimitCard.Limit));
         OnPcLimitChanged();
     }
 

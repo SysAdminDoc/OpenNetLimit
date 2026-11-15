@@ -488,6 +488,52 @@ public class RestApiRouterTests
         Assert.Equal(new WholePcLimit { IncludeLan = true }, current);
     }
 
+    [Fact]
+    public async Task PcLimit_Delete_LeavesTheLanChoiceToWhateverItIsThen()
+    {
+        // It read the LAN choice, then set the whole limit, so a change to it that landed in
+        // between was undone.
+        WholePcLimitChange? sent = null;
+        var (_, _, router) = CreateRouter("secret", changePcLimit: change => { sent = change; return WholePcLimit.Off; });
+
+        await router.HandleAsync(new RestApiRequest("DELETE", "/api/v1/pc-limit", string.Empty, string.Empty,
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(new WholePcLimitChange { DownloadBytesPerSecond = 0, UploadBytesPerSecond = 0 }, sent);
+    }
+
+    [Fact]
+    public async Task PcLimit_Patch_ChangesOnlyWhatItGives()
+    {
+        var current = new WholePcLimit { DownloadBytesPerSecond = 1024, UploadBytesPerSecond = 2048, IncludeLan = true };
+        var (_, _, router) = CreateRouter("secret", pcLimit: () => current, setPcLimit: limit => current = limit);
+
+        var response = await router.HandleAsync(new RestApiRequest("PATCH", "/api/v1/pc-limit", string.Empty,
+            """{"UploadBytesPerSecond":0}""", IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 1024, IncludeLan = true }, current);
+        Assert.Contains("\"downloadBytesPerSecond\":1024", response.Body);
+    }
+
+    [Theory]
+    [InlineData("{}", "give downloadBytesPerSecond, uploadBytesPerSecond or includeLan")]
+    [InlineData("""{"downloadBytesPerSecond":null}""", "be null. Leave it out")]
+    [InlineData("""{"downloadBytesPerSecond":-5}""", "negative")]
+    [InlineData("""{"DownloadBytes":1048576}""", "DownloadBytes")]
+    public async Task PcLimit_PatchThatIsntAChange_IsABadRequest(string body, string why)
+    {
+        var applied = false;
+        var (_, _, router) = CreateRouter("secret", changePcLimit: change => { applied = true; return WholePcLimit.Off; });
+
+        var response = await router.HandleAsync(new RestApiRequest("PATCH", "/api/v1/pc-limit", string.Empty, body,
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains(why, response.Body);
+        Assert.False(applied);
+    }
+
     [Theory]
     [InlineData("""{"uploadBytesPerSecond":-5}""", "negative")]
     [InlineData("""{"uploadBytesPerSecond":""", "invalid JSON")]
@@ -511,6 +557,7 @@ public class RestApiRouterTests
 
     [Theory]
     [InlineData("PUT")]
+    [InlineData("PATCH")]
     [InlineData("DELETE")]
     public async Task PcLimit_ChangeWithoutTheKey_IsRefusedEvenLocally(string method)
     {
@@ -526,6 +573,7 @@ public class RestApiRouterTests
 
     [Theory]
     [InlineData("PUT")]
+    [InlineData("PATCH")]
     [InlineData("DELETE")]
     public async Task PcLimit_WhileChangesAreRefused_Answers503ButStillReads(string method)
     {
@@ -594,8 +642,12 @@ public class RestApiRouterTests
         string? changesRefused = null,
         Func<WholePcLimit>? pcLimit = null,
         Func<WholePcLimit, WholePcLimit>? setPcLimit = null,
-        BandwidthAlertTracker? alerts = null)
+        BandwidthAlertTracker? alerts = null,
+        Func<WholePcLimitChange, WholePcLimit>? changePcLimit = null)
     {
+        // Like the service: a change applies to the limit in effect, then is set like a whole one.
+        if (changePcLimit is null && setPcLimit is not null)
+            changePcLimit = change => setPcLimit(change.ApplyTo(pcLimit?.Invoke() ?? WholePcLimit.Off));
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
         var alertTracker = alerts ?? new BandwidthAlertTracker(monitor);
@@ -612,7 +664,8 @@ public class RestApiRouterTests
             PauseHandler = pause,
             ResumeHandler = resume,
             PcLimitProvider = pcLimit,
-            PcLimitHandler = setPcLimit
+            PcLimitHandler = setPcLimit,
+            PcLimitChangeHandler = changePcLimit
         };
         var options = new RestApiOptions { ApiKey = apiKey };
         return (monitor, rules, new RestApiRouter(

@@ -45,6 +45,9 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
         // right after the cut, which means the word before it is whole already. A space that joins
         // the character before it (after U+0600, say) isn't a word end: cutting there splits it.
         var space = -1;
+        // Where each character that fits starts, and which of them are only white space.
+        var starts = new List<int>();
+        var blank = new List<bool>();
         var characters = StringInfo.GetTextElementEnumerator(text);
         while (characters.MoveNext())
         {
@@ -54,11 +57,20 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
             var end = characters.ElementIndex + element.Length;
             if (end > room)
                 break;
+            starts.Add(characters.ElementIndex);
+            blank.Add(string.IsNullOrWhiteSpace(element));
             cut = end;
         }
         if (space * 2 >= cut && space > 0)
             cut = space;
-        return text[..cut].TrimEnd() + "…";
+        // Spaces before the ellipsis go, but only ones that are characters of their own.
+        // TrimEnd also took the space a sign like U+0600 holds, and the sign joined the ellipsis.
+        var last = starts.Count - 1;
+        while (last >= 0 && starts[last] >= cut)
+            last--;
+        while (last >= 0 && blank[last])
+            cut = starts[last--];
+        return text[..cut] + "…";
     }
 }
 

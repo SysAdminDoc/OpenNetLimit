@@ -289,6 +289,8 @@ public sealed class EngineWorkerTests : IDisposable
     [InlineData("rules.json.unreadable-", false)]
     [InlineData("rules.json.unreadable-2x", false)]
     [InlineData("rules.json.unreadable-+2", false)]
+    [InlineData("rules.json.unreadable-02", false)]
+    [InlineData("rules.json.unreadable-0002", false)]
     [InlineData("rules.json.unreadable-notes.txt", false)]
     [InlineData("rules.json.unreadableX", false)]
     [InlineData("rules.json", false)]
@@ -974,6 +976,71 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task StatusRead_ThatAResumeFinishesUnder_SaysRunningNotPaused()
+    {
+        // The read saw the pause, a whole resume finished while it rechecked the driver, and it
+        // reported the engine running and paused at once.
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        interceptor.WhenStarting = () => _driver.Then(DriverServiceState.Running);
+        worker.WhenRecheckingDriver = () =>
+            Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+
+        var racing = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(racing.Running);
+        Assert.False(racing.Paused);
+        Assert.Null(racing.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileRetryingAnEngineThatStopped_StillSaysWhy()
+    {
+        // The retry cleared the reason before it started, so a read meanwhile was a failure
+        // with no reason.
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.IsRunning = false;
+        DiagnosticInfo? duringStart = null;
+        interceptor.WhenStarting = () => duringStart ??= _controlPlane.GetDiagnostics();
+
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(duringStart);
+        Assert.False(duringStart.Running);
+        Assert.False(duringStart.Paused);
+        Assert.Contains("stopped after repeated errors", duringStart.EngineError);
+        Assert.True(resumed.Running);
+        Assert.Null(resumed.EngineError);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileRetryingAFailedStart_StillSaysWhy()
+    {
+        var interceptor = new FakeInterceptor(new WinDivertOpenException(
+            WinDivert.Layer.Flow, WinDivert.Flag.Sniff, 433, "A device which does not exist was specified."));
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.StartFailure = null;
+        DiagnosticInfo? duringStart = null;
+        interceptor.WhenStarting = () => duringStart ??= _controlPlane.GetDiagnostics();
+
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(duringStart);
+        Assert.False(duringStart.Running);
+        Assert.Contains(WinDivertOpenException.DescribeError(433), duringStart.EngineError);
+        Assert.True(resumed.Running);
+        Assert.Null(resumed.EngineError);
+    }
+
+    [Fact]
     public async Task StatusRead_ThatAWholePauseAndResumeOvertake_SaysRunning()
     {
         var interceptor = new FakeInterceptor();
@@ -1171,6 +1238,45 @@ public sealed class EngineWorkerTests : IDisposable
 
         Assert.True(reported.IsOff);
         Assert.False(File.Exists(PcLimitPath));
+    }
+
+    [Fact]
+    public async Task PcLimitChange_AppliesToTheLimitSetSinceAndIsSaved()
+    {
+        // The app's dialog sends only what was typed in, so what the CLI set while it was open stays.
+        using (var first = CreateWorker(new FakeInterceptor(), isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(first);
+            _controlPlane.PcLimitHandler!(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, IncludeLan = true });
+            var answered = _controlPlane.PcLimitChangeHandler!(new WholePcLimitChange { UploadBytesPerSecond = 524_288 });
+            await first.StopAsync(CancellationToken.None);
+
+            Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true }, answered);
+        }
+
+        using var second = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(second);
+        var applied = _limiter.PcLimit;
+        await second.StopAsync(CancellationToken.None);
+
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true }, applied);
+    }
+
+    [Fact]
+    public async Task PcLimitChange_Negative_IsRefusedAndChangesNothing()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var limit = new WholePcLimit { DownloadBytesPerSecond = 1_048_576 };
+        _controlPlane.PcLimitHandler!(limit);
+
+        Assert.Throws<ArgumentException>(() => _controlPlane.PcLimitChangeHandler!(new WholePcLimitChange { UploadBytesPerSecond = -1 }));
+        var reported = _controlPlane.GetPcLimit();
+        var applied = _limiter.PcLimit;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(limit, reported);
+        Assert.Equal(limit, applied);
     }
 
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>

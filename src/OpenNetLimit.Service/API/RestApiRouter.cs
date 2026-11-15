@@ -126,9 +126,14 @@ public sealed class RestApiRouter
                 RestApiResponse.Json(200, _controlPlane.GetPcLimit(), JsonOptions),
             "/api/v1/pc-limit" when method == "PUT" =>
                 SetPcLimit(request.Body),
-            // Off, keeping whether it counts the local network for the next time it's set.
+            "/api/v1/pc-limit" when method == "PATCH" =>
+                WholePcLimitChange.Parse(request.Body, out var problem) is { } change
+                    ? ChangePcLimit(change)
+                    : RestApiResponse.Error(400, problem!, JsonOptions),
+            // Off, keeping whether it counts the local network for the next time it's set. As a
+            // change, so one to includeLan that lands at the same moment isn't undone.
             "/api/v1/pc-limit" when method == "DELETE" =>
-                ApplyPcLimit(_controlPlane.GetPcLimit() with { DownloadBytesPerSecond = 0, UploadBytesPerSecond = 0 }),
+                ChangePcLimit(new WholePcLimitChange { DownloadBytesPerSecond = 0, UploadBytesPerSecond = 0 }),
             "/api/v1/engine/resume" when method == "POST" =>
                 _controlPlane.ResumeHandler is { } resume
                     ? RestApiResponse.Json(200, await resume(ct), JsonOptions)
@@ -211,6 +216,11 @@ public sealed class RestApiRouter
             ? RestApiResponse.Json(200, set(limit), JsonOptions)
             : RestApiResponse.Error(503, "engine control unavailable", JsonOptions);
     }
+
+    private RestApiResponse ChangePcLimit(WholePcLimitChange change) =>
+        _controlPlane.PcLimitChangeHandler is { } apply
+            ? RestApiResponse.Json(200, apply(change), JsonOptions)
+            : RestApiResponse.Error(503, "engine control unavailable", JsonOptions);
 
     private RestApiResponse AddAlertRule(string body)
     {
