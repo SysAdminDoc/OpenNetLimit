@@ -204,11 +204,23 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         private set
         {
             if (SetField(ref _pcLimit, value))
+            {
+                // A limit changed from anywhere answers whatever went wrong with the last try.
+                _pcLimitError = null;
                 OnPcLimitChanged();
+            }
         }
     }
 
     private string? _pcLimitError;
+
+    private void ClearPcLimitError()
+    {
+        if (_pcLimitError is null)
+            return;
+        _pcLimitError = null;
+        OnPcLimitChanged();
+    }
 
     public string PcLimitDisplay => PcLimitText.Rates(PcLimit);
 
@@ -570,6 +582,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         if (connected)
         {
+            // Whatever kept the last change from taking was about a service that's gone since.
+            ClearPcLimitError();
             _reconnectTimer.Stop();
             _pollTimer.Start();
             await PollServiceAsync();

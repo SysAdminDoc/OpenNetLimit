@@ -92,7 +92,7 @@ The rule applies right away and keeps applying after the app restarts. OpenNetLi
 
 The **Whole-PC limit** card on the **Real-time** tab caps every app's traffic added together. Select **Change**, enter the download and upload speeds in KB/s, and select **OK**. A 0 leaves that direction uncapped, and 0 in both turns the limit off.
 
-It only counts internet traffic by default, so copying files to a NAS or another PC at home still runs at full speed. Check **Count local network traffic too** if you want that capped as well. Apps with their own limit stay under both. Changing it needs the app running as administrator.
+It only counts internet traffic by default, so copying files to a NAS or another PC at home still runs at full speed. Check **Count local network traffic too** if you want that capped as well. Traffic between programs on the PC itself is never counted. Windows Update and other Windows services do count toward it, even though no app limit can touch them. Apps with their own limit stay under both. Changing it needs the app running as administrator.
 
 ### Manage rules and alerts
 

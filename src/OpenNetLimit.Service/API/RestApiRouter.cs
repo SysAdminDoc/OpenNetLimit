@@ -198,21 +198,10 @@ public sealed class RestApiRouter
         }
     }
 
-    private RestApiResponse SetPcLimit(string body)
-    {
-        WholePcLimit? limit;
-        try
-        {
-            limit = JsonSerializer.Deserialize<WholePcLimit>(body, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
-        }
-        return limit is null
-            ? RestApiResponse.Error(400, "invalid whole-PC limit", JsonOptions)
-            : ApplyPcLimit(limit);
-    }
+    private RestApiResponse SetPcLimit(string body) =>
+        WholePcLimit.Parse(body, out var problem) is { } limit
+            ? ApplyPcLimit(limit)
+            : RestApiResponse.Error(400, problem!, JsonOptions);
 
     private RestApiResponse ApplyPcLimit(WholePcLimit limit)
     {

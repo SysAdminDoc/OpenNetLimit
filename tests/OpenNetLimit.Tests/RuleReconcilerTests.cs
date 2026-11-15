@@ -190,6 +190,11 @@ public class RuleReconcilerTests
             delay = TimeSpan.Zero;
             return true;
         }
+        public bool TryReserveWholePc(int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay)
+        {
+            delay = TimeSpan.Zero;
+            return true;
+        }
         public WholePcLimit? PcLimit { get; private set; }
         public void SetPcLimit(WholePcLimit? limit) => PcLimit = limit;
         public bool TryGetLimit(uint processId, out long downloadBytesPerSecond, out long uploadBytesPerSecond)

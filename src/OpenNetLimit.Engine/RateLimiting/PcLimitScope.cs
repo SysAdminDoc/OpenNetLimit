@@ -9,10 +9,12 @@ public static class PcLimitScope
     /// <summary>
     /// Whether a packet with this remote end counts toward the limit in its direction. Traffic
     /// within the PC never does, and the local network only when the limit includes it.
+    /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC, which also
+    /// covers traffic to the PC's own network and public addresses.
     /// </summary>
-    public static bool Applies(WholePcLimit? limit, bool isUpload, IPAddress remote)
+    public static bool Applies(WholePcLimit? limit, bool isUpload, IPAddress remote, bool loopback = false)
     {
-        if (limit is null)
+        if (limit is null || loopback)
             return false;
         long rate = isUpload ? limit.UploadBytesPerSecond : limit.DownloadBytesPerSecond;
         if (rate <= 0)

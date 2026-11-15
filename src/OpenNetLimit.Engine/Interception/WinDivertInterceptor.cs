@@ -25,6 +25,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// <summary>How often adopted flows are checked against the OS socket tables.</summary>
     private static readonly TimeSpan SocketRefreshInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Windows' own processes. No rule blocks or slows them, since that would slow everything.
+    /// Their TCP still counts toward the whole-PC limit, see <see cref="LimitsFor"/>.
+    /// </summary>
     private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
         "svchost", "services", "lsass", "csrss", "wininit", "smss",
@@ -337,7 +341,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     continue;
                 }
 
-                var (flowKey, payloadLength, payloadData) = parsed.Value;
+                var (flowKey, payloadLength, payloadData, closesFlow) = parsed.Value;
                 bool isOutbound = addr.Outbound;
 
                 // Responses are cached before attribution: lookups usually come back to the
@@ -395,13 +399,20 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                bool wholePc = !isProtected && PcLimitScope.Applies(_rateLimiter.PcLimit, isOutbound, remoteAddr);
-                if (!isProtected && (wholePc || _rateLimiter.HasLimit(processId.Value)))
+                var limits = LimitsFor(isProtected, flowKey.Protocol, payloadLength, closesFlow,
+                    PcLimitScope.Applies(_rateLimiter.PcLimit, isOutbound, remoteAddr, addr.Loopback),
+                    _rateLimiter.HasLimit(processId.Value));
+                if (limits.Any)
                 {
                     // Every packet is charged, the delayed ones too, so a burst queues behind its
                     // own debt and leaves at the limit. A packet with nowhere to wait is dropped.
-                    if (!_scheduler.HasRoom(processId.Value)
-                        || !_rateLimiter.TryReserve(processId.Value, payloadLength, isOutbound, wholePc, PacketScheduler.MaxDelay, out var delay))
+                    var reserved = false;
+                    var delay = TimeSpan.Zero;
+                    if (_scheduler.HasRoom(processId.Value))
+                        reserved = limits.App
+                            ? _rateLimiter.TryReserve(processId.Value, payloadLength, isOutbound, limits.WholePc, PacketScheduler.MaxDelay, out delay)
+                            : _rateLimiter.TryReserveWholePc(payloadLength, isOutbound, PacketScheduler.MaxDelay, out delay);
+                    if (!reserved)
                     {
                         _scheduler.RecordDrop();
                         continue;
@@ -432,6 +443,33 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 Thread.Sleep(Math.Min(consecutiveErrors * 100, 1000));
             }
         }
+    }
+
+    /// <summary>Which limits a packet waits for: the whole-PC limit, its app's own, both or neither.</summary>
+    internal readonly record struct PacketLimits(bool WholePc, bool App)
+    {
+        public bool Any => WholePc || App;
+    }
+
+    /// <summary>
+    /// Which limits a packet waits for. <paramref name="pcLimitCounts"/> says the whole-PC limit
+    /// covers its direction and remote end, <paramref name="hasAppLimit"/> that its app has a
+    /// limit of its own.
+    /// </summary>
+    internal static PacketLimits LimitsFor(bool isProtected, TransportProtocol protocol, int payloadLength,
+        bool closesFlow, bool pcLimitCounts, bool hasAppLimit)
+    {
+        // A pure ACK or SYN carries no data, so it never waits behind the debt data ran up.
+        // Holding an upload's ACKs behind a download cap's queue slowed the upload too. FIN and
+        // RST still wait, or they'd get there before the data queued ahead of them.
+        if (payloadLength == 0 && !closesFlow)
+            return default;
+        // Windows' own services carry Windows Update, BITS, Delivery Optimization and SMB file
+        // copies over TCP, so that counts toward the whole-PC limit. Their UDP (DNS, DHCP, NTP)
+        // doesn't, and no app limit applies to them.
+        return new PacketLimits(
+            WholePc: pcLimitCounts && (!isProtected || protocol == TransportProtocol.Tcp),
+            App: hasAppLimit && !isProtected);
     }
 
     /// <summary>
@@ -471,7 +509,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
     }
 
-    internal static unsafe (FlowKey flowKey, int payloadLength, Memory<byte> payloadData)? ParsePacket(Memory<byte> packet)
+    /// <summary>
+    /// The packet's flow, its payload, and whether it's a TCP FIN or RST, which has to keep its
+    /// place behind the data sent before it. Null for anything but TCP or UDP over IP.
+    /// </summary>
+    internal static unsafe (FlowKey flowKey, int payloadLength, Memory<byte> payloadData, bool closesFlow)? ParsePacket(Memory<byte> packet)
     {
         var parser = new WinDivertPacketParser(packet);
         foreach (var result in parser)
@@ -502,12 +544,15 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
             TransportProtocol protocol;
             ushort srcPort, dstPort;
+            var closesFlow = false;
 
             if (result.TCPHdr != null)
             {
                 protocol = TransportProtocol.Tcp;
                 srcPort = result.TCPHdr->SrcPort;
                 dstPort = result.TCPHdr->DstPort;
+                // The flags are the header's 14th byte: FIN is 0x01, RST 0x04.
+                closesFlow = (((byte*)result.TCPHdr)[13] & 0x05) != 0;
             }
             else if (result.UDPHdr != null)
             {
@@ -524,7 +569,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             var payloadData = result.Data;
 
             var flowKey = new FlowKey(protocol, srcAddr, srcPort, dstAddr, dstPort);
-            return (flowKey, payloadLength, payloadData);
+            return (flowKey, payloadLength, payloadData, closesFlow);
         }
 
         return null;

@@ -1,6 +1,7 @@
 using System.Net;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.UI;
 using OpenNetLimit.UI.Services;
@@ -217,6 +218,160 @@ public sealed class WholePcLimitTests
         Assert.Equal(counts, PcLimitScope.Applies(limit, isUpload: false, IPAddress.Parse(remote)));
     }
 
+    [Theory]
+    [InlineData("192.168.1.27")]
+    [InlineData("203.0.113.9")]
+    public void PacketThatNeverLeavesThePc_NeverCounts(string ownAddress)
+    {
+        // Traffic to the PC's own LAN or public address is loopback to Windows, not just 127/8.
+        var limit = Down(1000) with { IncludeLan = true };
+
+        Assert.False(PcLimitScope.Applies(limit, isUpload: false, IPAddress.Parse(ownAddress), loopback: true));
+        Assert.True(PcLimitScope.Applies(limit, isUpload: false, IPAddress.Parse(ownAddress), loopback: false));
+    }
+
+    [Theory]
+    // Windows Update, BITS, Delivery Optimization and SMB copies run in svchost or System over TCP.
+    [InlineData(true, TransportProtocol.Tcp, true)]
+    // DNS, DHCP and NTP stay free.
+    [InlineData(true, TransportProtocol.Udp, false)]
+    [InlineData(false, TransportProtocol.Tcp, true)]
+    [InlineData(false, TransportProtocol.Udp, true)]
+    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(bool isProtected, TransportProtocol protocol, bool counts)
+    {
+        var limits = WinDivertInterceptor.LimitsFor(isProtected, protocol, payloadLength: 1400, closesFlow: false,
+            pcLimitCounts: true, hasAppLimit: false);
+
+        Assert.Equal(counts, limits.WholePc);
+        Assert.False(limits.App);
+    }
+
+    [Fact]
+    public void WindowsServices_NeverGetAnAppLimit()
+    {
+        var service = WinDivertInterceptor.LimitsFor(isProtected: true, TransportProtocol.Tcp, 1400, closesFlow: false,
+            pcLimitCounts: false, hasAppLimit: true);
+        var app = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 1400, closesFlow: false,
+            pcLimitCounts: false, hasAppLimit: true);
+
+        Assert.False(service.Any);
+        Assert.True(app.App);
+    }
+
+    [Theory]
+    [InlineData(0, false, false)]
+    [InlineData(0, true, true)]
+    [InlineData(1, false, true)]
+    public void PacketWithNoData_WaitsOnlyWhenItClosesTheFlow(int payloadLength, bool closesFlow, bool waits)
+    {
+        // An upload's ACKs come in on the download side. Holding them behind a download cap's
+        // queue slowed the upload too.
+        var limits = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, payloadLength, closesFlow,
+            pcLimitCounts: true, hasAppLimit: true);
+
+        Assert.Equal(waits, limits.WholePc);
+        Assert.Equal(waits, limits.App);
+    }
+
+    [Fact]
+    public void WholePcOnly_ChargesTheSharedLimitAndNotTheApps()
+    {
+        var limiter = NewLimiter();
+        limiter.SetLimit(1, downloadBytesPerSecond: 1000, uploadBytesPerSecond: 0);
+        limiter.SetPcLimit(Down(100_000));
+
+        Assert.True(limiter.TryReserveWholePc(100_000, isUpload: false, MaxDelay, out var first));
+        Assert.True(limiter.TryReserveWholePc(50_000, isUpload: false, MaxDelay, out var second));
+        Assert.True(limiter.TryReserve(1, 60_000, isUpload: false, wholePc: false, MaxDelay, out var appsOwn));
+
+        Assert.Equal(TimeSpan.Zero, first);
+        Assert.Equal(TimeSpan.FromSeconds(0.5), second);
+        Assert.Equal(TimeSpan.Zero, appsOwn);
+    }
+
+    [Fact]
+    public void WholePcOnly_PastTheLongestWait_IsDroppedAndChargesNothing()
+    {
+        var limiter = NewLimiter();
+        limiter.SetPcLimit(Down(10_000));
+        // A new bucket starts full at 64 KB.
+        limiter.TryReserveWholePc(65_536, isUpload: false, MaxDelay, out _);
+
+        Assert.False(limiter.TryReserveWholePc(1_000_000, isUpload: false, MaxDelay, out var dropped));
+        Assert.True(limiter.TryReserveWholePc(1_000, isUpload: false, MaxDelay, out var next));
+
+        Assert.Equal(TimeSpan.Zero, dropped);
+        Assert.Equal(TimeSpan.FromSeconds(0.1), next);
+    }
+
+    [Fact]
+    public void WholePcOnly_WithNoLimitThatWay_NeverWaits()
+    {
+        var limiter = NewLimiter();
+        Assert.True(limiter.TryReserveWholePc(1_000_000, isUpload: false, MaxDelay, out var none));
+        limiter.SetPcLimit(Down(1000));
+        Assert.True(limiter.TryReserveWholePc(1_000_000, isUpload: true, MaxDelay, out var otherWay));
+
+        Assert.Equal(TimeSpan.Zero, none);
+        Assert.Equal(TimeSpan.Zero, otherWay);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"includeLan":true}""")]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("1024")]
+    [InlineData("")]
+    public void Parse_WithNoRate_SaysWhatsMissing(string json)
+    {
+        Assert.Null(WholePcLimit.Parse(json, out var problem));
+        Assert.NotNull(problem);
+    }
+
+    [Theory]
+    [InlineData("DownloadBytes")]
+    [InlineData("download")]
+    [InlineData("uploadKBps")]
+    public void Parse_WithAMisspelledField_NamesIt(string field)
+    {
+        var json = $"{{\"{field}\":1024,\"uploadBytesPerSecond\":0}}";
+
+        Assert.Null(WholePcLimit.Parse(json, out var problem));
+        Assert.Contains($"\"{field}\"", problem);
+    }
+
+    [Fact]
+    public void Parse_TakesFieldNamesInAnyCase()
+    {
+        var limit = WholePcLimit.Parse("""{"DownloadBytesPerSecond":2048,"INCLUDELAN":true}""", out var problem);
+
+        Assert.Null(problem);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2048, IncludeLan = true }, limit);
+    }
+
+    [Theory]
+    [InlineData("""{"downloadBytesPerSecond":"fast"}""", "invalid JSON")]
+    [InlineData("""{"downloadBytesPerSecond":null}""", "invalid JSON")]
+    [InlineData("""{"downloadBytesPerSecond":-1}""", "negative")]
+    [InlineData("""{"downloadBytesPerSecond":""", "invalid JSON")]
+    public void Parse_WithABadValue_SaysWhy(string json, string why)
+    {
+        Assert.Null(WholePcLimit.Parse(json, out var problem));
+        Assert.Contains(why, problem);
+    }
+
+    [Fact]
+    public void Parse_ReadsWhatTheServiceSaves()
+    {
+        var saved = new WholePcLimit { DownloadBytesPerSecond = 1_000_000, UploadBytesPerSecond = 65_536, IncludeLan = true };
+        var json = System.Text.Json.JsonSerializer.Serialize(saved,
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, WriteIndented = true });
+
+        Assert.Equal(saved, WholePcLimit.Parse(json, out var problem));
+        Assert.Null(problem);
+    }
+
     [Fact]
     public void DirectionWithoutACap_CountsNothing()
     {
@@ -302,6 +457,21 @@ public sealed class WholePcLimitTests
     public void Dialog_ShowsTheLimitInKilobytes(long bytesPerSecond, long kilobytes)
     {
         Assert.Equal(kilobytes, PcLimitText.Kilobytes(bytesPerSecond));
+    }
+
+    [Theory]
+    // Left as it showed, a rate set in bytes elsewhere stays exact.
+    [InlineData(976, 1_000_000, 1_000_000)]
+    [InlineData(1, 500, 500)]
+    [InlineData(0, 0, 0)]
+    // Changed, it's what was typed.
+    [InlineData(977, 1_000_000, 1_000_448)]
+    [InlineData(2, 500, 2048)]
+    [InlineData(0, 1_000_000, 0)]
+    [InlineData(64, 0, 65_536)]
+    public void Dialog_KeepsTheExactRateUnlessItChanged(long kilobytes, long current, long bytes)
+    {
+        Assert.Equal(bytes, PcLimitText.Bytes(kilobytes, current));
     }
 }
 

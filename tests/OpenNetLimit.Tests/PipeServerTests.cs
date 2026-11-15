@@ -234,6 +234,10 @@ public class PipeServerTests
     [InlineData("""{"downloadBytesPerSecond":-1}""", "negative")]
     [InlineData("""{"downloadBytesPerSecond":""", "invalid JSON")]
     [InlineData("null", "invalid whole-PC limit")]
+    [InlineData("{}", "give downloadBytesPerSecond")]
+    [InlineData("""{"includeLan":true}""", "give downloadBytesPerSecond")]
+    [InlineData("""{"DownloadBytes":1048576}""", "DownloadBytes")]
+    [InlineData("""{"downloadBytesPerSecond":"fast"}""", "invalid JSON")]
     public async Task PcLimit_ThatIsntALimit_IsRefused(string payload, string why)
     {
         var applied = false;
@@ -245,6 +249,19 @@ public class PipeServerTests
         Assert.Contains("\"error\"", reply);
         Assert.Contains(why, reply);
         Assert.False(applied);
+    }
+
+    [Fact]
+    public async Task PcLimit_TakesFieldNamesInAnyCase()
+    {
+        WholePcLimit? applied = null;
+        var controlPlane = new ControlPlaneState { PcLimitHandler = limit => applied = limit };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("SET_PC_LIMIT", """{"DownloadBytesPerSecond":2048}""", CancellationToken.None);
+
+        Assert.DoesNotContain("\"error\"", reply);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2048 }, applied);
     }
 
     [Fact]

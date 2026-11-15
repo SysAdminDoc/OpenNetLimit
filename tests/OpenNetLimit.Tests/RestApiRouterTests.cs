@@ -463,6 +463,19 @@ public class RestApiRouterTests
     }
 
     [Fact]
+    public async Task PcLimit_TakesFieldNamesInAnyCase()
+    {
+        var current = WholePcLimit.Off;
+        var (_, _, router) = CreateRouter("secret", pcLimit: () => current, setPcLimit: limit => current = limit);
+
+        var put = await router.HandleAsync(new RestApiRequest("PUT", "/api/v1/pc-limit", string.Empty,
+            """{"DownloadBytesPerSecond":2048,"IncludeLan":true}""", IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, put.StatusCode);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2048, IncludeLan = true }, current);
+    }
+
+    [Fact]
     public async Task PcLimit_Delete_TurnsItOffAndKeepsTheLanChoice()
     {
         var current = new WholePcLimit { DownloadBytesPerSecond = 1024, UploadBytesPerSecond = 2048, IncludeLan = true };
@@ -479,6 +492,10 @@ public class RestApiRouterTests
     [InlineData("""{"uploadBytesPerSecond":-5}""", "negative")]
     [InlineData("""{"uploadBytesPerSecond":""", "invalid JSON")]
     [InlineData("null", "invalid whole-PC limit")]
+    [InlineData("{}", "give downloadBytesPerSecond")]
+    [InlineData("""{"includeLan":true}""", "give downloadBytesPerSecond")]
+    [InlineData("""{"DownloadBytes":1048576}""", "DownloadBytes")]
+    [InlineData("""{"downloadBytesPerSecond":"fast"}""", "invalid JSON")]
     public async Task PcLimit_ThatIsntALimit_IsABadRequest(string body, string why)
     {
         var applied = false;

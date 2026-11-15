@@ -826,17 +826,16 @@ public class EngineWorker : BackgroundService
             return;
         try
         {
-            var limit = JsonSerializer.Deserialize<WholePcLimit>(File.ReadAllText(_pcLimitPath), PcLimitJson)
-                ?? WholePcLimit.Off;
-            if (limit.Problem() is { } problem)
-                throw new InvalidDataException(problem);
+            // Read as strictly as a change from a client. A file holding null, or a misspelled
+            // rate, loaded as off and said nothing.
+            var limit = WholePcLimit.Parse(File.ReadAllText(_pcLimitPath), out var problem)
+                ?? throw new InvalidDataException(problem);
             _pcLimit = limit;
             _rateLimiter.SetPcLimit(limit);
             _logger.LogInformation("Whole-PC limit: {Download} B/s down, {Upload} B/s up, LAN {Lan}",
                 limit.DownloadBytesPerSecond, limit.UploadBytesPerSecond, limit.IncludeLan ? "included" : "left out");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
-                                       or InvalidDataException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             _logger.LogError(ex, "Failed to load the whole-PC limit from {Path}; starting without one", _pcLimitPath);
             RecordLastError($"Failed to load the whole-PC limit, so it's off until it's set again: {ex.Message}");

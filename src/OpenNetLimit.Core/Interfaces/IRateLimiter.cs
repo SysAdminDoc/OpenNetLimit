@@ -22,6 +22,13 @@ public interface IRateLimiter
     /// </summary>
     bool TryReserve(uint processId, int byteCount, bool isUpload, bool wholePc, TimeSpan maxDelay, out TimeSpan delay);
 
+    /// <summary>
+    /// Charges only the whole-PC limit, for traffic no app limit applies to. False means it would
+    /// wait longer than <paramref name="maxDelay"/>: nothing was charged and it should be dropped.
+    /// With no whole-PC limit that way it's always true and no delay.
+    /// </summary>
+    bool TryReserveWholePc(int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay);
+
     /// <summary>The limit on the whole PC's traffic, or null when there's none.</summary>
     WholePcLimit? PcLimit { get; }
 

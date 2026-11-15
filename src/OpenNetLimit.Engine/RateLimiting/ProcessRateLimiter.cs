@@ -95,6 +95,17 @@ public class ProcessRateLimiter : IRateLimiter
         return true;
     }
 
+    public bool TryReserveWholePc(int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay)
+    {
+        delay = TimeSpan.Zero;
+        var machine = _machine;
+        var shared = isUpload ? machine?.Upload : machine?.Download;
+        if (shared is null || shared.TryReserve(byteCount, maxDelay, out delay))
+            return true;
+        delay = TimeSpan.Zero;
+        return false;
+    }
+
     public bool TryGetLimit(uint processId, out long downloadBytesPerSecond, out long uploadBytesPerSecond)
     {
         downloadBytesPerSecond = uploadBytesPerSecond = 0;

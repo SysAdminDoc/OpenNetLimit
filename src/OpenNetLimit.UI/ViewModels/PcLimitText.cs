@@ -28,4 +28,12 @@ internal static class PcLimitText
     /// <summary>A rate in the dialog's KB/s. Anything above 0 shows as at least 1.</summary>
     public static long Kilobytes(long bytesPerSecond) =>
         bytesPerSecond <= 0 ? 0 : Math.Max(1, bytesPerSecond / 1024);
+
+    /// <summary>
+    /// The rate in bytes for a KB/s value from the dialog. A value left as it showed keeps the
+    /// exact rate it came from, so OK on a limit set in bytes elsewhere (1,000,000 B/s shows as
+    /// 976 KB/s) doesn't round it down or start its bucket over.
+    /// </summary>
+    public static long Bytes(long kilobytes, long current) =>
+        kilobytes == Kilobytes(current) ? current : kilobytes * 1024;
 }

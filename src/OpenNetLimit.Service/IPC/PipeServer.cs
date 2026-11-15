@@ -301,20 +301,9 @@ public class PipeServer
     {
         if (_controlPlane.PcLimitHandler is not { } set)
             return ErrorResponse("engine control unavailable");
-        WholePcLimit? limit;
-        try
-        {
-            limit = JsonSerializer.Deserialize<WholePcLimit>(payload, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            return ErrorResponse($"invalid JSON: {ex.Message}");
-        }
-        if (limit is null)
-            return ErrorResponse("invalid whole-PC limit");
-        if (limit.Problem() is { } problem)
-            return ErrorResponse(problem);
-        return JsonSerializer.Serialize(set(limit), JsonOptions);
+        return WholePcLimit.Parse(payload, out var problem) is { } limit
+            ? JsonSerializer.Serialize(set(limit), JsonOptions)
+            : ErrorResponse(problem!);
     }
 
     private string AddAlertRule(string payload)

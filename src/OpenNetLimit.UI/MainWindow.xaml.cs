@@ -171,14 +171,15 @@ public partial class MainWindow : Window
 
     private async void OnSetPcLimit(object sender, RoutedEventArgs e)
     {
-        var dialog = SetLimitDialog.ForWholePc(_viewModel.PcLimit);
+        var current = _viewModel.PcLimit;
+        var dialog = SetLimitDialog.ForWholePc(current);
         dialog.Owner = this;
         if (dialog.ShowDialog() != true)
             return;
         await _viewModel.SetPcLimitAsync(new WholePcLimit
         {
-            DownloadBytesPerSecond = dialog.DownloadKBps * 1024,
-            UploadBytesPerSecond = dialog.UploadKBps * 1024,
+            DownloadBytesPerSecond = PcLimitText.Bytes(dialog.DownloadKBps, current.DownloadBytesPerSecond),
+            UploadBytesPerSecond = PcLimitText.Bytes(dialog.UploadKBps, current.UploadBytesPerSecond),
             IncludeLan = dialog.IncludeLan
         });
     }

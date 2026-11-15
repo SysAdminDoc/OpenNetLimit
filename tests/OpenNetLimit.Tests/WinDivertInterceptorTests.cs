@@ -98,6 +98,33 @@ public class WinDivertInterceptorTests
         Assert.Equal((uint)4242, tracker.LookupProcessId(parsed.Value.flowKey));
     }
 
+    [Theory]
+    [InlineData(0x10, false)] // ACK
+    [InlineData(0x02, false)] // SYN
+    [InlineData(0x18, false)] // PSH ACK
+    [InlineData(0x11, true)]  // FIN ACK
+    [InlineData(0x14, true)]  // RST ACK
+    [InlineData(0x04, true)]  // RST
+    public void TcpFinAndRst_AreMarkedAsClosingTheFlow(byte flags, bool closes)
+    {
+        var packet = Ipv4Tcp(IPAddress.Parse("192.168.1.27"), 50123, IPAddress.Parse("104.20.23.154"), 443, 0);
+        packet[20 + 13] = flags;
+
+        var parsed = WinDivertInterceptor.ParsePacket(packet);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(0, parsed.Value.payloadLength);
+        Assert.Equal(closes, parsed.Value.closesFlow);
+    }
+
+    [Fact]
+    public void UdpPackets_NeverCloseAFlow()
+    {
+        var packet = Ipv4Udp(IPAddress.Parse("192.168.1.27"), 50000, IPAddress.Parse("8.8.8.8"), 53, new byte[] { 0x05 });
+
+        Assert.False(WinDivertInterceptor.ParsePacket(packet)!.Value.closesFlow);
+    }
+
     [Fact]
     public void Ipv6Packets_AreAttributedToTheFlowOwner()
     {

@@ -1055,6 +1055,10 @@ public sealed class EngineWorkerTests : IDisposable
     [Theory]
     [InlineData("""{"downloadBytesPerSecond":""")]
     [InlineData("""{"downloadBytesPerSecond":-1}""")]
+    // These loaded as off and said nothing.
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("""{"download":1048576}""")]
     public async Task PcLimitFile_ThatCantBeUsed_StartsOffAndSaysWhy(string contents)
     {
         Directory.CreateDirectory(_dataDir);
