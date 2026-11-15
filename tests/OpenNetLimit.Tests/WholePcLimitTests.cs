@@ -271,7 +271,7 @@ public sealed class WholePcLimitTests
     [InlineData(TransportProtocol.Udp, 123)]
     [InlineData(TransportProtocol.Udp, 67)]
     [InlineData(TransportProtocol.Tcp, 53)]
-    public void TheKernel_SendsNoDnsDhcpOrNtp_SoItsTrafficOnThosePortsCounts(TransportProtocol protocol, int remotePort)
+    public void TheKernel_FullPacketsOnTheDnsDhcpOrNtpPorts_Count(TransportProtocol protocol, int remotePort)
     {
         var kernel = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength: 1400,
             closesFlow: false, pcLimitCounts: true, hasAppLimit: false, kernel: true);
@@ -280,6 +280,26 @@ public sealed class WholePcLimitTests
 
         Assert.True(kernel.WholePc);
         Assert.False(service.WholePc);
+    }
+
+    [Theory]
+    // Lookups the socket tables missed get pinned on System, so the kernel keeps the pass for
+    // anything a lookup's size: up to 1232 bytes, the most DNS sends over UDP since Flag Day 2020.
+    [InlineData(TransportProtocol.Udp, 53, 60, false)]
+    [InlineData(TransportProtocol.Udp, 53, 1232, false)]
+    [InlineData(TransportProtocol.Udp, 53, 1233, true)]
+    [InlineData(TransportProtocol.Udp, 123, 48, false)]
+    [InlineData(TransportProtocol.Udp, 67, 300, false)]
+    [InlineData(TransportProtocol.Tcp, 53, 512, false)]
+    // Its other ports count at any size.
+    [InlineData(TransportProtocol.Udp, 51820, 60, true)]
+    public void TheKernel_ALookupSizedPacketOnThosePorts_StaysFree(TransportProtocol protocol, int remotePort,
+        int payloadLength, bool counts)
+    {
+        var limits = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength,
+            closesFlow: false, pcLimitCounts: true, hasAppLimit: false, kernel: true);
+
+        Assert.Equal(counts, limits.WholePc);
     }
 
     [Fact]
@@ -343,10 +363,10 @@ public sealed class WholePcLimitTests
 
     private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, ProcessProtection protection,
         string remote, bool loopback = false, int remotePort = 443, TransportProtocol protocol = TransportProtocol.Tcp,
-        bool viaTunnel = false)
+        TunnelAdapters.Side side = TunnelAdapters.Side.Ordinary, int payloadLength = 1000)
     {
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), processId, protection, protocol,
-            remotePort, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback, viaTunnel,
+            remotePort, payloadLength, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback, side,
             out var delay);
         Assert.Equal(fate == WinDivertInterceptor.PacketFate.Delay, delay > TimeSpan.Zero);
         return fate;
@@ -386,10 +406,10 @@ public sealed class WholePcLimitTests
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
             ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "203.0.113.9", remotePort: 123,
-                protocol: TransportProtocol.Udp));
+                protocol: TransportProtocol.Udp, payloadLength: 1400));
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
             ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "203.0.113.9", remotePort: 53,
-                protocol: TransportProtocol.Udp));
+                protocol: TransportProtocol.Udp, payloadLength: 1400));
     }
 
     [Fact]
@@ -400,10 +420,31 @@ public sealed class WholePcLimitTests
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9",
+                side: TunnelAdapters.Side.CountedOnItsCarrier));
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
             ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "198.51.100.7", remotePort: 51820,
                 protocol: TransportProtocol.Udp));
+    }
+
+    [Fact]
+    public void Charge_PastAVpnOrDialUpLink_APrivateAddressIsNoLocalTraffic()
+    {
+        // A company network behind a VPN uses private addresses. Past an IPsec tunnel or
+        // Windows' own VPN link, that's the only place its traffic counts, local network or not.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", side: TunnelAdapters.Side.CountsHere));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40"));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40",
+                side: TunnelAdapters.Side.CountedOnItsCarrier));
+        // Traffic within the PC still never counts.
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "10.20.30.40", loopback: true,
+                side: TunnelAdapters.Side.CountsHere));
     }
 
     [Fact]
@@ -416,7 +457,8 @@ public sealed class WholePcLimitTests
         Assert.True(limiter.TryReserve(AppPid, 65_536, isUpload: false, wholePc: false, MaxDelay, out _));
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
-            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9",
+                side: TunnelAdapters.Side.CountedOnItsCarrier));
         // The whole-PC limit still has all 64 KB: the packet counts there on its way out encrypted.
         Assert.True(limiter.TryReserveWholePc(65_536, isUpload: false, MaxDelay, out var pcDelay));
         Assert.Equal(TimeSpan.Zero, pcDelay);
@@ -464,7 +506,7 @@ public sealed class WholePcLimitTests
 
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 1000, closesFlow: false, isOutbound: true,
-            IPAddress.Parse("203.0.113.9"), loopback: false, viaTunnel: false, out var delay);
+            IPAddress.Parse("203.0.113.9"), loopback: false, side: TunnelAdapters.Side.Ordinary, out var delay);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Send, fate);
         Assert.Equal(TimeSpan.Zero, delay);
@@ -491,10 +533,10 @@ public sealed class WholePcLimitTests
 
         var full = WinDivertInterceptor.Charge(limiter, scheduler, AppPid, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
-            loopback: false, viaTunnel: false, out var noDelay);
+            loopback: false, side: TunnelAdapters.Side.Ordinary, out var noDelay);
         var other = WinDivertInterceptor.Charge(limiter, scheduler, AppPid + 1, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
-            loopback: false, viaTunnel: false, out var otherDelay);
+            loopback: false, side: TunnelAdapters.Side.Ordinary, out var otherDelay);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Drop, full);
         Assert.Equal(TimeSpan.Zero, noDelay);
@@ -510,7 +552,7 @@ public sealed class WholePcLimitTests
 
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 60_000, closesFlow: false, isOutbound: false,
-            IPAddress.Parse("203.0.113.9"), loopback: false, viaTunnel: false, out _);
+            IPAddress.Parse("203.0.113.9"), loopback: false, side: TunnelAdapters.Side.Ordinary, out _);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Drop, fate);
     }

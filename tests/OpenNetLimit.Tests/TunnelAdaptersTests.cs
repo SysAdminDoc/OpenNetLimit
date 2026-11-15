@@ -14,12 +14,17 @@ public class TunnelAdaptersTests
         public int Reads { get; private set; }
         public Exception? Fail { get; set; }
 
+        /// <summary>Runs once the read has its list, before it's published.</summary>
+        public Action? DuringRead { get; set; }
+
         public TunnelAdapters Create() => new(() =>
         {
             Reads++;
             if (Fail is not null)
                 throw Fail;
-            return Adapters.ToList();
+            var list = Adapters.ToList();
+            DuringRead?.Invoke();
+            return list;
         }, () => Now, Queued.Add);
 
         public void RunQueued()
@@ -145,17 +150,29 @@ public class TunnelAdaptersTests
     public void AnInterfaceFirstAskedAboutWhileAReadIsOnItsWay_IsLookedForByTheNextOne()
     {
         var fake = new FakeAdapters();
+        fake.Adapters.Add(new TunnelAdapters.Adapter(11, 6, "Killer E3100G 2.5 Gigabit Ethernet Controller"));
         var adapters = fake.Create();
-        // The first read starts at 0, before the VPN's adapter is up.
         adapters.IsTunnel(11);
-
-        fake.Now = 2_500;
-        fake.Adapters.Add(new TunnelAdapters.Adapter(40, 53, "WireGuard Tunnel"));
-        Assert.False(adapters.IsTunnel(40));
         fake.RunQueued();
 
+        // A read starts at 2000 for another interface. After it has the list, the VPN's adapter
+        // comes up and a packet names it at 2500.
+        fake.Now = 2_000;
+        adapters.IsTunnel(99);
+        fake.DuringRead = () =>
+        {
+            fake.DuringRead = null;
+            fake.Now = 2_500;
+            fake.Adapters.Add(new TunnelAdapters.Adapter(40, 53, "WireGuard Tunnel"));
+            Assert.False(adapters.IsTunnel(40));
+        };
+        fake.RunQueued();
+        Assert.False(adapters.IsTunnel(40));
+
+        // That read began before the packet named it, so it never looked, and the next one does.
         fake.Now = 4_500;
         adapters.IsTunnel(40);
+        Assert.Single(fake.Queued);
         fake.RunQueued();
         Assert.True(adapters.IsTunnel(40));
     }
@@ -182,27 +199,48 @@ public class TunnelAdaptersTests
         Assert.Equal(2, fake.Reads);
     }
 
+    private static byte[] Packet(int version, byte protocol, int length = 0)
+    {
+        var packet = new byte[Math.Max(length, version == 4 ? 20 : 40)];
+        packet[0] = (byte)(version << 4);
+        packet[version == 4 ? 9 : 6] = protocol;
+        return packet;
+    }
+
     [Fact]
-    public void ATunnel_IsCountedOnItsCarrier_UntilACarrierNothingCountsShowsUp()
+    public void ATunnel_IsCountedOnItsCarrier_UntilThePcSendsACarrierNothingCounts()
     {
         var fake = new FakeAdapters();
         fake.Adapters.Add(new TunnelAdapters.Adapter(40, 53, "WireGuard Tunnel"));
         fake.Adapters.Add(new TunnelAdapters.Adapter(11, 6, "Killer E3100G 2.5 Gigabit Ethernet Controller"));
+        fake.Adapters.Add(new TunnelAdapters.Adapter(30, 23, "WAN Miniport (PPPOE)"));
         var adapters = fake.Create();
         adapters.IsTunnel(40);
         fake.RunQueued();
 
-        Assert.True(adapters.CountedOnItsCarrier(40));
-        Assert.False(adapters.CountedOnItsCarrier(11));
+        Assert.Equal(TunnelAdapters.Side.CountedOnItsCarrier, adapters.SideOf(40));
+        Assert.Equal(TunnelAdapters.Side.Ordinary, adapters.SideOf(11));
+        // A dial-up link counts where it is, and what's past it isn't the local network.
+        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(30));
 
-        // An IPsec VPN's ESP crosses the real adapter, and nothing counts it.
+        // ESP that arrives unasked can come from anywhere, one on a tunnel is inside it, and UDP
+        // is counted where it crosses.
+        var esp = Packet(4, 50);
         fake.Now = 5_000;
-        adapters.SawUncountedCarrier();
-        Assert.False(adapters.CountedOnItsCarrier(40));
+        adapters.SawUnparsed(esp, 11, outbound: false);
+        adapters.SawUnparsed(esp, 40, outbound: true);
+        adapters.SawUnparsed(Packet(4, 17), 11, outbound: true);
+        Assert.Equal(TunnelAdapters.Side.CountedOnItsCarrier, adapters.SideOf(40));
+
+        // An IPsec VPN's ESP leaves on the real adapter, and nothing counts it.
+        adapters.SawUnparsed(esp, 11, outbound: true);
+        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(40));
+        Assert.Equal(TunnelAdapters.Side.Ordinary, adapters.SideOf(11));
+        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(30));
         fake.Now = 14_999;
-        Assert.False(adapters.CountedOnItsCarrier(40));
+        Assert.Equal(TunnelAdapters.Side.CountsHere, adapters.SideOf(40));
         fake.Now = 15_000;
-        Assert.True(adapters.CountedOnItsCarrier(40));
+        Assert.Equal(TunnelAdapters.Side.CountedOnItsCarrier, adapters.SideOf(40));
     }
 
     [Theory]
@@ -220,13 +258,48 @@ public class TunnelAdaptersTests
     [InlineData(6, 17, false)]
     public void IsUncountedCarrier_GoesByTheIpProtocol(int version, byte protocol, bool carrier)
     {
-        var packet = new byte[version == 4 ? 20 : 40];
-        packet[0] = (byte)(version << 4);
-        packet[version == 4 ? 9 : 6] = protocol;
+        var packet = Packet(version, protocol);
 
         Assert.Equal(carrier, TunnelAdapters.IsUncountedCarrier(packet));
         // Cut short, it's no packet at all.
         Assert.False(TunnelAdapters.IsUncountedCarrier(packet.AsSpan(0, version == 4 ? 19 : 39)));
+    }
+
+    [Fact]
+    public void IsUncountedCarrier_LooksPastIPv6ExtensionHeaders()
+    {
+        // Hop-by-hop options (8 bytes), then destination options (16 bytes), then ESP.
+        var options = Packet(6, 0, 64);
+        options[40] = 60;
+        options[48] = 50;
+        options[49] = 1;
+        Assert.True(TunnelAdapters.IsUncountedCarrier(options));
+
+        // A routing header, then UDP.
+        var routed = Packet(6, 43, 64);
+        routed[40] = 17;
+        Assert.False(TunnelAdapters.IsUncountedCarrier(routed));
+
+        // A VPN's packet too big for the path goes in fragments: the first and a later one.
+        var first = Packet(6, 44, 56);
+        first[40] = 47;
+        Assert.True(TunnelAdapters.IsUncountedCarrier(first));
+        var later = Packet(6, 44, 56);
+        later[40] = 50;
+        later[43] = 0xA8;
+        Assert.True(TunnelAdapters.IsUncountedCarrier(later));
+
+        // Past the first fragment, what follows the fragment header is the middle of the
+        // packet, and isn't read as a header even when it looks like one.
+        var middle = Packet(6, 44, 64);
+        middle[40] = 60;
+        middle[43] = 0xA8;
+        middle[48] = 50;
+        Assert.False(TunnelAdapters.IsUncountedCarrier(middle));
+
+        // A header the packet ends inside isn't read past the end.
+        Assert.False(TunnelAdapters.IsUncountedCarrier(Packet(6, 0, 41)));
+        Assert.False(TunnelAdapters.IsUncountedCarrier(Packet(6, 44, 47)));
     }
 
     [Fact]

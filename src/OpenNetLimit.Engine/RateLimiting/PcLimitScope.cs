@@ -13,7 +13,14 @@ public static class PcLimitScope
     /// covers traffic to the PC's own network and public addresses. It has no default, so a caller
     /// can't leave it out and count that traffic again.
     /// </summary>
-    public static bool Applies(WholePcLimit? limit, bool isUpload, IPAddress remote, bool loopback)
+    public static bool Applies(WholePcLimit? limit, bool isUpload, IPAddress remote, bool loopback) =>
+        Applies(limit, isUpload, remote, loopback, acrossInternet: false);
+
+    /// <param name="acrossInternet">
+    /// The packet crossed a VPN tunnel or a dial-up link, so its remote end is out past that,
+    /// whatever its address. A company network behind a VPN uses private addresses too.
+    /// </param>
+    public static bool Applies(WholePcLimit? limit, bool isUpload, IPAddress remote, bool loopback, bool acrossInternet)
     {
         if (limit is null || loopback)
             return false;
@@ -24,7 +31,7 @@ public static class PcLimitScope
             remote = remote.MapToIPv4();
         if (IPAddress.IsLoopback(remote))
             return false;
-        return limit.IncludeLan || !IsLocalNetwork(remote);
+        return limit.IncludeLan || acrossInternet || !IsLocalNetwork(remote);
     }
 
     /// <summary>

@@ -20,7 +20,24 @@ internal sealed class TunnelAdapters
     /// <summary>One network interface: its index, its IANA interface type and its description.</summary>
     internal readonly record struct Adapter(uint Index, int Type, string Description);
 
-    private sealed record Snapshot(FrozenSet<uint> Known, FrozenSet<uint> Tunnels, long ReadAtMs);
+    /// <summary>How the whole-PC limit takes a packet on an interface.</summary>
+    internal enum Side
+    {
+        /// <summary>An ordinary adapter. The local network counts only when the limit includes it.</summary>
+        Ordinary,
+
+        /// <summary>A VPN tunnel whose encrypted side the limit counts on the real adapter, so this side doesn't.</summary>
+        CountedOnItsCarrier,
+
+        /// <summary>
+        /// A dial-up link, Windows' own VPNs included, or a tunnel whose encrypted side can't be
+        /// counted. It counts here, and what's at the far end is out past it whatever its address,
+        /// so a VPN's private addresses aren't taken for the local network.
+        /// </summary>
+        CountsHere
+    }
+
+    private sealed record Snapshot(FrozenSet<uint> Known, FrozenSet<uint> Tunnels, FrozenSet<uint> Links, long ReadAtMs);
 
     private const long RefreshEveryMs = 60_000;
     private const long UnknownWaitMs = 2_000;
@@ -58,6 +75,13 @@ internal sealed class TunnelAdapters
     private const byte Esp = 50;
     private const byte Ah = 51;
 
+    // IPv6 headers that can come before what a packet carries.
+    private const byte HopByHop = 0;
+    private const byte Routing = 43;
+    private const byte Fragment = 44;
+    private const byte DestinationOptions = 60;
+    private const int MaxExtensionHeaders = 8;
+
     private readonly Func<IEnumerable<Adapter>> _read;
     private readonly Func<long> _nowMs;
     private readonly Action<Action> _run;
@@ -86,7 +110,7 @@ internal sealed class TunnelAdapters
         _run = run;
         long now = nowMs();
         // Already due, so the first packet starts the first read.
-        _snapshot = new Snapshot(FrozenSet<uint>.Empty, FrozenSet<uint>.Empty, now - RefreshEveryMs);
+        _snapshot = new Snapshot(FrozenSet<uint>.Empty, FrozenSet<uint>.Empty, FrozenSet<uint>.Empty, now - RefreshEveryMs);
         _uncountedCarrierAtMs = now - UncountedCarrierCountsForMs;
     }
 
@@ -104,17 +128,30 @@ internal sealed class TunnelAdapters
     }
 
     /// <summary>
-    /// Whether a packet on this interface is left for the whole-PC limit to count on its way
-    /// out of the tunnel, encrypted. It's a tunnel, and no encrypted side the limit can't count
-    /// has crossed a real adapter in the last 10 seconds. Which tunnel that one carried isn't
-    /// known, so while it lasts, every tunnel's own side counts.
+    /// How the whole-PC limit takes a packet on this interface. A tunnel's own side is left for
+    /// its encrypted side to count, unless an encrypted side the limit can't count has left a
+    /// real adapter in the last 10 seconds. Which tunnel that one carried isn't known, so while
+    /// it lasts, every tunnel's own side counts.
     /// </summary>
-    public bool CountedOnItsCarrier(uint interfaceIndex) =>
-        IsTunnel(interfaceIndex)
-        && _nowMs() - Volatile.Read(ref _uncountedCarrierAtMs) >= UncountedCarrierCountsForMs;
+    public Side SideOf(uint interfaceIndex)
+    {
+        if (IsTunnel(interfaceIndex))
+            return _nowMs() - Volatile.Read(ref _uncountedCarrierAtMs) >= UncountedCarrierCountsForMs
+                ? Side.CountedOnItsCarrier
+                : Side.CountsHere;
+        return _snapshot.Links.Contains(interfaceIndex) ? Side.CountsHere : Side.Ordinary;
+    }
 
-    /// <summary>Notes a tunnel's encrypted side on a real adapter that the whole-PC limit can't count.</summary>
-    public void SawUncountedCarrier() => Volatile.Write(ref _uncountedCarrierAtMs, _nowMs());
+    /// <summary>
+    /// Looks at a packet nothing parsed. One this PC sends on a real adapter that carries another
+    /// the way only a tunnel does is a VPN's encrypted side, which the limit can't count. Only
+    /// one sent counts: a GRE or ESP packet nobody asked for can arrive from anywhere.
+    /// </summary>
+    public void SawUnparsed(ReadOnlySpan<byte> packet, uint interfaceIndex, bool outbound)
+    {
+        if (outbound && IsUncountedCarrier(packet) && !IsTunnel(interfaceIndex))
+            Volatile.Write(ref _uncountedCarrierAtMs, _nowMs());
+    }
 
     /// <summary>
     /// Whether an IP packet carries another one the way only a tunnel does, and so is nothing
@@ -124,14 +161,38 @@ internal sealed class TunnelAdapters
     {
         if (packet.IsEmpty)
             return false;
-        int protocol = (packet[0] >> 4) switch
+        int version = packet[0] >> 4;
+        if (version == 4)
+            return packet.Length >= 20 && IsCarrier(packet[9]);
+        if (version != 6 || packet.Length < 40)
+            return false;
+        // IPv6 can put option, routing and fragment headers ahead of what it carries. A tunnel's
+        // packet too big for the path goes in fragments, for one.
+        int next = packet[6];
+        int offset = 40;
+        for (int i = 0; i < MaxExtensionHeaders; i++)
         {
-            4 when packet.Length >= 20 => packet[9],
-            6 when packet.Length >= 40 => packet[6],
-            _ => -1
-        };
-        return protocol is IPv4InIP or IPv6InIP or Gre or Esp or Ah;
+            switch (next)
+            {
+                case HopByHop or Routing or DestinationOptions when packet.Length >= offset + 2:
+                    next = packet[offset];
+                    offset += (packet[offset + 1] + 1) * 8;
+                    break;
+                case Fragment when packet.Length >= offset + 8:
+                    next = packet[offset];
+                    // Past the first fragment, what follows is the middle of the packet.
+                    if (((packet[offset + 2] << 8) | packet[offset + 3]) >> 3 != 0)
+                        return IsCarrier(next);
+                    offset += 8;
+                    break;
+                default:
+                    return IsCarrier(next);
+            }
+        }
+        return false;
     }
+
+    private static bool IsCarrier(int protocol) => protocol is IPv4InIP or IPv6InIP or Gre or Esp or Ah;
 
     /// <summary>Whether an interface of this type and description is a VPN tunnel.</summary>
     internal static bool IsTunnel(int type, string description)
@@ -173,13 +234,16 @@ internal sealed class TunnelAdapters
         {
             var known = new HashSet<uint>();
             var tunnels = new HashSet<uint>();
+            var links = new HashSet<uint>();
             foreach (var adapter in _read())
             {
                 known.Add(adapter.Index);
                 if (IsTunnel(adapter.Type, adapter.Description))
                     tunnels.Add(adapter.Index);
+                else if (adapter.Type == Ppp)
+                    links.Add(adapter.Index);
             }
-            _snapshot = new Snapshot(known.ToFrozenSet(), tunnels.ToFrozenSet(), readAt);
+            _snapshot = new Snapshot(known.ToFrozenSet(), tunnels.ToFrozenSet(), links.ToFrozenSet(), readAt);
             foreach (var index in _lookedFor.Keys)
                 if (known.Contains(index))
                     _lookedFor.TryRemove(index, out _);

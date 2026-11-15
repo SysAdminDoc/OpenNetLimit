@@ -337,10 +337,9 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var parsed = ParsePacket(packet);
                 if (parsed is null)
                 {
-                    // ESP, GRE or IP in IP on a real adapter is a VPN's encrypted side, which
+                    // ESP, GRE or IP in IP sent on a real adapter is a VPN's encrypted side, which
                     // nothing here counts. What crosses its tunnel has to count there instead.
-                    if (TunnelAdapters.IsUncountedCarrier(packet.Span) && !_tunnelAdapters.IsTunnel(addr.Network.IfIdx))
-                        _tunnelAdapters.SawUncountedCarrier();
+                    _tunnelAdapters.SawUnparsed(packet.Span, addr.Network.IfIdx, addr.Outbound);
                     _networkHandle.SendEx(packet.Span, addrBuffer.Span);
                     continue;
                 }
@@ -405,7 +404,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 var fate = Charge(_rateLimiter, _scheduler, processId.Value, protection, flowKey.Protocol, remotePort,
                     payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback,
-                    _tunnelAdapters.CountedOnItsCarrier(addr.Network.IfIdx), out var delay);
+                    _tunnelAdapters.SideOf(addr.Network.IfIdx), out var delay);
                 if (fate == PacketFate.Drop)
                 {
                     _scheduler.RecordDrop();
@@ -461,15 +460,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         // copies when they share a process with networking services, so that counts toward the
         // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard, OpenVPN's DCO), which go
         // out as System's UDP: the tunnel's own side doesn't count. DNS, DHCP and NTP don't
-        // count, DNS that falls back to TCP for a big answer included. The services that send
-        // those run in svchost, never in the kernel, so a kernel VPN on port 53 or 123 still
-        // counts. A svchost running only networking services (DNS over HTTPS included, and
-        // IKEEXT, which carries Windows' own IKEv2 VPN) counts for nothing, and no app limit
-        // applies to any of them.
+        // count, DNS that falls back to TCP for a big answer included. Those come from svchost,
+        // but the flow layer pins plenty of short-lived flows on System when the socket tables
+        // miss them, and DNS opens a socket per lookup. So System keeps the pass for packets a
+        // lookup's size, and a kernel VPN's full packets on port 53 or 123 still count.
+        // A svchost running only networking services (DNS over HTTPS included, and IKEEXT,
+        // which carries Windows' own IKEv2 VPN) counts for nothing, and no app limit applies to
+        // any of them.
         bool counts = protection switch
         {
             ProcessProtection.None => true,
-            ProcessProtection.Windows => kernel || remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547),
+            ProcessProtection.Windows => remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547)
+                || (kernel && payloadLength > LookupPayloadMax),
             _ => false
         };
         return new PacketLimits(
@@ -478,6 +480,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     }
 
     private const int DnsPort = 53;
+
+    /// <summary>
+    /// The biggest DNS answer sent over UDP without fragmenting, the size resolvers have kept to
+    /// since DNS Flag Day 2020. NTP and DHCP are smaller.
+    /// </summary>
+    private const int LookupPayloadMax = 1232;
 
     /// <summary>
     /// The rule a packet falls under and how far rules may touch its process. Both go by the
@@ -510,16 +518,19 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// or is dropped. Every packet is charged, the delayed ones too, so a burst queues behind its
     /// own debt and leaves at the limit. A packet with nowhere to wait is dropped.
     /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
-    /// <paramref name="viaTunnel"/> says it crossed a VPN tunnel whose encrypted side the
-    /// whole-PC limit counts, on the real adapter, so it isn't counted here as well.
+    /// <paramref name="side"/> says what crossing its interface means for the whole-PC limit: a
+    /// VPN tunnel whose encrypted side the limit counts on the real adapter isn't counted here
+    /// as well, and past a dial-up link or a tunnel counted here, the far end isn't local.
     /// </summary>
     internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
         ProcessProtection protection, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
-        bool isOutbound, IPAddress remote, bool loopback, bool viaTunnel, out TimeSpan delay)
+        bool isOutbound, IPAddress remote, bool loopback, TunnelAdapters.Side side, out TimeSpan delay)
     {
         delay = TimeSpan.Zero;
-        var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow,
-            !viaTunnel && PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
+        bool pcLimitCounts = side != TunnelAdapters.Side.CountedOnItsCarrier
+            && PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback,
+                acrossInternet: side == TunnelAdapters.Side.CountsHere);
+        var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow, pcLimitCounts,
             limiter.HasLimit(processId), kernel: processId == SocketOwners.SystemProcessId);
         if (!limits.Any)
             return PacketFate.Send;
