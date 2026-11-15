@@ -13,10 +13,7 @@ public enum AppTheme
 
 public static class ThemeManager
 {
-    private static readonly string ThemePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "OpenNetLimit",
-        "theme.txt");
+    private static readonly string ThemePath = UiPaths.SettingsFile("theme.txt");
 
     private static readonly IReadOnlyDictionary<string, string> DarkPalette = new Dictionary<string, string>
     {

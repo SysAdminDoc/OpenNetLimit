@@ -34,11 +34,17 @@ public partial class App : System.Windows.Application
 
         if (!MarketingCapture.IsEnabled && SetupWizard.IsFirstRun)
         {
+            // The wizard is the only window while it's open. Under the default
+            // OnLastWindowClose mode, closing it (Finish, Skip or X) shut the app down
+            // before the main window ever appeared.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var wizard = new SetupWizard();
             wizard.ShowDialog();
         }
 
         var mainWindow = new MainWindow();
+        MainWindow = mainWindow;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
     }
 }

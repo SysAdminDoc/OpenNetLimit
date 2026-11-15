@@ -13,10 +13,7 @@ public sealed class LocalizationManager : INotifyPropertyChanged
     private const string DefaultCultureCode = "en";
     private static readonly string[] CultureOrder = ["en", "es"];
 
-    private static readonly string CulturePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "OpenNetLimit",
-        "culture.txt");
+    private static readonly string CulturePath = UiPaths.SettingsFile("culture.txt");
 
     private static readonly ResourceManager Resources =
         new("OpenNetLimit.UI.Resources.Strings", typeof(LocalizationManager).Assembly);

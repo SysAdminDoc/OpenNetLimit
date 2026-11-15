@@ -6,9 +6,7 @@ namespace OpenNetLimit.UI;
 
 public partial class SetupWizard : Window
 {
-    private static readonly string MarkerPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "OpenNetLimit", "setup-complete");
+    private static readonly string MarkerPath = UiPaths.SettingsFile("setup-complete");
 
     public static bool IsFirstRun => !File.Exists(MarkerPath);
 
