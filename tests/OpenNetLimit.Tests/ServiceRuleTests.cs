@@ -255,19 +255,80 @@ public class ServiceRuleTests
     {
         var running = new Dictionary<uint, string[]> { [200] = ["DoSvc"] };
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var hosts = new ServiceHosts(() => new Dictionary<uint, string[]>(running), () => now);
+        var queued = new List<Action>();
+        using var hosts = new ServiceHosts(() => new Dictionary<uint, string[]>(running), () => now, queue: queued.Add);
         hosts.Refresh();
         var rules = new RuleEngine();
         var limiter = new ProcessRateLimiter();
-        var reconciler = new RuleReconciler(rules, limiter, new FlowTracker(), serviceHosts: hosts);
+        var flows = new FlowTracker();
+        var reconciler = new RuleReconciler(rules, limiter, flows, serviceHosts: hosts);
+        hosts.Changed += reconciler.Reconcile;
         rules.AddRule(new BandwidthRule { ServiceName = "BITS", DownloadBytesPerSecond = 65_536 });
 
         running[201] = ["BITS"];
         now += ServiceHosts.MinReadGap;
-        reconciler.EnsureLimit(201, "svchost", SvchostPath);
+        flows.RegisterFlow(Key(12345), 201, "svchost", SvchostPath);
 
+        // The packet loop doesn't wait for the service list. The read it asked for limits the
+        // svchost once it's done.
+        Assert.False(limiter.HasLimit(201));
+        Assert.Single(queued)();
         Assert.True(limiter.HasLimit(201));
         Assert.Equal(new[] { "BITS" }, hosts.ServicesIn(201));
+    }
+
+    private sealed class OnDispose(Action action) : IDisposable
+    {
+        public void Dispose() => action();
+    }
+
+    [Fact]
+    public void ServiceRule_ASvchostThatExits_LosesItsLimitBeforeItsIdIsFree()
+    {
+        // Its id used to keep the limit until the next read, 30 s on, so chrome or a DHCP
+        // svchost that got the id was limited or blocked in its place.
+        var running = new Dictionary<uint, string[]> { [200] = ["DoSvc"] };
+        var limiter = new ProcessRateLimiter();
+        Action? exit = null;
+        bool? limitedWhenLetGo = null;
+        using var hosts = new ServiceHosts(() => new Dictionary<uint, string[]>(running), () => DateTime.UtcNow,
+            (processId, _, exited) =>
+            {
+                exit = exited;
+                return new OnDispose(() => limitedWhenLetGo = limiter.HasLimit(processId));
+            }, queue: _ => { });
+        hosts.Refresh();
+        var rules = new RuleEngine();
+        var flows = new FlowTracker();
+        var reconciler = new RuleReconciler(rules, limiter, flows, serviceHosts: hosts);
+        hosts.Changed += reconciler.Reconcile;
+        rules.AddRule(new BandwidthRule { ServiceName = "DoSvc", DownloadBytesPerSecond = 65_536 });
+        flows.RegisterFlow(Key(12345), 200, "svchost", SvchostPath);
+        Assert.True(limiter.HasLimit(200));
+
+        running.Remove(200);
+        exit!();
+
+        Assert.False(limiter.HasLimit(200));
+        Assert.False(limitedWhenLetGo);
+    }
+
+    [Fact]
+    public void Snapshot_ASvchostThatExited_KeepsItsServices_SoTheirQuotasKeepItsBytes()
+    {
+        var hosts = new FakeServiceHosts();
+        hosts.Set(200, "DoSvc");
+        using var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false, hosts);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+
+        hosts.Remove(200);
+        monitor.SampleRates();
+
+        var info = monitor.TakeSnapshot().Processes.Single();
+        Assert.Equal(new[] { "DoSvc" }, info.Services);
+        Assert.False(info.IsProtected);
+        Assert.Equal(100, info.TotalBytesReceived);
     }
 
     [Fact]

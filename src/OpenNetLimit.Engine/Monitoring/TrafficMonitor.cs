@@ -95,6 +95,10 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     private void ReadServices(ProcessTrafficInfo info)
     {
         var services = _serviceHosts?.ServicesIn(info.ProcessId);
+        // Gone from the list means it exited. What it sent and received still belongs to the
+        // services it ran, so their quotas don't drop when a svchost stops for being idle.
+        if (services is null && info.Services is not null)
+            return;
         var protection = ProtectedProcesses.Of(info.ProcessName, services, info.ProcessPath);
         bool isProtected = protection != ProcessProtection.None;
         if (ReferenceEquals(services, info.Services) && isProtected == info.IsProtected)

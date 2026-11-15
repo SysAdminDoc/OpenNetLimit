@@ -25,6 +25,13 @@ internal sealed class FakeServiceHosts : IServiceHosts
             return _hosts.TryGetValue(processId, out var services) ? services : null;
     }
 
+    /// <summary>The process exited.</summary>
+    public void Remove(uint processId)
+    {
+        lock (_hosts)
+            _hosts.Remove(processId);
+    }
+
     public IReadOnlyList<string>? Resolve(uint processId, string processName) => ServicesIn(processId);
 
     public void Refresh() => Changed?.Invoke();
@@ -36,6 +43,19 @@ public class ServiceHostsTests
     private readonly Dictionary<uint, string[]> _running = new();
     private int _reads;
     private Exception? _readFails;
+    private readonly List<Action> _queued = [];
+
+    /// <summary>Watches the test can end, by process id. Null leaves the process out, as if its id were reused.</summary>
+    private readonly Dictionary<uint, FakeWatch> _watches = new();
+    private readonly HashSet<uint> _newerThanTheRead = [];
+    private readonly HashSet<uint> _unwatchable = [];
+
+    private sealed class FakeWatch(Action exited) : IDisposable
+    {
+        public Action Exit { get; } = exited;
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
 
     private ServiceHosts Create() => new(() =>
     {
@@ -43,25 +63,55 @@ public class ServiceHostsTests
         if (_readFails is { } failure)
             throw failure;
         return new Dictionary<uint, string[]>(_running);
-    }, () => _now);
+    }, () => _now, Watch, _queued.Add);
+
+    private IDisposable? Watch(uint processId, DateTime readStartedUtc, Action exited)
+    {
+        Assert.Equal(_now, readStartedUtc);
+        if (_newerThanTheRead.Contains(processId))
+            return null;
+        if (_unwatchable.Contains(processId))
+            return ServiceHosts.Unwatched;
+        return _watches[processId] = new FakeWatch(exited);
+    }
+
+    private void RunQueued()
+    {
+        var queued = _queued.ToList();
+        _queued.Clear();
+        foreach (var work in queued)
+            work();
+    }
 
     [Fact]
-    public void Resolve_ASvchostTheLastReadDidNotHave_ReadsTheListAgainAtMostOnceASecond()
+    public void Resolve_ASvchostTheLastReadDidNotHave_ReadsTheListAgainOffThreadAtMostOnceASecond()
     {
         var hosts = Create();
+        int changes = 0;
+        hosts.Changed += () => changes++;
         _running[200] = ["BITS"];
 
-        Assert.Equal(new[] { "BITS" }, hosts.Resolve(200, "svchost"));
+        // Never read on the caller's thread: the packet loop can get here through a new flow.
+        Assert.Null(hosts.Resolve(200, "svchost"));
+        Assert.Equal(0, _reads);
+        Assert.Null(hosts.Resolve(200, "svchost"));
+        Assert.Single(_queued);
+        RunQueued();
         Assert.Equal(1, _reads);
+        Assert.Equal(1, changes);
+        Assert.Equal(new[] { "BITS" }, hosts.Resolve(200, "svchost"));
 
         // A svchost started since: the read a moment ago stands until a second has passed.
         _running[201] = ["DoSvc"];
         Assert.Null(hosts.Resolve(201, "svchost"));
-        Assert.Equal(1, _reads);
+        Assert.Empty(_queued);
 
         _now += ServiceHosts.MinReadGap;
-        Assert.Equal(new[] { "DoSvc" }, hosts.Resolve(201, "SVCHOST"));
+        Assert.Null(hosts.Resolve(201, "SVCHOST"));
+        RunQueued();
+        Assert.Equal(new[] { "DoSvc" }, hosts.ServicesIn(201));
         Assert.Equal(2, _reads);
+        Assert.Equal(2, changes);
     }
 
     [Fact]
@@ -74,7 +124,156 @@ public class ServiceHostsTests
 
         Assert.Equal(new[] { "BITS" }, hosts.Resolve(200, "svchost"));
         Assert.Null(hosts.Resolve(300, "chrome"));
+        Assert.Empty(_queued);
         Assert.Equal(1, _reads);
+    }
+
+    [Fact]
+    public void AProcessThatExits_LeavesTheListBeforeItsIdIsFree()
+    {
+        // A svchost that stopped for being idle kept its services until the next read, 30 s
+        // later, so chrome or a DHCP svchost taking its id got its rule and its limit.
+        _running[200] = ["DoSvc"];
+        _running[201] = ["BITS"];
+        var hosts = Create();
+        hosts.Refresh();
+        var watch = _watches[200];
+        bool heldDuringChange = false;
+        hosts.Changed += () => heldDuringChange = !watch.Disposed && hosts.ServicesIn(200) is null;
+
+        watch.Exit();
+
+        Assert.Null(hosts.ServicesIn(200));
+        Assert.Equal(new[] { "BITS" }, hosts.ServicesIn(201));
+        Assert.True(heldDuringChange);
+        Assert.True(watch.Disposed);
+        Assert.False(_watches[201].Disposed);
+    }
+
+    [Fact]
+    public void AProcessStartedAfterTheReadBegan_IsLeftOut()
+    {
+        // Its id was taken between the read and the watch, so the services are another process's.
+        _running[200] = ["DoSvc"];
+        _running[201] = ["BITS"];
+        _newerThanTheRead.Add(200);
+        var hosts = Create();
+
+        hosts.Refresh();
+
+        Assert.Null(hosts.ServicesIn(200));
+        Assert.Equal(new[] { "BITS" }, hosts.ServicesIn(201));
+    }
+
+    [Fact]
+    public void AProcessThatCantBeWatched_KeepsWhatTheReadFound()
+    {
+        _running[200] = ["DoSvc"];
+        _unwatchable.Add(200);
+        var hosts = Create();
+
+        hosts.Refresh();
+
+        Assert.Equal(new[] { "DoSvc" }, hosts.ServicesIn(200));
+    }
+
+    [Fact]
+    public void AProcessStillListed_IsWatchedOnce_AndOneThatLeftTheListIsLetGo()
+    {
+        _running[200] = ["DoSvc"];
+        var hosts = Create();
+        hosts.Refresh();
+        var first = _watches[200];
+
+        _running[200] = ["DoSvc", "BITS"];
+        hosts.Refresh();
+        Assert.Same(first, _watches[200]);
+        Assert.False(first.Disposed);
+        Assert.Equal(new[] { "BITS", "DoSvc" }, hosts.ServicesIn(200));
+
+        // It may have exited without the exit being heard yet, so the rules hear first.
+        bool heldDuringChange = false;
+        hosts.Changed += () => heldDuringChange = !first.Disposed;
+        _running.Remove(200);
+        hosts.Refresh();
+        Assert.True(heldDuringChange);
+        Assert.True(first.Disposed);
+    }
+
+    [Fact]
+    public void AnExitHeardAfterAReadDroppedIt_ChangesNothing()
+    {
+        _running[200] = ["DoSvc"];
+        var hosts = Create();
+        hosts.Refresh();
+        var old = _watches[200];
+        _running.Remove(200);
+        hosts.Refresh();
+        // A new svchost took the id, and the old one's exit is only heard now.
+        _running[200] = ["Dhcp"];
+        hosts.Refresh();
+        int changes = 0;
+        hosts.Changed += () => changes++;
+
+        old.Exit();
+
+        Assert.Equal(new[] { "Dhcp" }, hosts.ServicesIn(200));
+        Assert.Equal(0, changes);
+        Assert.False(_watches[200].Disposed);
+    }
+
+    [Fact]
+    public void Dispose_LetsGoOfEveryProcess()
+    {
+        _running[200] = ["DoSvc"];
+        _running[201] = ["BITS"];
+        var hosts = Create();
+        hosts.Refresh();
+
+        hosts.Dispose();
+        hosts.Refresh();
+
+        Assert.All(_watches.Values, watch => Assert.True(watch.Disposed));
+        Assert.Equal(1, _reads);
+    }
+
+    [Fact]
+    public void WatchProcess_HearsARealProcessExit_AndRefusesOneNewerThanTheRead()
+    {
+        using var child = Process.Start(new ProcessStartInfo("ping.exe", "-n 30 127.0.0.1")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true
+        })!;
+        uint processId = (uint)child.Id;
+
+        Assert.Null(ServiceHosts.WatchProcess(processId, child.StartTime.ToUniversalTime().AddSeconds(-5), () => { }));
+
+        using var exited = new ManualResetEventSlim();
+        using var watch = ServiceHosts.WatchProcess(processId, DateTime.UtcNow, exited.Set);
+        Assert.NotNull(watch);
+        Assert.NotSame(ServiceHosts.Unwatched, watch);
+        Assert.False(exited.Wait(200));
+
+        child.Kill();
+        Assert.True(exited.Wait(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public void WatchProcess_AProcessAlreadyGone_IsLeftOut()
+    {
+        using var child = Process.Start(new ProcessStartInfo("cmd.exe", "/c exit 0")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        })!;
+        uint processId = (uint)child.Id;
+        child.WaitForExit();
+        child.Dispose();
+
+        // Once the last handle closes, the id names no process (or a newer one).
+        Assert.Null(ServiceHosts.WatchProcess(processId, DateTime.UtcNow.AddSeconds(-30), () => { }));
     }
 
     [Fact]
@@ -105,25 +304,6 @@ public class ServiceHostsTests
     }
 
     [Fact]
-    public void Refresh_ReportsWhatAReadForANewSvchostFound()
-    {
-        // The reconciler reads inside its own pass, so hearing about it there would start
-        // another pass inside the first. It hears at the next refresh instead.
-        var hosts = Create();
-        int changes = 0;
-        hosts.Changed += () => changes++;
-        _running[200] = ["BITS"];
-
-        hosts.Resolve(200, "svchost");
-        Assert.Equal(0, changes);
-
-        hosts.Refresh();
-        Assert.Equal(1, changes);
-        hosts.Refresh();
-        Assert.Equal(1, changes);
-    }
-
-    [Fact]
     public void AFailedRead_KeepsTheLastList()
     {
         _running[200] = ["BITS"];
@@ -138,6 +318,8 @@ public class ServiceHostsTests
 
         Assert.Equal(new[] { "BITS" }, hosts.ServicesIn(200));
         Assert.Null(hosts.Resolve(201, "svchost"));
+        RunQueued();
+        Assert.Equal(new[] { "BITS" }, hosts.ServicesIn(200));
         Assert.Equal(1, changes);
         Assert.Equal(3, _reads);
     }
@@ -155,7 +337,7 @@ public class ServiceHostsTests
     [Fact]
     public void TheServiceManager_ListsTheServicesInTheSvchostsRunningNow()
     {
-        var hosts = new ServiceHosts();
+        using var hosts = new ServiceHosts();
         hosts.Refresh();
 
         var services = Process.GetProcessesByName("svchost").SelectMany(process =>
