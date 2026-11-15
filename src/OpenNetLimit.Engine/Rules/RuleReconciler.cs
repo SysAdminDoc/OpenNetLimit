@@ -173,7 +173,7 @@ public class RuleReconciler
     private Policy? PolicyFor(uint processId, string processName, string? processPath)
     {
         var services = _serviceHosts?.Resolve(processId, processName);
-        if (ProtectedProcesses.Of(processName, services) != ProcessProtection.None)
+        if (ProtectedProcesses.Of(processName, services, processPath) != ProcessProtection.None)
             return null;
         var policy = RuleLimitFor(processName, processPath, services);
         foreach (var rule in _usedUpQuotas)

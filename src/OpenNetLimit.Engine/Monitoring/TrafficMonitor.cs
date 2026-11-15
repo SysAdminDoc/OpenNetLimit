@@ -95,7 +95,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     private void ReadServices(ProcessTrafficInfo info)
     {
         var services = _serviceHosts?.ServicesIn(info.ProcessId);
-        var protection = ProtectedProcesses.Of(info.ProcessName, services);
+        var protection = ProtectedProcesses.Of(info.ProcessName, services, info.ProcessPath);
         bool isProtected = protection != ProcessProtection.None;
         if (ReferenceEquals(services, info.Services) && isProtected == info.IsProtected)
             return;

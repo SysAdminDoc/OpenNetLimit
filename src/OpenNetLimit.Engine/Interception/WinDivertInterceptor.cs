@@ -367,7 +367,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var services = _serviceHosts.ServicesIn(processId.Value);
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
                     remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain, services: services);
-                var protection = ProtectedProcesses.Of(processName, services);
+                var protection = ProtectedProcesses.Of(processName, services, connection?.ProcessPath);
                 bool isProtected = protection != ProcessProtection.None;
                 // A Block rule and a used-up quota that blocks both drop the packet here.
                 bool blockedByRule = matchingRule?.Action == RuleAction.Block;

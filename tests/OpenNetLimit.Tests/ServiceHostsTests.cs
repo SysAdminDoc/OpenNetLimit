@@ -171,11 +171,15 @@ public class ServiceHostsTests
 
     [Theory]
     [InlineData("lsass", null, ProcessProtection.Windows)]
-    // The Windows DNS Server only ever sends DNS, its replies from local port 53 included.
-    [InlineData("dns", null, ProcessProtection.Networking)]
-    [InlineData("DNS", null, ProcessProtection.Networking)]
-    [InlineData("dhcp", null, ProcessProtection.Networking)]
     [InlineData("services", null, ProcessProtection.Windows)]
+    [InlineData("System", null, ProcessProtection.Windows)]
+    [InlineData("csrss", null, ProcessProtection.Windows)]
+    [InlineData("wininit", null, ProcessProtection.Windows)]
+    [InlineData("smss", null, ProcessProtection.Windows)]
+    [InlineData("ntoskrnl", null, ProcessProtection.Windows)]
+    // Networking only from System32, so with no path these stay as protected as they always were.
+    [InlineData("dns", null, ProcessProtection.Windows)]
+    [InlineData("dnscache", null, ProcessProtection.Windows)]
     [InlineData("chrome", null, ProcessProtection.None)]
     [InlineData("spoolsv", "Spooler", ProcessProtection.None)]
     // A svchost whose services aren't known yet is kept safe until they are.
@@ -192,6 +196,26 @@ public class ServiceHostsTests
         var list = services?.Split(',', StringSplitOptions.RemoveEmptyEntries);
 
         Assert.Equal(expected, ProtectedProcesses.Of(name, list));
+    }
+
+    [Theory]
+    // The Windows DNS Server only ever sends DNS, its replies from local port 53 included.
+    [InlineData("dns", true, ProcessProtection.Networking)]
+    [InlineData("DNS", true, ProcessProtection.Networking)]
+    [InlineData("dhcp", true, ProcessProtection.Networking)]
+    [InlineData("dnscache", true, ProcessProtection.Networking)]
+    // Anyone can copy a program to dns.exe somewhere else. It keeps Windows' protection, no more.
+    [InlineData("dns", false, ProcessProtection.Windows)]
+    [InlineData("dnscache", false, ProcessProtection.Windows)]
+    // Only the networking names go by where they run.
+    [InlineData("lsass", true, ProcessProtection.Windows)]
+    [InlineData("chrome", true, ProcessProtection.None)]
+    public void Of_TrustsNetworkingNamesOnlyFromSystem32(string name, bool inSystem32, ProcessProtection expected)
+    {
+        var folder = inSystem32 ? Environment.SystemDirectory : Path.Combine(Path.GetTempPath(), "x");
+        var path = Path.Combine(folder, name + ".exe");
+
+        Assert.Equal(expected, ProtectedProcesses.Of(name, null, path));
     }
 
     [Fact]

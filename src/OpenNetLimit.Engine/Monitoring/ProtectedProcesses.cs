@@ -30,8 +30,9 @@ public static class ProtectedProcesses
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Processes that send nothing but name resolution and addressing. The Windows DNS Server
-    /// answers TCP queries from local port 53, which the remote-port DNS check never sees.
+    /// Processes that send nothing but name resolution and addressing, when they run from
+    /// System32. The Windows DNS Server answers TCP queries from local port 53, which the
+    /// remote-port DNS check never sees. A copy elsewhere is anyone's program under that name.
     /// </summary>
     private static readonly FrozenSet<string> NetworkingNames = new[]
     {
@@ -52,10 +53,11 @@ public static class ProtectedProcesses
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="services">The services running in the process, null when there are none or they aren't known.</param>
-    public static ProcessProtection Of(string processName, IReadOnlyList<string>? services)
+    /// <param name="processPath">The program's full path, null when it couldn't be read.</param>
+    public static ProcessProtection Of(string processName, IReadOnlyList<string>? services, string? processPath = null)
     {
         if (NetworkingNames.Contains(processName))
-            return ProcessProtection.Networking;
+            return InSystem32(processPath) ? ProcessProtection.Networking : ProcessProtection.Windows;
         if (Names.Contains(processName))
             return ProcessProtection.Windows;
         if (!ServiceHosts.IsServiceHost(processName))
@@ -73,6 +75,10 @@ public static class ProtectedProcesses
             return ProcessProtection.None;
         return networking == services.Count ? ProcessProtection.Networking : ProcessProtection.Windows;
     }
+
+    private static bool InSystem32(string? processPath) =>
+        processPath is not null
+        && string.Equals(Path.GetDirectoryName(processPath), Environment.SystemDirectory, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The services in the list that keep a svchost out of every rule.</summary>
     public static string[] NetworkingIn(IReadOnlyList<string>? services) =>

@@ -262,10 +262,21 @@ public sealed class WholePcLimitTests
     {
         // A DNS server's TCP answer goes from its local port 53 to the client's ephemeral port,
         // so the remote-port exemption never sees it.
-        var limits = WinDivertInterceptor.LimitsFor(ProtectedProcesses.Of("dns", null), TransportProtocol.Tcp, remotePort: 51234,
-            payloadLength: 1400, closesFlow: false, pcLimitCounts: true, hasAppLimit: false);
+        var dnsServer = Path.Combine(Environment.SystemDirectory, "dns.exe");
+        var limits = WinDivertInterceptor.LimitsFor(ProtectedProcesses.Of("dns", null, dnsServer), TransportProtocol.Tcp,
+            remotePort: 51234, payloadLength: 1400, closesFlow: false, pcLimitCounts: true, hasAppLimit: false);
 
         Assert.False(limits.Any);
+    }
+
+    [Fact]
+    public void AProgramCopiedToDnsExe_StillCountsTowardTheWholePcLimit()
+    {
+        var copy = Path.Combine(Path.GetTempPath(), "dns.exe");
+        var limits = WinDivertInterceptor.LimitsFor(ProtectedProcesses.Of("dns", null, copy), TransportProtocol.Tcp,
+            remotePort: 443, payloadLength: 1400, closesFlow: false, pcLimitCounts: true, hasAppLimit: false);
+
+        Assert.True(limits.WholePc);
     }
 
     [Fact]
