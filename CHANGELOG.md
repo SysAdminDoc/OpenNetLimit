@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- The packet engine starts again. The WinDivert flow layer was opened with the wrong flags and Windows refused it with error 87, so the service ran but never filtered anything (#3)
+- Apps show up in the list again. Flow addresses were read in the wrong byte order, so no packet was ever matched to the app that sent it (#4)
+- Downloads and connections that were already open when the engine started are now credited to their app, and so are the many new flows Windows reports as belonging to System (#4)
+- A limit now holds an app to the rate you set. Packets that had to wait were never charged against the limit, so a 256 KB/s rule let curl run at almost 5 MB/s
+- Limits reach apps that start or reconnect after the rule was added
+- Removing or changing a rule also reaches apps that are idle or have exited, and a new app that gets an old app's process ID no longer inherits its limit
+- The Limit column shows the rate each app is held to
+- Speeds no longer drop to 0 B/s when the app, the CLI and the history writer read the engine at the same time, and usage history counts every byte once
+- Finishing or skipping the first run wizard no longer closes the whole app (#1)
+- When the engine can't start, the app says why and stays on that message instead of flipping between Connecting and Service not running (#1, #3)
+- Right-clicking an app selects it, so Set bandwidth limit works from the menu. When the menu is disabled it tells you why (#1)
+- Changes made from the app were always rejected as unauthorized, even when it ran as administrator. The service checked who was connected before the client had sent anything, which Windows doesn't allow (#1)
+- `onl rules add` works. The service only took rule actions as numbers while the CLI sends names (#1)
+- The control pipe stays up when the service isn't elevated or the engine fails to start, so the app and CLI can still report the problem
+- DNS answers are cached from responses again, which gives domain rules something to match
+
 ## 1.0.2 (2026-09-12)
 
 ### Changed
