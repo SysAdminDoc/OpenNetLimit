@@ -39,16 +39,31 @@
                 </StackPanel>
 
                 <Border Grid.Column="2" Style="{StaticResource CardBorder}"
-                        CornerRadius="8" Padding="13,9"
+                        CornerRadius="8" Padding="13,9" MaxWidth="380"
+                        ToolTip="{Binding StatusDetail}"
                         AutomationProperties.Name="{loc:Loc ServiceStatus_Automation}">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse Width="9" Height="9" Margin="0,0,9,0"
-                                 Fill="{Binding StatusColor}" VerticalAlignment="Center"
+                                 Fill="{Binding StatusColor}" VerticalAlignment="Top"
                                  AutomationProperties.Name="{Binding StatusText}"/>
                         <StackPanel>
                             <TextBlock Text="{loc:Loc Service_Label}" Style="{StaticResource EyebrowText}"/>
                             <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold"
                                        AutomationProperties.LiveSetting="Polite"/>
+                            <TextBlock Text="{Binding StatusDetail}" TextWrapping="Wrap" MaxWidth="330"
+                                       Margin="0,3,0,0" FontSize="11.5"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       AutomationProperties.LiveSetting="Polite">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding StatusDetail}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -173,16 +188,18 @@
                             </Grid>
 
                             <DataGrid Grid.Row="1" x:Name="ProcessGrid" ItemsSource="{Binding Processes}"
+                                      SelectedItem="{Binding SelectedProcess, Mode=TwoWay}"
+                                      loc:DataGridRightClick.SelectRowOnRightClick="True"
                                       Style="{StaticResource DataGridStyle}"
                                       AutomationProperties.Name="{loc:Loc ProcessGrid_Automation}">
                                 <DataGrid.ContextMenu>
                                     <ContextMenu>
-                                        <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding IsAdmin}"
+                                        <MenuItem Header="{loc:Loc Menu_SetBandwidthLimit}" Click="OnSetLimit" IsEnabled="{Binding CanEditLimits}"
                                                   ToolTipService.ShowOnDisabled="True"
-                                                  ToolTip="{loc:Loc Menu_AdminRequired}"/>
-                                        <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding IsAdmin}"
+                                                  ToolTip="{Binding LimitMenuHint}"/>
+                                        <MenuItem Header="{loc:Loc Menu_RemoveLimit}" Click="OnRemoveLimit" IsEnabled="{Binding CanEditLimits}"
                                                   ToolTipService.ShowOnDisabled="True"
-                                                  ToolTip="{loc:Loc Menu_AdminRequired}"/>
+                                                  ToolTip="{Binding LimitMenuHint}"/>
                                     </ContextMenu>
                                 </DataGrid.ContextMenu>
                                 <DataGrid.Columns>

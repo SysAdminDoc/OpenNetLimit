@@ -57,14 +57,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     ];
 
-    private string _statusKey = "Status_Disconnected";
-    private string? _statusFallbackText;
+    private readonly ServiceStatusTracker _statusTracker = new();
 
     private string _statusText = LocalizationManager.Text("Status_Disconnected");
     public string StatusText
     {
         get => _statusText;
         set => SetField(ref _statusText, value);
+    }
+
+    private string? _statusDetail;
+    /// <summary>Why the engine or service isn't working, shown under the status pill.</summary>
+    public string? StatusDetail
+    {
+        get => _statusDetail;
+        set => SetField(ref _statusDetail, value);
     }
 
     private Brush _statusColor = Brushes.Gray;
@@ -131,7 +138,35 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsAdmin
     {
         get => _isAdmin;
-        set => SetField(ref _isAdmin, value);
+        set
+        {
+            if (SetField(ref _isAdmin, value))
+                OnLimitMenuChanged();
+        }
+    }
+
+    private ProcessViewModel? _selectedProcess;
+    public ProcessViewModel? SelectedProcess
+    {
+        get => _selectedProcess;
+        set
+        {
+            if (SetField(ref _selectedProcess, value))
+                OnLimitMenuChanged();
+        }
+    }
+
+    public bool CanEditLimits => LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is null;
+
+    /// <summary>Tooltip on the limit menu items saying why they're unavailable, or null when they work.</summary>
+    public string? LimitMenuHint => LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is { } key
+        ? LocalizationManager.Text(key)
+        : null;
+
+    private void OnLimitMenuChanged()
+    {
+        OnPropertyChanged(nameof(CanEditLimits));
+        OnPropertyChanged(nameof(LimitMenuHint));
     }
 
     private string _permissionDisplay = "Read-only";
@@ -189,6 +224,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         HistoryViewModel = new HistoryViewModel(_client);
 
+        _statusTracker.Changed += ApplyStatus;
         ThemeManager.ThemeChanged += OnThemeChanged;
         LocalizationManager.CultureChanged += OnCultureChanged;
         ApplyChartTheme();
@@ -209,7 +245,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ActiveConnectionCount = 5;
         ActiveRuleCount = 3;
         RecentAlertCount = 1;
-        UpdateStatus(ConnectionState.Connected, "Status_Connected");
+        _statusTracker.StatusReceived(null);
 
         double[] downloadMbps =
         [
@@ -294,14 +330,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task TryConnectAsync()
     {
-        UpdateStatus(ConnectionState.Connecting, "Status_Connecting");
+        _statusTracker.ConnectStarting();
         var connected = await _client.ConnectAsync();
 
         if (connected)
         {
             _reconnectTimer.Stop();
             _pollTimer.Start();
-            UpdateStatus(ConnectionState.Connected, "Status_Connected");
             await PollServiceAsync();
         }
         else
@@ -310,20 +345,20 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             if (!_reconnectTimer.IsEnabled)
                 _reconnectTimer.Start();
 
-            if (string.IsNullOrWhiteSpace(_client.LastError) ||
-                string.Equals(_client.LastError, "Service not running", StringComparison.OrdinalIgnoreCase))
-            {
-                UpdateStatus(_client.State, "Status_ServiceNotRunning");
-            }
-            else
-            {
-                UpdateStatus(_client.State, "Status_ServiceNotRunning", _client.LastError);
-            }
+            _statusTracker.ConnectFailed(ServiceStatusTracker.DetectInstallState(), _client.LastError);
         }
     }
 
     private async Task PollServiceAsync()
     {
+        var statusJson = await _client.SendCommandAsync("STATUS");
+        if (statusJson is null)
+        {
+            OnDisconnected();
+            return;
+        }
+        _statusTracker.StatusReceived(ServiceStatusTracker.ParseDiagnostics(statusJson));
+
         var snapshotJson = await _client.SendCommandAsync("SNAPSHOT");
         if (snapshotJson is null)
         {
@@ -547,7 +582,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void RefreshLocalizedStrings()
     {
-        StatusText = _statusFallbackText ?? LocalizationManager.Text(_statusKey);
+        ApplyStatus(_statusTracker.Current);
+        OnLimitMenuChanged();
         PermissionDisplay = IsAdmin
             ? LocalizationManager.Text("Mode_Administrator")
             : LocalizationManager.Text("Mode_ReadOnly");
@@ -585,17 +621,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnDisconnected()
     {
         _pollTimer.Stop();
-        UpdateStatus(ConnectionState.Disconnected, "Status_ServiceDisconnected");
+        _statusTracker.Disconnected();
         if (!_reconnectTimer.IsEnabled)
             _reconnectTimer.Start();
     }
 
-    private void UpdateStatus(ConnectionState state, string textKey, string? fallbackText = null)
+    private void ApplyStatus(ServiceStatusView status)
     {
-        _statusKey = textKey;
-        _statusFallbackText = fallbackText;
-        StatusText = fallbackText ?? LocalizationManager.Text(textKey);
-        StatusColor = state switch
+        StatusText = status.ResolveText();
+        StatusDetail = status.ResolveDetail();
+        StatusColor = status.State switch
         {
             ConnectionState.Connected => Brushes.LimeGreen,
             ConnectionState.Connecting => Brushes.Orange,

@@ -47,6 +47,7 @@
   <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Menu_AdminRequired" xml:space="preserve"><value>Administrator privileges required</value></data>
   <data name="Menu_RemoveLimit" xml:space="preserve"><value>Remove Limit</value></data>
+  <data name="Menu_SelectAppFirst" xml:space="preserve"><value>Right-click an app in the list to limit it</value></data>
   <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Set Bandwidth Limit...</value></data>
   <data name="Mode_Administrator" xml:space="preserve"><value>Administrator</value></data>
   <data name="Mode_ReadOnly" xml:space="preserve"><value>Read-only</value></data>
@@ -78,8 +79,13 @@
   <data name="Status_Connected" xml:space="preserve"><value>Connected</value></data>
   <data name="Status_Connecting" xml:space="preserve"><value>Connecting...</value></data>
   <data name="Status_Disconnected" xml:space="preserve"><value>Disconnected</value></data>
+  <data name="Status_EngineFailed" xml:space="preserve"><value>Failed to start</value></data>
+  <data name="Status_EngineFailed_Detail" xml:space="preserve"><value>The service is running but couldn't start packet filtering. Details are in C:\ProgramData\OpenNetLimit\last-error.txt.</value></data>
   <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Service disconnected</value></data>
+  <data name="Status_ServiceNotInstalled" xml:space="preserve"><value>Service not installed</value></data>
+  <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Run Install-Service.ps1 from an administrator PowerShell in the OpenNetLimit folder.</value></data>
   <data name="Status_ServiceNotRunning" xml:space="preserve"><value>Service not running</value></data>
+  <data name="Status_ServiceNotRunning_Detail" xml:space="preserve"><value>The service is installed but stopped. Start it from an administrator PowerShell with: Start-Service OpenNetLimit</value></data>
   <data name="StatusBar_ActiveRules" xml:space="preserve"><value>Active Rules: {0}</value></data>
   <data name="StatusBar_Automation" xml:space="preserve"><value>Status bar</value></data>
   <data name="StatusBar_Connections" xml:space="preserve"><value>Connections: {0}</value></data>

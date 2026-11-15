@@ -47,6 +47,7 @@
   <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Menu_AdminRequired" xml:space="preserve"><value>Se requieren privilegios de administrador</value></data>
   <data name="Menu_RemoveLimit" xml:space="preserve"><value>Quitar limite</value></data>
+  <data name="Menu_SelectAppFirst" xml:space="preserve"><value>Haz clic derecho en una aplicacion de la lista para limitarla</value></data>
   <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Establecer limite de ancho de banda...</value></data>
   <data name="Mode_Administrator" xml:space="preserve"><value>Administrador</value></data>
   <data name="Mode_ReadOnly" xml:space="preserve"><value>Solo lectura</value></data>
@@ -78,8 +79,13 @@
   <data name="Status_Connected" xml:space="preserve"><value>Conectado</value></data>
   <data name="Status_Connecting" xml:space="preserve"><value>Conectando...</value></data>
   <data name="Status_Disconnected" xml:space="preserve"><value>Desconectado</value></data>
+  <data name="Status_EngineFailed" xml:space="preserve"><value>No se pudo iniciar</value></data>
+  <data name="Status_EngineFailed_Detail" xml:space="preserve"><value>El servicio se esta ejecutando pero no pudo iniciar el filtrado de paquetes. Los detalles estan en C:\ProgramData\OpenNetLimit\last-error.txt.</value></data>
   <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Servicio desconectado</value></data>
+  <data name="Status_ServiceNotInstalled" xml:space="preserve"><value>Servicio no instalado</value></data>
+  <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Ejecuta Install-Service.ps1 desde PowerShell como administrador en la carpeta de OpenNetLimit.</value></data>
   <data name="Status_ServiceNotRunning" xml:space="preserve"><value>El servicio no se esta ejecutando</value></data>
+  <data name="Status_ServiceNotRunning_Detail" xml:space="preserve"><value>El servicio esta instalado pero detenido. Inicialo desde PowerShell como administrador con: Start-Service OpenNetLimit</value></data>
   <data name="StatusBar_ActiveRules" xml:space="preserve"><value>Reglas activas: {0}</value></data>
   <data name="StatusBar_Automation" xml:space="preserve"><value>Barra de estado</value></data>
   <data name="StatusBar_Connections" xml:space="preserve"><value>Conexiones: {0}</value></data>

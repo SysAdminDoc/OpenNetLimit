@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- WPF types for the DataGrid tests. UseWPF would also drop the implicit usings. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\OpenNetLimit.Core\OpenNetLimit.Core.csproj" />
     <ProjectReference Include="..\..\src\OpenNetLimit.Engine\OpenNetLimit.Engine.csproj" />
     <ProjectReference Include="..\..\src\OpenNetLimit.Service\OpenNetLimit.Service.csproj" />
