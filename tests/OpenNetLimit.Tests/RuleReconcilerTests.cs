@@ -1,4 +1,5 @@
 using System.Net;
+using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.RateLimiting;
@@ -152,6 +153,92 @@ public class RuleReconcilerTests
 
         Assert.True(limiter.HasLimit(1));
         Assert.False(limiter.HasLimit(2));
+    }
+
+    /// <summary>Keeps the exact rates set, so a test can tell one limit from another.</summary>
+    private sealed class RecordingLimiter : IRateLimiter
+    {
+        public Dictionary<uint, (long Download, long Upload)> Limits { get; } = new();
+        public bool TryConsume(uint processId, int byteCount, bool isUpload) => true;
+        public TimeSpan GetDelay(uint processId, int byteCount, bool isUpload) => TimeSpan.Zero;
+        public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond) =>
+            Limits[processId] = (downloadBytesPerSecond, uploadBytesPerSecond);
+        public void RemoveLimit(uint processId) => Limits.Remove(processId);
+        public void RemoveAll() => Limits.Clear();
+        public bool HasLimit(uint processId) => Limits.ContainsKey(processId);
+    }
+
+    /// <summary>The engine's wiring: reconcile whenever the rules change.</summary>
+    private static RuleReconciler Wire(RuleEngine rules, IRateLimiter limiter, FlowTracker flows)
+    {
+        var reconciler = new RuleReconciler(rules, limiter, flows);
+        rules.OnRulesChanged += reconciler.Reconcile;
+        return reconciler;
+    }
+
+    [Fact]
+    public void AppStartedAfterTheRule_IsLimitedOnItsFirstFlow()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 });
+        Assert.Empty(limiter.Limits);
+
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", @"C:\Windows\System32\curl.exe");
+
+        Assert.Equal((262_144L, 0L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void RestartedApp_IsLimitedUnderItsNewProcessId()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        flows.RegisterFlow(MakeFlowKey(100), 500, "curl", null);
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", UploadBytesPerSecond = 65_536, Direction = RuleDirection.Upload });
+        flows.UnregisterFlow(MakeFlowKey(100));
+
+        flows.RegisterFlow(MakeFlowKey(101), 640, "curl", null);
+
+        Assert.Equal((0L, 65_536L), limiter.Limits[500]);
+        Assert.Equal((0L, 65_536L), limiter.Limits[640]);
+    }
+
+    [Fact]
+    public void NewFlow_LeavesAQuotaThrottleInPlace()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 });
+        limiter.SetLimit(500, 1_000, 1_000);
+
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+
+        Assert.Equal((1_000L, 1_000L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void NewFlow_GetsNoLimitWithoutAnActiveLimitRule()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        rules.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 50_000 });
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 50_000, Action = RuleAction.Allow });
+        rules.AddRule(new BandwidthRule { ProcessName = "git", DownloadBytesPerSecond = 50_000, Enabled = false });
+
+        flows.RegisterFlow(MakeFlowKey(100), 1, "firefox", null);
+        flows.RegisterFlow(MakeFlowKey(101), 2, "curl", null);
+        flows.RegisterFlow(MakeFlowKey(102), 3, "git", null);
+
+        Assert.Empty(limiter.Limits);
     }
 }
 

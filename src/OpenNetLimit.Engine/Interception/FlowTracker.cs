@@ -8,6 +8,8 @@ public class FlowTracker : IFlowTracker
 {
     private readonly ConcurrentDictionary<FlowKey, ConnectionInfo> _flows = new();
 
+    public event Action<uint, string, string?>? FlowRegistered;
+
     public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath)
     {
         var connection = new ConnectionInfo
@@ -34,6 +36,7 @@ public class FlowTracker : IFlowTracker
             updated.AddBytesReceived(existing.BytesReceived);
             return updated;
         });
+        FlowRegistered?.Invoke(processId, processName, processPath);
     }
 
     public void UnregisterFlow(FlowKey flowKey)
