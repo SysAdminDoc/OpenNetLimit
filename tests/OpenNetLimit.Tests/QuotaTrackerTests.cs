@@ -502,6 +502,24 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void AQuotaThatJumpsPastItsCap_IsNotWarnedAboutAfterwards()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(QuotaAction.Block));
+        monitor.RecordBytes(1, "curl", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        var alerts = new List<string>();
+        tracker.OnQuotaExceeded += (_, _) => alerts.Add("used up");
+        tracker.OnQuotaWarning += (_, _) => alerts.Add("warning");
+
+        tracker.Update();
+        tracker.Update();
+
+        Assert.Equal(["used up"], alerts);
+    }
+
+    [Fact]
     public void RaisedLimit_WarnsAgainWhenUsageNearsTheNewOne()
     {
         var ruleEngine = new RuleEngine();

@@ -203,6 +203,8 @@ public class QuotaTracker
                     state.IsExceeded = true;
                     state.UsedUpAtLimitBytes = state.LimitBytes;
                     state.ExceededNotified = true;
+                    // A warning that it's nearly used up would only come after this one.
+                    state.WarningNotified = true;
                     notifications.Add((OnQuotaExceeded, DisplayName(rule), CopyState(state)));
                 }
                 else if (state.PercentUsed >= rule.Quota.WarningPercent && !state.WarningNotified)
