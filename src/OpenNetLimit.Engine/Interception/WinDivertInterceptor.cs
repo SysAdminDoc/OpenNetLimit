@@ -167,18 +167,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 ref var addr = ref addrBuffer.Span[0];
 
                 var flowData = addr.Flow;
-                var protocol = flowData.Protocol == 6 ? TransportProtocol.Tcp :
-                               flowData.Protocol == 17 ? TransportProtocol.Udp :
-                               TransportProtocol.Other;
-
-                var localAddr = ParseIPv6Addr(flowData.LocalAddr);
-                var remoteAddr = ParseIPv6Addr(flowData.RemoteAddr);
-                var flowKey = new FlowKey(
-                    protocol,
-                    localAddr,
-                    flowData.LocalPort,
-                    remoteAddr,
-                    flowData.RemotePort);
+                var flowKey = FlowAddress.ToFlowKey(flowData);
+                var protocol = flowKey.Protocol;
+                var localAddr = flowKey.LocalAddress;
+                var remoteAddr = flowKey.RemoteAddress;
 
                 if (addr.Event == WinDivert.Event.FlowEstablished)
                 {
@@ -334,7 +326,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
     }
 
-    private static unsafe (FlowKey flowKey, int payloadLength, Memory<byte> payloadData)? ParsePacket(Memory<byte> packet)
+    internal static unsafe (FlowKey flowKey, int payloadLength, Memory<byte> payloadData)? ParsePacket(Memory<byte> packet)
     {
         var parser = new WinDivertPacketParser(packet);
         foreach (var result in parser)
@@ -391,15 +383,6 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
 
         return null;
-    }
-
-    private static unsafe IPAddress ParseIPv6Addr(IPv6Addr addr)
-    {
-        Span<byte> bytes = stackalloc byte[16];
-        byte* ptr = (byte*)&addr;
-        for (int i = 0; i < 16; i++)
-            bytes[i] = ptr[i];
-        return new IPAddress(bytes);
     }
 
     private static string ResolveProcessName(uint processId)

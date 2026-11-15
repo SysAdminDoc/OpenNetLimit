@@ -1,3 +1,7 @@
+using System.Buffers.Binary;
+using System.Net;
+using System.Net.Sockets;
+using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
 using SharpDivert;
 using Xunit;
@@ -22,6 +26,90 @@ public class WinDivertInterceptorTests
     }
 
     [Theory]
+    [InlineData("::ffff:192.168.1.27", "192.168.1.27")]
+    [InlineData("::ffff:127.0.0.1", "127.0.0.1")]
+    [InlineData("::ffff:104.20.23.154", "104.20.23.154")]
+    [InlineData("::1", "::1")]
+    [InlineData("2001:db8::1", "2001:db8::1")]
+    [InlineData("fe80::1234:5678:9abc:def0", "fe80::1234:5678:9abc:def0")]
+    public void FlowAddress_MatchesWinDivertsOwnParser(string native, string expected)
+    {
+        // IPv6Addr.Parse runs WinDivert's native parser, so it produces exactly the
+        // host-byte-order layout the Flow layer reports.
+        var addr = IPv6Addr.Parse(native);
+
+        Assert.Equal(IPAddress.Parse(expected), FlowAddress.ToIPAddress(addr));
+    }
+
+    [Fact]
+    public void FlowAddress_UnmapsIPv4SoItEqualsPacketHeaderAddress()
+    {
+        var ip = FlowAddress.ToIPAddress(IPv6Addr.Parse("::ffff:10.0.0.5"));
+
+        Assert.Equal(AddressFamily.InterNetwork, ip.AddressFamily);
+    }
+
+    [Theory]
+    [InlineData((byte)6, TransportProtocol.Tcp)]
+    [InlineData((byte)17, TransportProtocol.Udp)]
+    [InlineData((byte)1, TransportProtocol.Other)]
+    public void FlowAddress_MapsProtocolNumbers(byte number, TransportProtocol expected)
+    {
+        Assert.Equal(expected, FlowAddress.ToProtocol(number));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Ipv4Packets_AreAttributedToTheFlowOwner(bool outbound)
+    {
+        var tracker = new FlowTracker();
+        var flow = new WinDivertDataFlow
+        {
+            ProcessId = 4242,
+            Protocol = 6,
+            LocalAddr = IPv6Addr.Parse("::ffff:192.168.1.27"),
+            LocalPort = 50123,
+            RemoteAddr = IPv6Addr.Parse("::ffff:104.20.23.154"),
+            RemotePort = 443
+        };
+        tracker.RegisterFlow(FlowAddress.ToFlowKey(flow), flow.ProcessId, "browser", null);
+
+        var local = IPAddress.Parse("192.168.1.27");
+        var remote = IPAddress.Parse("104.20.23.154");
+        var packet = outbound
+            ? Ipv4Tcp(local, 50123, remote, 443, 100)
+            : Ipv4Tcp(remote, 443, local, 50123, 100);
+        var parsed = WinDivertInterceptor.ParsePacket(packet);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(100, parsed.Value.payloadLength);
+        Assert.Equal((uint)4242, tracker.LookupProcessId(parsed.Value.flowKey));
+    }
+
+    [Fact]
+    public void Ipv6Packets_AreAttributedToTheFlowOwner()
+    {
+        var tracker = new FlowTracker();
+        var flow = new WinDivertDataFlow
+        {
+            ProcessId = 777,
+            Protocol = 6,
+            LocalAddr = IPv6Addr.Parse("2001:db8::10"),
+            LocalPort = 61000,
+            RemoteAddr = IPv6Addr.Parse("2001:db8:1::20"),
+            RemotePort = 80
+        };
+        tracker.RegisterFlow(FlowAddress.ToFlowKey(flow), flow.ProcessId, "curl", null);
+
+        var packet = Ipv6Tcp(IPAddress.Parse("2001:db8:1::20"), 80, IPAddress.Parse("2001:db8::10"), 61000, 32);
+        var parsed = WinDivertInterceptor.ParsePacket(packet);
+
+        Assert.NotNull(parsed);
+        Assert.Equal((uint)777, tracker.LookupProcessId(parsed.Value.flowKey));
+    }
+
+    [Theory]
     [InlineData(5)]
     [InlineData(87)]
     [InlineData(577)]
@@ -40,5 +128,59 @@ public class WinDivertInterceptorTests
         Assert.Contains("Sniff", ex.Message);
         Assert.Contains("87", ex.Message);
         Assert.Equal(87, ex.NativeErrorCode);
+    }
+
+    internal static byte[] Ipv4Tcp(IPAddress src, ushort srcPort, IPAddress dst, ushort dstPort, int payload) =>
+        Ipv4(src, dst, 6, Tcp(srcPort, dstPort, payload));
+
+    internal static byte[] Ipv4Udp(IPAddress src, ushort srcPort, IPAddress dst, ushort dstPort, byte[] payload) =>
+        Ipv4(src, dst, 17, Udp(srcPort, dstPort, payload));
+
+    private static byte[] Ipv6Tcp(IPAddress src, ushort srcPort, IPAddress dst, ushort dstPort, int payload)
+    {
+        var transport = Tcp(srcPort, dstPort, payload);
+        var packet = new byte[40 + transport.Length];
+        packet[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(4), (ushort)transport.Length);
+        packet[6] = 6;
+        packet[7] = 64;
+        src.GetAddressBytes().CopyTo(packet, 8);
+        dst.GetAddressBytes().CopyTo(packet, 24);
+        transport.CopyTo(packet, 40);
+        return packet;
+    }
+
+    private static byte[] Ipv4(IPAddress src, IPAddress dst, byte protocol, byte[] transport)
+    {
+        var packet = new byte[20 + transport.Length];
+        packet[0] = 0x45;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), (ushort)packet.Length);
+        packet[8] = 64;
+        packet[9] = protocol;
+        src.GetAddressBytes().CopyTo(packet, 12);
+        dst.GetAddressBytes().CopyTo(packet, 16);
+        transport.CopyTo(packet, 20);
+        return packet;
+    }
+
+    private static byte[] Tcp(ushort srcPort, ushort dstPort, int payload)
+    {
+        var segment = new byte[20 + payload];
+        BinaryPrimitives.WriteUInt16BigEndian(segment.AsSpan(0), srcPort);
+        BinaryPrimitives.WriteUInt16BigEndian(segment.AsSpan(2), dstPort);
+        segment[12] = 0x50;
+        segment[13] = 0x18;
+        BinaryPrimitives.WriteUInt16BigEndian(segment.AsSpan(14), 65535);
+        return segment;
+    }
+
+    private static byte[] Udp(ushort srcPort, ushort dstPort, byte[] payload)
+    {
+        var datagram = new byte[8 + payload.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(datagram.AsSpan(0), srcPort);
+        BinaryPrimitives.WriteUInt16BigEndian(datagram.AsSpan(2), dstPort);
+        BinaryPrimitives.WriteUInt16BigEndian(datagram.AsSpan(4), (ushort)datagram.Length);
+        payload.CopyTo(datagram, 8);
+        return datagram;
     }
 }
