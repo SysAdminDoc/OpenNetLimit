@@ -73,7 +73,27 @@ public class PipeServer
         }
     }
 
-    internal static NamedPipeServerStream CreateSecurePipe(bool firstInstance = false)
+    internal static NamedPipeServerStream CreateSecurePipe(bool firstInstance = false) =>
+        CreateSecurePipe(IpcProtocol.PipeName, firstInstance);
+
+    internal static NamedPipeServerStream CreateSecurePipe(string pipeName, bool firstInstance)
+    {
+        var options = PipeOptions.Asynchronous;
+        if (firstInstance)
+            options |= PipeOptions.FirstPipeInstance;
+
+        return NamedPipeServerStreamAcl.Create(
+            pipeName,
+            PipeDirection.InOut,
+            NamedPipeServerStream.MaxAllowedServerInstances,
+            PipeTransmissionMode.Byte,
+            options,
+            inBufferSize: 4096,
+            outBufferSize: 4096,
+            BuildPipeSecurity());
+    }
+
+    internal static PipeSecurity BuildPipeSecurity()
     {
         var security = new PipeSecurity();
 
@@ -82,24 +102,28 @@ public class PipeServer
             PipeAccessRights.FullControl,
             AccessControlType.Allow));
 
+        // Every listening instance after the first needs CreateNewInstance on the pipe.
+        // LocalSystem gets it through Administrators, but a service started without
+        // elevation (exactly when the engine can't start and the pipe is how the UI
+        // learns why) doesn't, so each new instance failed with access denied.
+        using (var self = WindowsIdentity.GetCurrent())
+        {
+            if (self.User is { } serverAccount)
+            {
+                security.AddAccessRule(new PipeAccessRule(
+                    serverAccount,
+                    PipeAccessRights.FullControl,
+                    AccessControlType.Allow));
+            }
+        }
+
+        // Other users can talk to the service but never open instances of their own.
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
             PipeAccessRights.ReadWrite,
             AccessControlType.Allow));
 
-        var options = PipeOptions.Asynchronous;
-        if (firstInstance)
-            options |= PipeOptions.FirstPipeInstance;
-
-        return NamedPipeServerStreamAcl.Create(
-            IpcProtocol.PipeName,
-            PipeDirection.InOut,
-            NamedPipeServerStream.MaxAllowedServerInstances,
-            PipeTransmissionMode.Byte,
-            options,
-            inBufferSize: 4096,
-            outBufferSize: 4096,
-            security);
+        return security;
     }
 
     private async Task HandleClient(NamedPipeServerStream pipe, CancellationToken ct)
