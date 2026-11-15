@@ -472,8 +472,8 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            var snapshot = _trafficMonitor.TakeSnapshot();
-            _statsDb?.RecordSnapshot(snapshot);
+            var usage = _trafficMonitor.TakeUsage();
+            _statsDb?.RecordSnapshot(usage);
         }
         catch (Exception ex)
         {

@@ -9,12 +9,19 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     private readonly ConcurrentDictionary<uint, ProcessTrafficInfo> _processes = new();
     private readonly ConcurrentDictionary<uint, TrafficCounter> _counters = new();
     private readonly Timer _snapshotTimer;
+    private readonly IRateLimiter? _rateLimiter;
+    private readonly double _intervalSeconds;
+    private readonly object _usageLock = new();
+    private readonly Dictionary<uint, (long Received, long Sent)> _usageMarks = new();
 
     public event Action<TrafficSnapshot>? OnSnapshot;
 
-    public TrafficMonitor(TimeSpan? snapshotInterval = null)
+    /// <param name="rateLimiter">Where the limit each process is held to is read from.</param>
+    public TrafficMonitor(TimeSpan? snapshotInterval = null, IRateLimiter? rateLimiter = null)
     {
         var interval = snapshotInterval ?? TimeSpan.FromSeconds(1);
+        _intervalSeconds = interval.TotalSeconds;
+        _rateLimiter = rateLimiter;
         _snapshotTimer = new Timer(OnSnapshotTick, null, interval, interval);
     }
 
@@ -77,43 +84,47 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         return _processes.Values.ToList();
     }
 
+    /// <summary>
+    /// Closes the current window: each process's speed becomes what it moved during it, and its
+    /// limit is read from the rate limiter. The monitor's timer calls this once per interval.
+    /// Snapshots used to do this themselves, so the timer, the stats recorder, the app and the
+    /// API each zeroed the counters for the others and every one of them read short speeds.
+    /// </summary>
+    public void SampleRates()
+    {
+        foreach (var (pid, info) in _processes)
+        {
+            long down = 0, up = 0;
+            if (_counters.TryGetValue(pid, out var counter))
+            {
+                down = (long)Math.Round(Interlocked.Exchange(ref counter.DownloadBytes, 0) / _intervalSeconds);
+                up = (long)Math.Round(Interlocked.Exchange(ref counter.UploadBytes, 0) / _intervalSeconds);
+            }
+            info.CurrentDownloadBytesPerSecond = down;
+            info.CurrentUploadBytesPerSecond = up;
+
+            if (_rateLimiter is not null)
+            {
+                bool limited = _rateLimiter.TryGetLimit(pid, out var downLimit, out var upLimit);
+                info.DownloadLimitBytesPerSecond = limited && downLimit > 0 ? downLimit : null;
+                info.UploadLimitBytesPerSecond = limited && upLimit > 0 ? upLimit : null;
+            }
+        }
+    }
+
+    /// <summary>The speeds from the last closed window. Reading it changes nothing.</summary>
     public TrafficSnapshot TakeSnapshot()
     {
         long totalDown = 0, totalUp = 0;
         var processes = new List<ProcessTrafficInfo>();
 
-        foreach (var (pid, info) in _processes)
+        foreach (var info in _processes.Values)
         {
-            long downSpeed = 0, upSpeed = 0;
-            if (_counters.TryGetValue(pid, out var counter))
-            {
-                downSpeed = Interlocked.Exchange(ref counter.DownloadBytes, 0);
-                upSpeed = Interlocked.Exchange(ref counter.UploadBytes, 0);
-                info.CurrentDownloadBytesPerSecond = downSpeed;
-                info.CurrentUploadBytesPerSecond = upSpeed;
-            }
-            totalDown += downSpeed;
-            totalUp += upSpeed;
-
-            // Return a snapshot copy to prevent consumers from observing
-            // concurrent mutations to LastActivityAt, ProcessPath, etc.
-            processes.Add(new ProcessTrafficInfo
-            {
-                ProcessId = info.ProcessId,
-                ProcessName = info.ProcessName,
-                ProcessPath = info.ProcessPath,
-                ServiceName = info.ServiceName,
-                AppxPackage = info.AppxPackage,
-                CurrentDownloadBytesPerSecond = downSpeed,
-                CurrentUploadBytesPerSecond = upSpeed,
-                TotalBytesReceived = info.TotalBytesReceived,
-                TotalBytesSent = info.TotalBytesSent,
-                DownloadLimitBytesPerSecond = info.DownloadLimitBytesPerSecond,
-                UploadLimitBytesPerSecond = info.UploadLimitBytesPerSecond,
-                ActiveConnectionCount = info.ActiveConnectionCount,
-                FirstSeenAt = info.FirstSeenAt,
-                LastActivityAt = info.LastActivityAt
-            });
+            long down = info.CurrentDownloadBytesPerSecond;
+            long up = info.CurrentUploadBytesPerSecond;
+            totalDown += down;
+            totalUp += up;
+            processes.Add(Copy(info, down, up));
         }
 
         return new TrafficSnapshot
@@ -124,10 +135,69 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         };
     }
 
+    /// <summary>
+    /// The bytes each process moved since the previous call, in the Current* fields, which is
+    /// how the usage history stores a record. Only the history recorder calls this.
+    /// </summary>
+    public TrafficSnapshot TakeUsage()
+    {
+        lock (_usageLock)
+        {
+            long totalDown = 0, totalUp = 0;
+            var processes = new List<ProcessTrafficInfo>();
+            var seen = new HashSet<uint>();
+
+            foreach (var (pid, info) in _processes)
+            {
+                seen.Add(pid);
+                long received = info.TotalBytesReceived;
+                long sent = info.TotalBytesSent;
+                var mark = _usageMarks.GetValueOrDefault(pid);
+                long down = received >= mark.Received ? received - mark.Received : received;
+                long up = sent >= mark.Sent ? sent - mark.Sent : sent;
+                _usageMarks[pid] = (received, sent);
+                totalDown += down;
+                totalUp += up;
+                processes.Add(Copy(info, down, up));
+            }
+
+            foreach (var pid in _usageMarks.Keys.Where(pid => !seen.Contains(pid)).ToList())
+                _usageMarks.Remove(pid);
+
+            return new TrafficSnapshot
+            {
+                Processes = processes,
+                TotalDownloadBytesPerSecond = totalDown,
+                TotalUploadBytesPerSecond = totalUp
+            };
+        }
+    }
+
+    /// <summary>
+    /// A copy, so consumers never see concurrent changes to LastActivityAt, ProcessPath and the rest.
+    /// </summary>
+    private static ProcessTrafficInfo Copy(ProcessTrafficInfo info, long down, long up) => new()
+    {
+        ProcessId = info.ProcessId,
+        ProcessName = info.ProcessName,
+        ProcessPath = info.ProcessPath,
+        ServiceName = info.ServiceName,
+        AppxPackage = info.AppxPackage,
+        CurrentDownloadBytesPerSecond = down,
+        CurrentUploadBytesPerSecond = up,
+        TotalBytesReceived = info.TotalBytesReceived,
+        TotalBytesSent = info.TotalBytesSent,
+        DownloadLimitBytesPerSecond = info.DownloadLimitBytesPerSecond,
+        UploadLimitBytesPerSecond = info.UploadLimitBytesPerSecond,
+        ActiveConnectionCount = info.ActiveConnectionCount,
+        FirstSeenAt = info.FirstSeenAt,
+        LastActivityAt = info.LastActivityAt
+    };
+
     private void OnSnapshotTick(object? state)
     {
-        var snapshot = TakeSnapshot();
-        OnSnapshot?.Invoke(snapshot);
+        SampleRates();
+        OnSnapshot?.Invoke(TakeSnapshot());
     }
 
     public void Dispose()

@@ -8,5 +8,8 @@ public interface ITrafficMonitor
     ProcessTrafficInfo? GetProcessInfo(uint processId);
     IReadOnlyList<ProcessTrafficInfo> GetAllProcesses();
     TrafficSnapshot TakeSnapshot();
+
+    /// <summary>The bytes each process moved since the previous call, for the usage history.</summary>
+    TrafficSnapshot TakeUsage();
     event Action<TrafficSnapshot>? OnSnapshot;
 }

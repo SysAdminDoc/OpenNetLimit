@@ -25,7 +25,7 @@ public class BandwidthAlertTrackerTests : IDisposable
         tracker.OnAlert += e => alert = e;
 
         monitor.RecordBytes(1, "chrome", 1500, isUpload: false);
-        monitor.TakeSnapshot();
+        monitor.SampleRates();
         tracker.Update();
 
         Assert.NotNull(alert);
@@ -48,10 +48,10 @@ public class BandwidthAlertTrackerTests : IDisposable
         tracker.OnAlert += _ => count++;
 
         monitor.RecordBytes(1, "chrome", 1500, isUpload: false);
-        monitor.TakeSnapshot();
+        monitor.SampleRates();
         tracker.Update();
         monitor.RecordBytes(1, "chrome", 1600, isUpload: false);
-        monitor.TakeSnapshot();
+        monitor.SampleRates();
         tracker.Update();
 
         Assert.Equal(1, count);
