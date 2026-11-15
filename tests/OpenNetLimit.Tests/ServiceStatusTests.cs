@@ -185,6 +185,10 @@ public class ServiceStatusTests
     [InlineData("Resume_Done_Body")]
     [InlineData("Resume_Failed_Title")]
     [InlineData("Engine_NoAnswer")]
+    [InlineData("Engine_NoReply_Title")]
+    [InlineData("Engine_ConnectionLost")]
+    [InlineData("Pause_StayNotSaved_Body")]
+    [InlineData("Pause_StayNotCleared_Body")]
     public void NewStatusStrings_ExistInEveryLanguage(string key)
     {
         var resources = new ResourceManager("OpenNetLimit.UI.Resources.Strings", typeof(LocalizationManager).Assembly);

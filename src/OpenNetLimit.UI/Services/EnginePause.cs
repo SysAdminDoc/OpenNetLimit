@@ -19,19 +19,34 @@ public static class EnginePause
 
     public const string ResumeCommand = "RESUME";
 
-    /// <summary>What to say once the service answers a pause. Status is null when the reply wasn't one.</summary>
-    public static TrayNotice AfterPause(string? reply, DiagnosticInfo? status)
+    /// <summary>
+    /// The connection dropped before the answer came, so whether it worked isn't known. The
+    /// status in the window catches up on the next poll.
+    /// </summary>
+    private static readonly TrayNotice NoReply = new("Engine_NoReply_Title", BodyKey: "Engine_ConnectionLost", IsWarning: true);
+
+    /// <summary>
+    /// What to say once the service answers a pause. Status is null when the reply wasn't one.
+    /// <paramref name="stayRequested"/> is whether the pause asked to stay paused after a restart.
+    /// </summary>
+    public static TrayNotice AfterPause(string? reply, DiagnosticInfo? status, bool stayRequested = false)
     {
+        if (reply is null)
+            return NoReply;
         if (status is not { Paused: true })
             return new TrayNotice("Pause_Failed_Title", Body: Reason(reply, status), IsWarning: true);
         if (!string.IsNullOrWhiteSpace(status.DriverLoadedReason))
             return new TrayNotice("Pause_StillLoaded_Title", Body: status.DriverLoadedReason, IsWarning: true);
+        if (status.StayPaused != stayRequested)
+            return new TrayNotice("Status_Paused",
+                BodyKey: stayRequested ? "Pause_StayNotSaved_Body" : "Pause_StayNotCleared_Body", IsWarning: true);
         return new TrayNotice("Status_Paused", BodyKey: "Pause_Unloaded_Body");
     }
 
     /// <summary>What to say once the service answers a resume.</summary>
     public static TrayNotice AfterResume(string? reply, DiagnosticInfo? status) =>
-        status is { Running: true, Paused: false }
+        reply is null ? NoReply
+        : status is { Running: true, Paused: false }
             ? new TrayNotice("Resume_Done_Title", BodyKey: "Resume_Done_Body")
             : new TrayNotice("Resume_Failed_Title", Body: Reason(reply, status), IsWarning: true);
 

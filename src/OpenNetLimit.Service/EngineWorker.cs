@@ -32,6 +32,11 @@ public class EngineWorker : BackgroundService
     private volatile bool _paused;
     private volatile bool _stayPaused;
     private volatile string? _driverLoadedReason;
+
+    /// <summary>Set while a pause unloads the driver or a resume reopens it, so status reads don't recheck it mid-change.</summary>
+    private volatile bool _changingDriver;
+
+    internal const string UnloadingReason = "The WinDivert driver is unloading.";
     private bool _backgroundStarted;
     private RuleReconciler? _reconciler;
     private QuotaTracker? _quotaTracker;
@@ -268,8 +273,12 @@ public class EngineWorker : BackgroundService
             {
                 _paused = _stayPaused = true;
                 _logger.LogInformation("The packet engine stays paused, as asked before the restart");
+                // A stop from before the restart can still be waiting on another program, or
+                // something loaded the driver since.
+                UnloadDriver();
             }
-            if (_paused || await TryStartInterceptorAsync(stoppingToken))
+            // A resume that got in first has started everything already.
+            if (!_backgroundStarted && (_paused || await TryStartInterceptorAsync(stoppingToken)))
                 StartBackgroundWork();
         }
         finally
@@ -303,30 +312,44 @@ public class EngineWorker : BackgroundService
             {
                 _logger.LogError(ex, "Error stopping the packet interceptor for a pause");
             }
-            _stayPaused = SaveStayPaused(stayPaused);
-
-            _driverLoadedReason = null;
-            try
-            {
-                // Bounded by DriverUnloader.UnloadLimit. Only a service stop cuts it short, so a
-                // client that hangs up mid-pause doesn't leave the reason unknown.
-                _driverLoadedReason = _driverUnloader.Unload(_shutdown.Token);
-            }
-            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
-            {
-                // The service is stopping.
-            }
-
-            if (_driverLoadedReason is null)
-                _logger.LogInformation("Packet engine paused and the WinDivert driver unloaded");
-            else
-                _logger.LogWarning("Packet engine paused, but the driver is still loaded: {Reason}", _driverLoadedReason);
+            _stayPaused = SetStayPausedMarker(stayPaused);
+            _logger.LogInformation("Packet engine paused");
+            UnloadDriver();
         }
         finally
         {
             _engineGate.Release();
         }
         return GetDiagnosticInfo();
+    }
+
+    /// <summary>
+    /// Stops the driver and records why it's still loaded, if it is. Until it knows, a status
+    /// read keeps the reason it had, or says the driver is unloading, never that it's unloaded.
+    /// Call it holding the engine gate.
+    /// </summary>
+    private void UnloadDriver()
+    {
+        _driverLoadedReason ??= UnloadingReason;
+        _changingDriver = true;
+        try
+        {
+            // Bounded by DriverUnloader.UnloadLimit. Only a service stop cuts it short, so a
+            // client that hangs up mid-pause doesn't leave the reason unknown.
+            _driverLoadedReason = _driverUnloader.Unload(_shutdown.Token);
+            if (_driverLoadedReason is null)
+                _logger.LogInformation("The WinDivert driver is unloaded");
+            else
+                _logger.LogWarning("The WinDivert driver is still loaded: {Reason}", _driverLoadedReason);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+            _logger.LogInformation("The service stopped before the WinDivert driver finished unloading");
+        }
+        finally
+        {
+            _changingDriver = false;
+        }
     }
 
     /// <summary>
@@ -343,29 +366,54 @@ public class EngineWorker : BackgroundService
             if (_stopping || (!_paused && _interceptor.IsRunning))
                 return GetDiagnosticInfo();
 
-            SaveStayPaused(false);
-            _stayPaused = false;
-            _driverLoadedReason = null;
-            _engineError = null;
-            try
+            bool wasPaused = _paused;
+            if (wasPaused && _driverUnloader.WhyLoaded(out bool stopPending) is { } held && stopPending)
             {
-                // Closes whatever an engine that stopped after errors left open.
-                await _interceptor.StopAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error closing the packet interceptor before a resume");
+                // Opening now would wait out the preflight's pending limit, then fail with error 433.
+                _driverLoadedReason = held;
+                _engineError = $"It can't resume until the driver finishes unloading. {held}";
+                _logger.LogWarning("Resume refused while the WinDivert driver is still unloading: {Reason}", held);
+                return GetDiagnosticInfo();
             }
 
-            // Still paused while it starts, so a status read meanwhile isn't an error.
-            bool started = await TryStartInterceptorAsync(_shutdown.Token);
-            _paused = false;
-            if (started)
+            _engineError = null;
+            _changingDriver = true;
+            try
             {
-                ClearLastError();
-                if (!_backgroundStarted)
-                    StartBackgroundWork();
-                _logger.LogInformation("Packet engine resumed");
+                try
+                {
+                    // Closes whatever an engine that stopped after errors left open.
+                    await _interceptor.StopAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error closing the packet interceptor before a resume");
+                }
+
+                // Still paused while it starts, so a status read meanwhile isn't an error.
+                if (await TryStartInterceptorAsync(_shutdown.Token))
+                {
+                    _paused = false;
+                    _driverLoadedReason = null;
+                    _stayPaused = SetStayPausedMarker(false);
+                    if (_stayPaused)
+                        _logger.LogError("The engine resumed, but {Path} couldn't be removed, so it comes up paused after a restart", _stayPausedPath);
+                    ClearLastError();
+                    if (!_backgroundStarted)
+                        StartBackgroundWork();
+                    _logger.LogInformation("Packet engine resumed");
+                }
+                else
+                {
+                    // A paused engine stays paused, stay-paused choice and all, so the tray still
+                    // offers Resume. The status says why it didn't start.
+                    _paused = wasPaused;
+                    _driverLoadedReason = null;
+                }
+            }
+            finally
+            {
+                _changingDriver = false;
             }
         }
         finally
@@ -375,8 +423,11 @@ public class EngineWorker : BackgroundService
         return GetDiagnosticInfo();
     }
 
-    /// <summary>Saves or clears the stay-paused choice. Returns whether it's saved.</summary>
-    private bool SaveStayPaused(bool stayPaused)
+    /// <summary>
+    /// Writes or removes the stay-paused marker. Returns whether the marker is there afterwards,
+    /// so the status shows what the next start will do even when the change failed.
+    /// </summary>
+    private bool SetStayPausedMarker(bool stayPaused)
     {
         try
         {
@@ -384,15 +435,19 @@ public class EngineWorker : BackgroundService
             {
                 EnsureDataDirectory();
                 File.WriteAllText(_stayPausedPath, DateTime.UtcNow.ToString("O"));
-                return true;
             }
-            File.Delete(_stayPausedPath);
+            else if (File.Exists(_stayPausedPath))
+            {
+                // A read-only marker would otherwise refuse to go.
+                File.SetAttributes(_stayPausedPath, FileAttributes.Normal);
+                File.Delete(_stayPausedPath);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning(ex, "Could not save whether the engine stays paused at {Path}", _stayPausedPath);
+            _logger.LogWarning(ex, "Could not change whether the engine stays paused at {Path}", _stayPausedPath);
         }
-        return false;
+        return File.Exists(_stayPausedPath);
     }
 
     /// <summary>One line the app can show when the packet engine can't start.</summary>
@@ -786,13 +841,9 @@ public class EngineWorker : BackgroundService
         if (engineError is null && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
 
-        // A stop left pending finishes once the other program closes the driver.
         var driverLoadedReason = _driverLoadedReason;
-        if (paused && driverLoadedReason is not null && _driverUnloader.IsUnloaded())
-        {
-            Interlocked.CompareExchange(ref _driverLoadedReason, null, driverLoadedReason);
-            driverLoadedReason = null;
-        }
+        if (paused && !_changingDriver)
+            driverLoadedReason = RecheckDriver(driverLoadedReason);
 
         return new DiagnosticInfo
         {
@@ -809,6 +860,28 @@ public class EngineWorker : BackgroundService
             PacketsSent = _interceptor.TotalSent,
             PacketsBlocked = _interceptor.TotalBlocked
         };
+    }
+
+    /// <summary>
+    /// While paused the driver can unload late (a stop left pending finishes once the other
+    /// program closes it) or load again (another program opened it), so a status read checks.
+    /// Only a change lists the programs; otherwise it's one service-state query.
+    /// </summary>
+    private string? RecheckDriver(string? known)
+    {
+        if (known is not null)
+        {
+            if (!_driverUnloader.IsUnloaded())
+                return known;
+            Interlocked.CompareExchange(ref _driverLoadedReason, null, known);
+            return null;
+        }
+        if (_driverUnloader.IsUnloaded())
+            return null;
+        var why = _driverUnloader.WhyLoaded(out _);
+        if (why is not null)
+            Interlocked.CompareExchange(ref _driverLoadedReason, why, null);
+        return why;
     }
 
     private void RecordLastError(string message)

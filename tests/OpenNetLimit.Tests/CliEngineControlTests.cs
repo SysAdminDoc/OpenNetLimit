@@ -35,6 +35,24 @@ public sealed class CliEngineControlTests
     }
 
     [Fact]
+    public void StayPausedAskedButNotSaved_WarnsThatThePauseEndsOnRestart()
+    {
+        var code = Cli.PauseOutcome("""{"paused":true,"stayPaused":false}""", _error, stayRequested: true);
+
+        Assert.Equal(0, code);
+        Assert.Contains("ends when the service restarts", _error.ToString());
+    }
+
+    [Fact]
+    public void StayPausedNotAskedButStillSaved_WarnsThatItStaysPaused()
+    {
+        var code = Cli.PauseOutcome("""{"paused":true,"stayPaused":true}""", _error, stayRequested: false);
+
+        Assert.Equal(0, code);
+        Assert.Contains("stays paused after a restart", _error.ToString());
+    }
+
+    [Fact]
     public void Resumed_ExitsZero()
     {
         Assert.Equal(0, Cli.ResumeOutcome("""{"running":true,"paused":false}""", _error));

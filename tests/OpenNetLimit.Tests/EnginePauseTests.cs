@@ -56,7 +56,6 @@ public sealed class EnginePauseTests
     }
 
     [Theory]
-    [InlineData(null)]
     [InlineData("not json")]
     [InlineData("""{"error":""}""")]
     public void NoUsableReason_FallsBackToTheGenericText(string? reply)
@@ -66,6 +65,40 @@ public sealed class EnginePauseTests
         Assert.Null(notice.Body);
         Assert.Null(notice.BodyKey);
         Assert.Equal(LocalizationManager.Text("Engine_NoAnswer"), notice.ResolveBody());
+    }
+
+    [Fact]
+    public void ConnectionDroppedBeforeTheAnswer_DoesNotClaimItFailed()
+    {
+        var pause = EnginePause.AfterPause(null, null);
+        var resume = EnginePause.AfterResume(null, null);
+
+        Assert.Equal(new TrayNotice("Engine_NoReply_Title", BodyKey: "Engine_ConnectionLost", IsWarning: true), pause);
+        Assert.Equal(pause, resume);
+    }
+
+    [Fact]
+    public void Pause_StayPausedNotSaved_WarnsThatThePauseEndsOnRestart()
+    {
+        var notice = EnginePause.AfterPause("{}", Unloaded, stayRequested: true);
+
+        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_StayNotSaved_Body", IsWarning: true), notice);
+    }
+
+    [Fact]
+    public void Pause_EarlierStayPausedNotCleared_WarnsThatItStaysPaused()
+    {
+        var notice = EnginePause.AfterPause("{}", new DiagnosticInfo { Paused = true, StayPaused = true }, stayRequested: false);
+
+        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_StayNotCleared_Body", IsWarning: true), notice);
+    }
+
+    [Fact]
+    public void Pause_StayPausedSaved_SaysTheGameCanStart()
+    {
+        var notice = EnginePause.AfterPause("{}", new DiagnosticInfo { Paused = true, StayPaused = true }, stayRequested: true);
+
+        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_Unloaded_Body"), notice);
     }
 
     [Fact]

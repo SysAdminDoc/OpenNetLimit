@@ -40,6 +40,8 @@
   <data name="Column_TotalUp" xml:space="preserve"><value>Total Up</value></data>
   <data name="Column_UploadPerSecond" xml:space="preserve"><value>Upload/s</value></data>
   <data name="Engine_NoAnswer" xml:space="preserve"><value>The service didn't say why. Check that it's running, then try again.</value></data>
+  <data name="Engine_NoReply_Title" xml:space="preserve"><value>No answer from the service</value></data>
+  <data name="Engine_ConnectionLost" xml:space="preserve"><value>The connection dropped before the service answered. The status in the app window shows whether it worked.</value></data>
   <data name="Label_Download" xml:space="preserve"><value>Download: </value></data>
   <data name="Label_Upload" xml:space="preserve"><value>Upload: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Language: {0}</value></data>
@@ -55,6 +57,8 @@
   <data name="Pause_Failed_Title" xml:space="preserve"><value>Couldn't pause</value></data>
   <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>Paused, but the driver is still loaded</value></data>
   <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Nothing from OpenNetLimit is loaded now, so you can start your game.</value></data>
+  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>The driver is unloaded, but the choice to stay paused couldn't be saved. The pause ends when the service restarts.</value></data>
+  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>The driver is unloaded, but an earlier choice to stay paused couldn't be cleared. It stays paused after a restart until you resume.</value></data>
   <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Driver unloaded</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Process traffic list</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>

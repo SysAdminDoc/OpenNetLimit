@@ -100,7 +100,7 @@ public static class Program
         bool stay = args.Contains("--stay-paused", StringComparer.OrdinalIgnoreCase);
         var (succeeded, body) = await PostEmpty($"/api/v1/engine/pause?stay={stay}");
         PrintFormatted(body);
-        return succeeded ? PauseOutcome(body, Console.Error) : 1;
+        return succeeded ? PauseOutcome(body, Console.Error, stay) : 1;
     }
 
     private static async Task<int> ResumeEngine()
@@ -112,9 +112,10 @@ public static class Program
 
     /// <summary>
     /// 0 when paused with the driver unloaded, 2 when paused but the driver is still loaded
-    /// (why goes to stderr), 1 when the engine isn't paused.
+    /// (why goes to stderr), 1 when the engine isn't paused. A stay-paused choice the service
+    /// couldn't save or clear gets a warning on stderr.
     /// </summary>
-    internal static int PauseOutcome(string statusJson, TextWriter error)
+    internal static int PauseOutcome(string statusJson, TextWriter error, bool stayRequested = false)
     {
         if (!TryParseStatus(statusJson, error, out var status))
             return 1;
@@ -123,6 +124,11 @@ public static class Program
             error.WriteLine($"Error: the engine isn't paused. {Text(status, "engineError")}".TrimEnd());
             return 1;
         }
+        bool stayPaused = IsTrue(status, "stayPaused");
+        if (stayRequested && !stayPaused)
+            error.WriteLine("Warning: paused, but the choice to stay paused couldn't be saved, so the pause ends when the service restarts.");
+        else if (!stayRequested && stayPaused)
+            error.WriteLine("Warning: paused, but an earlier choice to stay paused couldn't be cleared, so the engine stays paused after a restart until you run `onl resume`.");
         if (Text(status, "driverLoadedReason") is { } reason)
         {
             error.WriteLine(reason);

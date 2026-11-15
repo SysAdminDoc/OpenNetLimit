@@ -23,6 +23,9 @@ public sealed class EngineWorkerTests : IDisposable
     private readonly DriverPreflightTests.FakeDriverService _driver = new();
     private string[] _programsUsingWinDivert = [];
 
+    /// <summary>Runs on each wait while a pause watches the driver unload.</summary>
+    private Action? _duringUnloadWait;
+
     /// <summary>Set once the worker's boot start is done and it serves the control pipe.</summary>
     private TaskCompletionSource _pipeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -287,6 +290,123 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Resume_WhileAnotherProgramStillHoldsTheDriver_StaysPausedAndSaysWhy()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+
+        await _controlPlane.PauseHandler!(true, CancellationToken.None);
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Paused);
+        Assert.True(resumed.StayPaused);
+        Assert.False(resumed.Running);
+        Assert.Contains("wireguard.exe", resumed.EngineError);
+        Assert.Contains("wireguard.exe", resumed.DriverLoadedReason);
+        Assert.True(File.Exists(StayPausedPath));
+        // Opening while the stop is pending only waits out the preflight, then fails with 433.
+        Assert.Equal(1, interceptor.StartCount);
+    }
+
+    [Fact]
+    public async Task Resume_ThatFailsToStart_StaysPausedAndKeepsStayPaused()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(true, CancellationToken.None);
+
+        interceptor.StartFailure = new WinDivertOpenException(
+            WinDivert.Layer.Flow, WinDivert.Flag.Sniff, 433, "A device which does not exist was specified.");
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Paused);
+        Assert.True(resumed.StayPaused);
+        Assert.False(resumed.Running);
+        Assert.Contains(WinDivertOpenException.DescribeError(433), resumed.EngineError);
+        Assert.True(File.Exists(StayPausedPath));
+    }
+
+    [Fact]
+    public async Task RestartIntoStayPaused_WithTheDriverStillHeld_SaysWhy()
+    {
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(StayPausedPath, "");
+        _driver.Then(DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await StartAndWaitForBootAsync(worker);
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Paused);
+        Assert.Contains("wireguard.exe", status.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task WhilePaused_AnotherProgramLoadingTheDriver_ShowsInTheStatus()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var paused = await _controlPlane.PauseHandler!(false, CancellationToken.None);
+
+        _programsUsingWinDivert = ["wireguard.exe"];
+        _driver.Then(DriverServiceState.Running);
+        var loadedAgain = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Null(paused.DriverLoadedReason);
+        Assert.Contains("wireguard.exe", loadedAgain.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileAPauseIsUnloadingTheDriver_NeverSaysItIsUnloaded()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        var readsDuringUnload = new List<string?>();
+        _duringUnloadWait = () => readsDuringUnload.Add(_controlPlane.GetDiagnostics().DriverLoadedReason);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+
+        // The first pause has no reason yet; the second already knows one.
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotEmpty(readsDuringUnload);
+        Assert.All(readsDuringUnload, Assert.NotNull);
+    }
+
+    [Fact]
+    public async Task ResumeBeforeTheBootStart_StartsTheEngineOnce()
+    {
+        // The REST API answers before the boot start runs. A resume that gets in first used to
+        // be followed by a second start and a second set of background timers.
+        var interceptor = new FakeInterceptor { HoldStart = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        _pipeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await worker.StartAsync(CancellationToken.None);
+        var resume = _controlPlane.ResumeHandler!(CancellationToken.None);
+        await interceptor.Started.Task.WaitAsync(Timeout);
+        interceptor.HoldStart!.SetResult();
+        await resume.WaitAsync(Timeout);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Running);
+        Assert.Equal(1, interceptor.StartCount);
+    }
+
+    [Fact]
     public async Task NotAdmin_PauseAndResumeChangeNothing()
     {
         var interceptor = new FakeInterceptor();
@@ -351,7 +471,7 @@ public sealed class EngineWorkerTests : IDisposable
             NullLogger<EngineWorker>.Instance,
             _dataDir,
             isAdmin,
-            new DriverUnloader(_driver, (_, _) => { }, () => _programsUsingWinDivert));
+            new DriverUnloader(_driver, (_, _) => _duringUnloadWait?.Invoke(), () => _programsUsingWinDivert));
     }
 
     private async Task StartAndWaitForBootAsync(EngineWorker worker)
@@ -392,22 +512,26 @@ public sealed class EngineWorkerTests : IDisposable
 
         /// <summary>Like a start waiting on another program's driver load: it ends when the service stops.</summary>
         public bool StartWaitsForStop { get; init; }
+
+        /// <summary>When set, a start doesn't finish until this completes.</summary>
+        public TaskCompletionSource? HoldStart { get; init; }
         public bool IsRunning { get; set; }
         public long TotalBlocked => 0;
         public long TotalDelayed => 0;
         public long TotalDropped => 0;
         public long TotalSent => 0;
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             StartCount++;
             Started.TrySetResult();
             if (StartFailure is not null)
                 throw StartFailure;
             if (StartWaitsForStop)
-                return Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+                await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+            if (HoldStart is not null)
+                await HoldStart.Task.WaitAsync(cancellationToken);
             IsRunning = true;
-            return Task.CompletedTask;
         }
 
         public Task StopAsync()

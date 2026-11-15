@@ -40,6 +40,8 @@
   <data name="Column_TotalUp" xml:space="preserve"><value>Total subido</value></data>
   <data name="Column_UploadPerSecond" xml:space="preserve"><value>Subida/s</value></data>
   <data name="Engine_NoAnswer" xml:space="preserve"><value>El servicio no dijo por qué. Comprueba que se está ejecutando y vuelve a intentarlo.</value></data>
+  <data name="Engine_NoReply_Title" xml:space="preserve"><value>Sin respuesta del servicio</value></data>
+  <data name="Engine_ConnectionLost" xml:space="preserve"><value>La conexión se cortó antes de que el servicio respondiera. El estado en la ventana de la aplicación muestra si funcionó.</value></data>
   <data name="Label_Download" xml:space="preserve"><value>Descarga: </value></data>
   <data name="Label_Upload" xml:space="preserve"><value>Subida: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Idioma: {0}</value></data>
@@ -55,6 +57,8 @@
   <data name="Pause_Failed_Title" xml:space="preserve"><value>No se pudo pausar</value></data>
   <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>En pausa, pero el controlador sigue cargado</value></data>
   <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Ya no queda nada de OpenNetLimit cargado, así que puedes iniciar tu juego.</value></data>
+  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>El controlador está descargado, pero no se pudo guardar la opción de seguir en pausa. La pausa termina cuando se reinicie el servicio.</value></data>
+  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>El controlador está descargado, pero no se pudo borrar una opción anterior de seguir en pausa. Seguirá en pausa tras reiniciar hasta que lo reanudes.</value></data>
   <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Controlador descargado</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Lista de trafico por proceso</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>

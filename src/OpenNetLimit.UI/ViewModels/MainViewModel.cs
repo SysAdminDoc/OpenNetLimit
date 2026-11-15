@@ -190,7 +190,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public event Action<TrayNotice>? TrayNoticeRaised;
 
     public Task PauseAsync(bool stayPaused) =>
-        RunEngineCommandAsync(EnginePause.PauseCommand(stayPaused), EnginePause.AfterPause);
+        RunEngineCommandAsync(EnginePause.PauseCommand(stayPaused),
+            (reply, status) => EnginePause.AfterPause(reply, status, stayPaused));
 
     public Task ResumeAsync() => RunEngineCommandAsync(EnginePause.ResumeCommand, EnginePause.AfterResume);
 
