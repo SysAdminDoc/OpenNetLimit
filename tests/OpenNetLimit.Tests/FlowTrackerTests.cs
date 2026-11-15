@@ -88,6 +88,46 @@ public class FlowTrackerTests
     }
 
     [Fact]
+    public void ForgetProcess_AfterItsIdWentToANewerProcess_KeepsTheNewOnesFlows()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "svchost", null);
+        now += TimeSpan.FromSeconds(1);
+        var reusedAt = now;
+        tracker.UnregisterFlow(MakeFlowKey(2));
+        tracker.RegisterFlow(MakeFlowKey(3), 200, "chrome", null);
+
+        tracker.ForgetProcess(200, establishedBefore: reusedAt);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        // Closing it after the new process started doesn't make it the new one's.
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(2)));
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(3))?.ProcessName);
+    }
+
+    [Fact]
+    public void ForgetProcess_TellsWhoeverListens_BeforeItsFlowsGo()
+    {
+        var tracker = new FlowTracker();
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null);
+        uint? forgotten = null;
+        bool flowStillThere = false;
+        tracker.ForgettingProcess += processId =>
+        {
+            forgotten = processId;
+            flowStillThere = tracker.LookupConnection(MakeFlowKey(1)) is not null;
+        };
+
+        tracker.ForgetProcess(200);
+
+        Assert.Equal(200u, forgotten);
+        Assert.True(flowStillThere);
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+    }
+
+    [Fact]
     public void GetActiveConnections_ExcludesClosed()
     {
         var tracker = new FlowTracker();

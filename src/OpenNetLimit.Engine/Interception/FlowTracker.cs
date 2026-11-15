@@ -7,17 +7,29 @@ namespace OpenNetLimit.Engine.Interception;
 public class FlowTracker : IFlowTracker
 {
     private readonly ConcurrentDictionary<FlowKey, ConnectionInfo> _flows = new();
+    private readonly Func<DateTime> _utcNow;
+
+    public FlowTracker()
+        : this(() => DateTime.UtcNow)
+    {
+    }
+
+    internal FlowTracker(Func<DateTime> utcNow) => _utcNow = utcNow;
 
     public event Action<uint, string, string?>? FlowRegistered;
 
+    public event Action<uint>? ForgettingProcess;
+
     public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath)
     {
+        var registeredAt = _utcNow();
         var connection = new ConnectionInfo
         {
             FlowKey = flowKey,
             ProcessId = processId,
             ProcessName = processName,
-            ProcessPath = processPath
+            ProcessPath = processPath,
+            EstablishedAt = registeredAt
         };
         _flows.AddOrUpdate(flowKey, connection, (_, existing) =>
         {
@@ -30,6 +42,7 @@ public class FlowTracker : IFlowTracker
                 ProcessId = processId,
                 ProcessName = processName,
                 ProcessPath = processPath,
+                EstablishedAt = registeredAt,
                 ClosedAt = existing.ClosedAt
             };
             updated.AddBytesSent(existing.BytesSent);
@@ -53,19 +66,22 @@ public class FlowTracker : IFlowTracker
                 ProcessId = existing.ProcessId,
                 ProcessName = existing.ProcessName,
                 ProcessPath = existing.ProcessPath,
-                ClosedAt = DateTime.UtcNow
+                EstablishedAt = existing.EstablishedAt,
+                ClosedAt = _utcNow()
             };
             if (_flows.TryUpdate(flowKey, closed, existing))
                 return;
         }
     }
 
-    public void ForgetProcess(uint processId)
+    public void ForgetProcess(uint processId, DateTime? establishedBefore = null)
     {
+        ForgettingProcess?.Invoke(processId);
         foreach (var (flowKey, connection) in _flows)
         {
             // Only the exact entry seen: a flow registered again meanwhile is someone else's.
-            if (connection.ProcessId == processId)
+            if (connection.ProcessId == processId
+                && (establishedBefore is null || connection.EstablishedAt < establishedBefore))
                 _flows.TryRemove(KeyValuePair.Create(flowKey, connection));
         }
     }
@@ -116,7 +132,7 @@ public class FlowTracker : IFlowTracker
 
     public void PurgeStale(TimeSpan maxAge)
     {
-        var cutoff = DateTime.UtcNow - maxAge;
+        var cutoff = _utcNow() - maxAge;
         var staleKeys = _flows
             .Where(kvp => kvp.Value.ClosedAt.HasValue && kvp.Value.ClosedAt.Value < cutoff)
             .Select(kvp => kvp.Key)

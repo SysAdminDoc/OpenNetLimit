@@ -40,6 +40,7 @@ internal sealed class SocketOwners
         _readSockets = readSockets;
         _identify = identify;
         _clock = clock ?? Stopwatch.GetTimestamp;
+        flowTracker.ForgettingProcess += Forget;
     }
 
     public int AdoptedFlowCount => _adopted.Count;
@@ -94,6 +95,22 @@ internal sealed class SocketOwners
                 continue;
             _flowTracker.UnregisterFlow(flowKey);
             _adopted.TryRemove(flowKey, out _);
+        }
+    }
+
+    /// <summary>
+    /// Drops the sockets of a process that exited. The last read can be 30 seconds old, and a
+    /// late packet on one of them would adopt a flow for the process again, under its name, for
+    /// whatever process Windows gives the ID to next. The next read names that process afresh
+    /// instead of reusing the name it had.
+    /// </summary>
+    public void Forget(uint processId)
+    {
+        lock (_refreshLock)
+        {
+            var owners = _owners;
+            if (owners.Values.Any(owner => owner.ProcessId == processId))
+                _owners = owners.Where(socket => socket.Value.ProcessId != processId).ToDictionary();
         }
     }
 

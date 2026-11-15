@@ -253,10 +253,11 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             _exited.Add((info, _utcNow()));
         }
         _counters.TryRemove(processId, out _);
+        _held.Remove(processId, out var held);
         // While it's held the ID can't be reused, so these flows are all the exited process's.
-        _flows?.ForgetProcess(processId);
-        if (_held.Remove(processId, out var held))
-            held.Process.Dispose();
+        // When the ID already went to a newer process, that one's flows stay.
+        _flows?.ForgetProcess(processId, held?.Process.IdReusedAt);
+        held?.Process.Dispose();
     }
 
     /// <summary>Adds processes that exited a while ago to their program's total, so memory doesn't grow.</summary>
