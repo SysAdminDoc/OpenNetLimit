@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Monitoring;
@@ -1046,5 +1047,284 @@ public class QuotaTrackerTests
         tracker.Update();
 
         Assert.Equal(2, tracker.GetAllQuotaStates().Count);
+    }
+
+    // 2026-11-15 is a Sunday, so its week started on Monday 2026-11-09.
+    private static readonly DateTime Sunday = new(2026, 11, 15, 20, 0, 0);
+
+    private static BandwidthRule QuotaRule(QuotaPeriod period, string app = "curl") => new()
+    {
+        ProcessName = app,
+        Quota = new QuotaConfig { LimitBytes = 1000, Period = period, OnExceeded = QuotaAction.Block }
+    };
+
+    /// <summary>What a tracker saves after one update that counted <paramref name="usedBytes"/> on the rule's app.</summary>
+    private static IReadOnlyList<SavedQuota> SavedAfter(BandwidthRule rule, int usedBytes, DateTime at)
+    {
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(rule);
+        var monitor = new TrafficMonitor();
+        monitor.RecordBytes(1, rule.ProcessName!, usedBytes, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => 0, () => at);
+        tracker.Update();
+        return tracker.SaveStates();
+    }
+
+    /// <summary>
+    /// A tracker in a service restarted at <paramref name="at"/>: handed the saved quotas, then
+    /// updated once with <paramref name="newBytes"/> counted on the rule's app since the start.
+    /// </summary>
+    private static QuotaTracker Restarted(BandwidthRule rule, IEnumerable<SavedQuota?> saved, int newBytes, DateTime at)
+    {
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(rule);
+        var monitor = new TrafficMonitor();
+        if (newBytes > 0)
+            monitor.RecordBytes(1, rule.ProcessName!, newBytes, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => 0, () => at);
+        tracker.Restore(saved);
+        tracker.Update();
+        return tracker;
+    }
+
+    [Fact]
+    public void Restore_CarriesOnFromWhatTheQuotaHadUsed()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday);
+
+        var tracker = Restarted(rule, saved, 300, Sunday.AddHours(1));
+
+        Assert.Equal(900, tracker.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void Restore_KeepsAUsedUpQuotaUsedUp_WithoutAlertingAgain()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 1500, Sunday);
+        Assert.True(saved.Single().IsExceeded);
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(rule);
+        var tracker = new QuotaTracker(ruleEngine, new TrafficMonitor(), () => 0, () => Sunday.AddHours(1));
+        int alerts = 0;
+        tracker.OnQuotaExceeded += (_, _) => alerts++;
+        tracker.OnQuotaWarning += (_, _) => alerts++;
+
+        tracker.Restore(saved);
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id)!;
+        Assert.True(state.IsExceeded);
+        Assert.Equal(1500, state.UsedBytes);
+        Assert.Equal(0, alerts);
+    }
+
+    [Fact]
+    public void Restore_LiftsAUsedUpQuota_WhoseLimitWasRaisedPastItWhileStopped()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 1500, Sunday);
+        var raised = rule.Clone();
+        raised.Quota!.LimitBytes = 2000;
+
+        var tracker = Restarted(raised, saved, 0, Sunday.AddHours(1));
+
+        Assert.False(tracker.GetQuotaState(rule.Id)!.IsExceeded);
+    }
+
+    [Fact]
+    public void SaveStates_AfterARestartWithNoNewTraffic_GivesBackWhatWasSaved()
+    {
+        var rule = QuotaRule(QuotaPeriod.Weekly);
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(rule);
+        var monitor = new TrafficMonitor();
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => 0, () => Sunday);
+        monitor.RecordBytes(1, "curl", 900, false);
+        tracker.Update();
+        monitor.RecordBytes(1, "curl", 600, false);
+        tracker.Update();
+        var saved = tracker.SaveStates();
+        Assert.Equal(new SavedQuota
+        {
+            RuleId = rule.Id,
+            ProcessName = "curl",
+            Period = QuotaPeriod.Weekly,
+            PeriodStart = new DateOnly(2026, 11, 9),
+            UsedBytes = 1500,
+            IsExceeded = true,
+            UsedUpAtLimitBytes = 1000,
+            WarningNotified = true,
+            ExceededNotified = true
+        }, saved.Single());
+
+        var restarted = Restarted(rule, saved, 0, Sunday.AddHours(1));
+
+        Assert.Equal(saved, restarted.SaveStates());
+    }
+
+    [Theory]
+    [InlineData(QuotaPeriod.Daily, "2026-11-15 08:00", "2026-11-15 23:59", true)]
+    [InlineData(QuotaPeriod.Daily, "2026-11-15 23:59", "2026-11-16 00:00", false)]
+    [InlineData(QuotaPeriod.Daily, "2026-11-16 08:00", "2026-11-15 08:00", false)]
+    [InlineData(QuotaPeriod.Weekly, "2026-11-09 00:00", "2026-11-15 23:59", true)]
+    [InlineData(QuotaPeriod.Weekly, "2026-11-10 12:00", "2026-11-12 12:00", true)]
+    [InlineData(QuotaPeriod.Weekly, "2026-11-15 23:59", "2026-11-16 00:00", false)]
+    [InlineData(QuotaPeriod.Weekly, "2026-11-08 12:00", "2026-11-09 12:00", false)]
+    [InlineData(QuotaPeriod.Monthly, "2026-11-01 00:00", "2026-11-30 23:59", true)]
+    [InlineData(QuotaPeriod.Monthly, "2026-10-31 23:59", "2026-11-01 00:00", false)]
+    [InlineData(QuotaPeriod.Monthly, "2025-11-15 12:00", "2026-11-15 12:00", false)]
+    public void Restore_CarriesOnOnlyWithinThePeriodItWasSavedIn(QuotaPeriod period, string savedAt, string restartedAt, bool carriesOn)
+    {
+        var rule = QuotaRule(period);
+        var saved = SavedAfter(rule, 600, DateTime.Parse(savedAt, CultureInfo.InvariantCulture));
+
+        var tracker = Restarted(rule, saved, 300, DateTime.Parse(restartedAt, CultureInfo.InvariantCulture));
+
+        Assert.Equal(carriesOn ? 900 : 300, tracker.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void Restore_StartsOver_WhenTheRuleNowCountsAnotherApp()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday);
+        var moved = QuotaRule(QuotaPeriod.Daily, app: "wget");
+        moved.Id = rule.Id;
+
+        var tracker = Restarted(moved, saved, 300, Sunday);
+
+        Assert.Equal(300, tracker.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void Restore_StartsOver_WhenTheRulesPeriodChanged()
+    {
+        var daily = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(daily, 600, Sunday);
+        var weekly = QuotaRule(QuotaPeriod.Weekly);
+        weekly.Id = daily.Id;
+
+        var tracker = Restarted(weekly, saved, 300, Sunday);
+
+        Assert.Equal(300, tracker.GetQuotaState(daily.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void Restore_StartsOver_FromADamagedSave()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday).Single();
+
+        var noName = Restarted(rule, [saved with { ProcessName = null }], 300, Sunday);
+        var negative = Restarted(rule, [saved with { UsedBytes = -50 }], 300, Sunday);
+        var missing = Restarted(rule, [null], 300, Sunday);
+
+        Assert.Equal(300, noName.GetQuotaState(rule.Id)!.UsedBytes);
+        Assert.Equal(300, negative.GetQuotaState(rule.Id)!.UsedBytes);
+        Assert.Equal(300, missing.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void AQuotaMovedToAnotherPeriod_IsSavedAsThatPeriods()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(rule);
+        var tracker = new QuotaTracker(ruleEngine, new TrafficMonitor(), () => 0, () => Sunday);
+        tracker.Update();
+        var weekly = rule.Clone();
+        weekly.Quota!.Period = QuotaPeriod.Weekly;
+
+        ruleEngine.UpdateRule(weekly);
+        tracker.Update();
+
+        var saved = tracker.SaveStates().Single();
+        Assert.Equal(QuotaPeriod.Weekly, saved.Period);
+        Assert.Equal(new DateOnly(2026, 11, 9), saved.PeriodStart);
+    }
+
+    [Fact]
+    public void ResetPeriod_SavesTheNewPeriodsStart()
+    {
+        var now = Sunday;
+        var ruleEngine = new RuleEngine();
+        ruleEngine.AddRule(QuotaRule(QuotaPeriod.Weekly));
+        var tracker = new QuotaTracker(ruleEngine, new TrafficMonitor(), () => 0, () => now);
+        tracker.Update();
+        now = new DateTime(2026, 11, 16, 0, 0, 30);
+
+        tracker.ResetPeriod(QuotaPeriod.Weekly);
+
+        Assert.Equal(new DateOnly(2026, 11, 16), tracker.SaveStates().Single().PeriodStart);
+    }
+
+    [Fact]
+    public void ASavedQuotaWhoseRuleIsMissingAtTheStart_IsSavedAgainUntilItsPeriodEnds()
+    {
+        // The rules didn't load, so the service started with none.
+        var saved = SavedAfter(QuotaRule(QuotaPeriod.Weekly), 600, Sunday);
+        var now = Sunday.AddHours(1);
+        var tracker = new QuotaTracker(new RuleEngine(), new TrafficMonitor(), () => 0, () => now);
+        tracker.Restore(saved);
+        tracker.Update();
+
+        var thisWeek = tracker.SaveStates();
+        now = new DateTime(2026, 11, 16, 0, 0, 0);
+        var nextWeek = tracker.SaveStates();
+
+        Assert.Equal(saved, thisWeek);
+        Assert.Empty(nextWeek);
+    }
+
+    [Fact]
+    public void ASavedQuotaWhoseRuleIsMissingAtTheStart_CarriesOnWhenTheRuleIsBackAtTheNextStart()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday);
+        var noRules = new QuotaTracker(new RuleEngine(), new TrafficMonitor(), () => 0, () => Sunday.AddHours(1));
+        noRules.Restore(saved);
+        noRules.Update();
+
+        var tracker = Restarted(rule, noRules.SaveStates(), 300, Sunday.AddHours(2));
+
+        Assert.Equal(900, tracker.GetQuotaState(rule.Id)!.UsedBytes);
+    }
+
+    [Fact]
+    public void ASavedQuotaWhoseRuleIsOffAtTheStart_StartsOver()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday);
+        var off = rule.Clone();
+        off.Enabled = false;
+
+        var tracker = Restarted(off, saved, 0, Sunday.AddHours(1));
+
+        Assert.Empty(tracker.SaveStates());
+    }
+
+    [Fact]
+    public void AMissingRuleAddedBackWhileRunning_CountsFromThen_AndItsSavedUseIsDropped()
+    {
+        var rule = QuotaRule(QuotaPeriod.Daily);
+        var saved = SavedAfter(rule, 600, Sunday);
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => 0, () => Sunday.AddHours(1));
+        tracker.Restore(saved);
+        tracker.Update();
+
+        ruleEngine.AddRule(rule);
+        tracker.Update();
+        monitor.RecordBytes(1, "curl", 300, false);
+        tracker.Update();
+        var whileBack = tracker.SaveStates();
+        ruleEngine.RemoveRule(rule.Id);
+        tracker.Update();
+
+        Assert.Equal(300, Assert.Single(whileBack).UsedBytes);
+        Assert.Empty(tracker.SaveStates());
     }
 }

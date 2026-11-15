@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
@@ -83,6 +84,21 @@ public class EngineWorker : BackgroundService
     /// off a whole second.
     /// </summary>
     private static readonly TimeSpan QuotaTimerTick = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How often quota use is written to quotas.json while no quota runs out or comes back.</summary>
+    private static readonly TimeSpan QuotaSaveEvery = TimeSpan.FromMinutes(1);
+
+    /// <summary>Serializes writes to quotas.json. A check, a rule edit and a stop can all save.</summary>
+    private readonly object _quotaSaveLock = new();
+
+    /// <summary>When quotas.json was last written, by the tick count. Under <see cref="_quotaSaveLock"/>.</summary>
+    private long? _lastQuotaSaveMs;
+
+    /// <summary>What was last written to quotas.json, so an unchanged state isn't written again.</summary>
+    private string? _lastQuotaJson;
+
+    /// <summary>The quotas used up at the last write, which a change in saves at once.</summary>
+    private string? _lastSavedUsedUp;
     private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
     private Timer? _scheduleTimer;
@@ -117,6 +133,9 @@ public class EngineWorker : BackgroundService
 
     private readonly string _pcLimitPath;
 
+    /// <summary>What each quota had used in its period, so a restart doesn't give it all back.</summary>
+    private readonly string _quotasPath;
+
     /// <summary>The whole-PC limit as last set, kept when it's off so "include LAN" isn't lost.</summary>
     private volatile WholePcLimit _pcLimit = WholePcLimit.Off;
 
@@ -126,6 +145,21 @@ public class EngineWorker : BackgroundService
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
+
+    private static readonly JsonSerializerOptions QuotaJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    /// <summary>The contents of quotas.json.</summary>
+    private sealed class QuotaFile
+    {
+        public int Version { get; set; } = 1;
+        public List<SavedQuota?>? Quotas { get; set; }
+    }
 
     public EngineWorker(
         IPacketInterceptor interceptor,
@@ -184,6 +218,7 @@ public class EngineWorker : BackgroundService
         _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
         _stayPausedPath = Path.Combine(dataDir, "paused");
         _pcLimitPath = Path.Combine(dataDir, "pc-limit.json");
+        _quotasPath = Path.Combine(dataDir, "quotas.json");
     }
 
     // Since .NET 10 the host runs ExecuteAsync on a thread-pool thread and starts the next
@@ -274,6 +309,9 @@ public class EngineWorker : BackgroundService
             {
                 try { _reconciler.ReconcileAfterRuleChange(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Rule reconciliation failed"); }
+                // A rule edit can use a quota up, give one its traffic back, or move it to another
+                // period or app. Saved at once: a file still naming the old one starts it over.
+                SaveQuotas();
             };
             // Saved as they change, not only on a clean stop: a crash, a power cut or a killed
             // service used to lose every rule and alert added since it started.
@@ -301,6 +339,9 @@ public class EngineWorker : BackgroundService
             DispatchPluginEvent("alert.triggered", alert, stoppingToken);
         };
 
+        // First, so the saved quotas are in before anything can run the first quota update, the
+        // only one that takes them. That's StartQuotaCounts, or a rule edit that comes sooner.
+        LoadQuotas();
         LoadRules();
         LoadAlerts();
         LoadPcLimit();
@@ -858,6 +899,8 @@ public class EngineWorker : BackgroundService
         try
         {
             _reconciler?.ReconcileAfterRuleChange();
+            // That ran a quota update, which can use a quota up.
+            SaveQuotas(onlyWhenDue: true);
         }
         catch (Exception ex)
         {
@@ -988,6 +1031,69 @@ public class EngineWorker : BackgroundService
     }
 
     /// <summary>
+    /// Hands the quota tracker what each quota had used before the restart, for its first update.
+    /// A file that can't be read leaves every quota counting from now, and says so.
+    /// </summary>
+    private void LoadQuotas()
+    {
+        if (_quotaTracker is null || !File.Exists(_quotasPath))
+            return;
+        try
+        {
+            var file = JsonSerializer.Deserialize<QuotaFile>(File.ReadAllText(_quotasPath), QuotaJson);
+            var quotas = file?.Quotas ?? [];
+            _quotaTracker.Restore(quotas);
+            _logger.LogInformation("Loaded what {Count} quotas had used from {Path}", quotas.Count, _quotasPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            _logger.LogError(ex, "Failed to load quota use from {Path}; quotas count from now", _quotasPath);
+            RecordLastError($"Failed to load what quotas had used before the restart, so they count from now: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Writes what each quota has used to quotas.json. With <paramref name="onlyWhenDue"/>, only
+    /// when a quota ran out or came back since the last write, or a minute has passed, so a quota
+    /// checked every second isn't written every second. An unchanged state is never written again.
+    /// </summary>
+    private void SaveQuotas(bool onlyWhenDue = false)
+    {
+        // Before the load, the tracker holds none of the saved quotas, and writing would lose them.
+        if (_quotaTracker is not { } tracker || !_stateLoaded)
+            return;
+        lock (_quotaSaveLock)
+        {
+            try
+            {
+                var quotas = tracker.SaveStates();
+                var usedUp = string.Join(',', quotas.Where(q => q.IsExceeded).Select(q => q.RuleId));
+                long now = Environment.TickCount64;
+                if (onlyWhenDue && usedUp == _lastSavedUsedUp
+                    && _lastQuotaSaveMs is { } last && now - last < (long)QuotaSaveEvery.TotalMilliseconds)
+                    return;
+
+                var json = JsonSerializer.Serialize(new QuotaFile { Quotas = [.. quotas] }, QuotaJson);
+                // No quotas and no file: nothing to keep, and no reason to make one.
+                if (json != _lastQuotaJson && (quotas.Count > 0 || File.Exists(_quotasPath)))
+                {
+                    var temp = _quotasPath + ".tmp";
+                    File.WriteAllText(temp, json);
+                    File.Move(temp, _quotasPath, overwrite: true);
+                    _lastQuotaJson = json;
+                }
+                // Only once it's on disk, so a write that failed is tried again at the next check.
+                _lastQuotaSaveMs = now;
+                _lastSavedUsedUp = usedUp;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Failed to save quota use to {Path}", _quotasPath);
+            }
+        }
+    }
+
+    /// <summary>
     /// The first quota update sets where the saved quotas start counting. Run at load, a quota
     /// added before the quota timer's first check counts from when it was added, like any later
     /// one. It runs after the plugins load so an alert it raises reaches them.
@@ -1025,7 +1131,11 @@ public class EngineWorker : BackgroundService
         try
         {
             if (_quotaTracker?.UpdateIfDue() == true)
+            {
                 _reconciler?.ReconcileIfChanged();
+                // A quota that ran out is saved at once, so its block outlasts a restart.
+                SaveQuotas(onlyWhenDue: true);
+            }
         }
         catch (Exception ex)
         {
@@ -1098,6 +1208,7 @@ public class EngineWorker : BackgroundService
 
             // Revert any quota-imposed rate limits by reconciling with base rules
             _reconciler?.Reconcile();
+            SaveQuotas();
 
             Interlocked.Exchange(ref _lastQuotaResetCheckTicks, today.Ticks);
         }
@@ -1160,6 +1271,16 @@ public class EngineWorker : BackgroundService
         {
             Save(_rulesFile, _ruleEngine.SaveRules, "rules", atStop: true);
             Save(_alertsFile, _alertTracker.SaveRules, "alert rules", atStop: true);
+            // What the quotas used since the last check counts too.
+            try
+            {
+                _quotaTracker?.Update();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "The last quota update before stopping failed");
+            }
+            SaveQuotas();
         }
         _statsDb?.Dispose();
         _engineGate.Release();

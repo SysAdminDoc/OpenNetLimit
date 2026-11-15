@@ -39,6 +39,22 @@ public class QuotaTracker
 
     private readonly Func<long> _nowMs;
 
+    /// <summary>The local time, which says when a quota's day, week or month started.</summary>
+    private readonly Func<DateTime> _localNow;
+
+    /// <summary>
+    /// Quota states saved before the service restarted, waiting for the first update.
+    /// Only read and written under <see cref="_updateLock"/>.
+    /// </summary>
+    private readonly Dictionary<Guid, SavedQuota> _saved = [];
+
+    /// <summary>
+    /// Saved quotas whose rule wasn't there at all at the first update, as when rules.json didn't
+    /// load. They're saved again until their period ends or their rule turns up, so fixing the
+    /// rules and restarting gets them back. Only read and written under <see cref="_updateLock"/>.
+    /// </summary>
+    private readonly Dictionary<Guid, SavedQuota> _unclaimed = [];
+
     /// <summary>
     /// When the last update ran, by the tick count, or null when the next check is due at once.
     /// Only read and written under <see cref="_updateLock"/>.
@@ -67,10 +83,86 @@ public class QuotaTracker
     }
 
     internal QuotaTracker(IRuleEngine ruleEngine, ITrafficMonitor trafficMonitor, Func<long> nowMs)
+        : this(ruleEngine, trafficMonitor, nowMs, () => DateTime.Now)
+    {
+    }
+
+    internal QuotaTracker(IRuleEngine ruleEngine, ITrafficMonitor trafficMonitor, Func<long> nowMs, Func<DateTime> localNow)
     {
         _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
         _nowMs = nowMs;
+        _localNow = localNow;
+    }
+
+    /// <summary>
+    /// Takes the quota states saved before the service restarted. The first update carries each
+    /// one on for its rule, when the rule still counts the same apps over the same period and that
+    /// period hasn't ended. Any other quota counts from the restart, and one whose rule is missing
+    /// altogether is saved again until its period ends. Ignored once an update has run.
+    /// </summary>
+    public void Restore(IEnumerable<SavedQuota?> saved)
+    {
+        lock (_updateLock)
+        {
+            if (_started)
+                return;
+            foreach (var quota in saved)
+            {
+                if (quota is not null)
+                    _saved[quota.RuleId] = quota;
+            }
+        }
+    }
+
+    /// <summary>What each quota has used in its period, for <see cref="Restore"/> after a restart.</summary>
+    public IReadOnlyList<SavedQuota> SaveStates()
+    {
+        var result = new List<SavedQuota>();
+        lock (_updateLock)
+        {
+            var now = _localNow();
+            foreach (var ended in _unclaimed.Values.Where(q => q.PeriodStart != PeriodStartOf(q.Period, now)).ToList())
+                _unclaimed.Remove(ended.RuleId);
+            result.AddRange(_unclaimed.Values);
+        }
+        foreach (var state in _quotas.Values)
+        {
+            lock (state)
+            {
+                result.Add(new SavedQuota
+                {
+                    RuleId = state.RuleId,
+                    ProcessName = state.ProcessName,
+                    ProcessPath = state.ProcessPath,
+                    ServiceName = state.ServiceName,
+                    Period = state.Period,
+                    PeriodStart = state.PeriodStart,
+                    UsedBytes = state.UsedBytes,
+                    IsExceeded = state.IsExceeded,
+                    UsedUpAtLimitBytes = state.UsedUpAtLimitBytes,
+                    WarningNotified = state.WarningNotified,
+                    ExceededNotified = state.ExceededNotified
+                });
+            }
+        }
+        result.Sort((a, b) => a.RuleId.CompareTo(b.RuleId));
+        return result;
+    }
+
+    /// <summary>
+    /// The first day of the quota period <paramref name="now"/> falls in: that day, that week's
+    /// Monday, or the first of that month. Periods reset at midnight on those days.
+    /// </summary>
+    internal static DateOnly PeriodStartOf(QuotaPeriod period, DateTime now)
+    {
+        var today = DateOnly.FromDateTime(now);
+        return period switch
+        {
+            QuotaPeriod.Weekly => today.AddDays(-(((int)today.DayOfWeek + 6) % 7)),
+            QuotaPeriod.Monthly => new DateOnly(today.Year, today.Month, 1),
+            _ => today
+        };
     }
 
     /// <summary>
@@ -127,6 +219,7 @@ public class QuotaTracker
         var allRules = _ruleEngine.GetAllRules(out var quotaStops);
         var rules = QuotaRules(allRules);
         var processes = _trafficMonitor.GetUsageTotals();
+        var now = _localNow();
         bool firstUpdate = !_started;
         _started = true;
 
@@ -162,9 +255,10 @@ public class QuotaTracker
             // A rule added later, pointed at a different app, or turned off and on again since
             // the last update (two clients can do both before one runs) counts from now. The
             // app's earlier traffic can't be split by quota period, so it isn't charged.
+            // At the first update, a quota saved before the restart carries on from what it had used.
             var state = _quotas.AddOrUpdate(rule.Id,
-                _ => NewState(rule, firstUpdate ? 0 : totalBytes, stops),
-                (_, current) => current.IsFor(rule) && current.Stops == stops ? current : NewState(rule, totalBytes, stops));
+                _ => (firstUpdate ? Restored(rule, stops, now) : null) ?? NewState(rule, firstUpdate ? 0 : totalBytes, stops, now),
+                (_, current) => current.IsFor(rule) && current.Stops == stops ? current : NewState(rule, totalBytes, stops, now));
 
             lock (state)
             {
@@ -173,6 +267,9 @@ public class QuotaTracker
                     || rule.Quota.WarningPercent != state.WarningPercent;
                 state.LimitBytes = rule.Quota.LimitBytes;
                 state.UsedBytes = totalBytes - state.BaselineBytes;
+                // A quota moved to another period keeps its use, now as the new period's.
+                if (state.Period != rule.Quota.Period)
+                    state.PeriodStart = PeriodStartOf(rule.Quota.Period, now);
                 state.Period = rule.Quota.Period;
                 state.WarningPercent = rule.Quota.WarningPercent;
                 state.Action = rule.Quota.OnExceeded;
@@ -217,6 +314,47 @@ public class QuotaTracker
                     _canRunOut = true;
             }
         }
+
+        // A quota whose rule doesn't count at the first update, like one turned off, starts over.
+        // One whose rule isn't there at all is kept for the rule coming back at a restart. Added
+        // back while the service runs, the rule counts from then, like any rule added later.
+        if (firstUpdate)
+        {
+            foreach (var saved in _saved.Values)
+                _unclaimed[saved.RuleId] = saved;
+            _saved.Clear();
+        }
+        foreach (var id in _unclaimed.Keys.Where(existing.Contains).ToList())
+            _unclaimed.Remove(id);
+    }
+
+    /// <summary>
+    /// The state <paramref name="rule"/>'s quota had before the service restarted, or null when
+    /// none was saved, the rule now counts other apps or another period, or that period has ended.
+    /// </summary>
+    private QuotaState? Restored(BandwidthRule rule, long stops, DateTime now)
+    {
+        if (!_saved.TryGetValue(rule.Id, out var saved) || saved.ProcessName is null || saved.UsedBytes < 0
+            || saved.Period != rule.Quota!.Period || saved.PeriodStart != PeriodStartOf(saved.Period, now))
+            return null;
+
+        // Its use so far goes below zero in the baseline, so it adds to what's counted from the restart.
+        var state = new QuotaState
+        {
+            RuleId = rule.Id,
+            ProcessName = saved.ProcessName,
+            ProcessPath = saved.ProcessPath,
+            ServiceName = saved.ServiceName,
+            BaselineBytes = -saved.UsedBytes,
+            Period = saved.Period,
+            PeriodStart = saved.PeriodStart,
+            IsExceeded = saved.IsExceeded,
+            UsedUpAtLimitBytes = saved.UsedUpAtLimitBytes,
+            WarningNotified = saved.WarningNotified,
+            ExceededNotified = saved.ExceededNotified,
+            Stops = stops
+        };
+        return state.IsFor(rule) ? state : null;
     }
 
     /// <summary>The state of the first quota on <paramref name="processName"/>.</summary>
@@ -262,13 +400,15 @@ public class QuotaTracker
     private static string DisplayName(BandwidthRule rule) =>
         rule.ServiceName ?? rule.ProcessName ?? rule.ProcessPath ?? string.Empty;
 
-    private static QuotaState NewState(BandwidthRule rule, long baselineBytes, long stops) => new()
+    private static QuotaState NewState(BandwidthRule rule, long baselineBytes, long stops, DateTime now) => new()
     {
         RuleId = rule.Id,
         ProcessName = DisplayName(rule),
         ProcessPath = rule.ProcessPath,
         ServiceName = rule.ServiceName,
         BaselineBytes = baselineBytes,
+        Period = rule.Quota!.Period,
+        PeriodStart = PeriodStartOf(rule.Quota.Period, now),
         Stops = stops
     };
 
@@ -308,6 +448,7 @@ public class QuotaTracker
             _lastUpdateMs = null;
             var processes = _trafficMonitor.GetUsageTotals();
             var rules = _ruleEngine.GetAllRules();
+            var now = _localNow();
 
             // A removed rule's use belongs to the period that just ended. Put back later, it
             // counts from then, like any new rule.
@@ -329,6 +470,7 @@ public class QuotaTracker
                 lock (state)
                 {
                     state.BaselineBytes = currentTotal;
+                    state.PeriodStart = PeriodStartOf(period, now);
                     state.UsedBytes = 0;
                     state.IsExceeded = false;
                     state.WarningNotified = false;
@@ -364,6 +506,9 @@ public class QuotaState
 
     /// <summary>How many times the rule had been turned off when this count started.</summary>
     internal long Stops { get; set; }
+
+    /// <summary>The first day of the period this use belongs to.</summary>
+    internal DateOnly PeriodStart { get; set; }
     public int PercentUsed => LimitBytes > 0 ? (int)(UsedBytes * 100 / LimitBytes) : 0;
 
     /// <summary>Whether this state still counts the apps <paramref name="rule"/> matches.</summary>
@@ -371,4 +516,26 @@ public class QuotaState
         ProcessName.Equals(rule.ServiceName ?? rule.ProcessName ?? rule.ProcessPath ?? string.Empty, StringComparison.OrdinalIgnoreCase)
         && string.Equals(ProcessPath, rule.ProcessPath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(ServiceName, rule.ServiceName, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>A quota's use in its period, kept in <c>quotas.json</c> across a restart of the service.</summary>
+public sealed record SavedQuota
+{
+    public Guid RuleId { get; init; }
+
+    /// <summary>The rule's service, else its process name, else its path, as in <see cref="QuotaState"/>.</summary>
+    public string? ProcessName { get; init; }
+    public string? ProcessPath { get; init; }
+    public string? ServiceName { get; init; }
+    public QuotaPeriod Period { get; init; }
+
+    /// <summary>The first day of the period <see cref="UsedBytes"/> was used in.</summary>
+    public DateOnly PeriodStart { get; init; }
+    public long UsedBytes { get; init; }
+    public bool IsExceeded { get; init; }
+
+    /// <summary>The limit in force when the quota was used up. Only a higher limit lifts it.</summary>
+    public long UsedUpAtLimitBytes { get; init; }
+    public bool WarningNotified { get; init; }
+    public bool ExceededNotified { get; init; }
 }

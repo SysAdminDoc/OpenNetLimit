@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
@@ -39,6 +40,7 @@ public sealed class EngineWorkerTests : IDisposable
     private string AlertsPath => Path.Combine(_dataDir, "alerts.json");
     private string StayPausedPath => Path.Combine(_dataDir, "paused");
     private string PcLimitPath => Path.Combine(_dataDir, "pc-limit.json");
+    private string QuotasPath => Path.Combine(_dataDir, "quotas.json");
 
     /// <summary>The limiter the newest worker was given.</summary>
     private ProcessRateLimiter _limiter = new();
@@ -458,6 +460,193 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.NotNull(state);
         Assert.Equal(0, state.UsedBytes);
         Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
+    public async Task AQuotaUsedUpBeforeARestart_IsStillUsedUpAfterIt()
+    {
+        Directory.CreateDirectory(_dataDir);
+        var id = Guid.NewGuid();
+        var monthStart = new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1);
+        File.WriteAllText(RulesPath, $$"""
+            {"version":1,"rules":[{"id":"{{id}}","processName":"chrome",
+             "quota":{"limitBytes":1000,"period":"Monthly","onExceeded":"Block"} }]}
+            """);
+        File.WriteAllText(QuotasPath, $$"""
+            {"version":1,"quotas":[{"ruleId":"{{id}}","processName":"chrome","period":"Monthly",
+             "periodStart":"{{monthStart:yyyy-MM-dd}}","usedBytes":1200,"isExceeded":true,
+             "usedUpAtLimitBytes":1000,"warningNotified":true,"exceededNotified":true}]}
+            """);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await StartAndWaitForBootAsync(worker);
+        var state = _controlPlane.QuotaTracker!.GetQuotaState(id);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(state);
+        Assert.True(state.IsExceeded);
+        Assert.Equal(1200, state.UsedBytes);
+    }
+
+    [Fact]
+    public async Task Stop_SavesWhatEachQuotaHasUsed()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1_000_000, OnExceeded = QuotaAction.Block }
+        };
+        _rules.AddRule(rule);
+        _monitor.RecordBytes(1, "chrome", 4321, false);
+
+        await worker.StopAsync(CancellationToken.None);
+
+        using var saved = JsonDocument.Parse(File.ReadAllText(QuotasPath));
+        var quota = saved.RootElement.GetProperty("quotas").EnumerateArray().Single();
+        Assert.Equal(rule.Id, quota.GetProperty("ruleId").GetGuid());
+        Assert.Equal(4321, quota.GetProperty("usedBytes").GetInt64());
+    }
+
+    [Fact]
+    public async Task AQuotaThatRunsOut_IsSavedRightAway()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        _rules.AddRule(rule);
+        _monitor.RecordBytes(1, "chrome", 1500, false);
+
+        // The rule edit saved it a moment ago, and a quota still counting waits a minute between saves.
+        bool savedUsedUp = false;
+        var deadline = DateTime.UtcNow + Timeout;
+        while (!savedUsedUp && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+            savedUsedUp = File.Exists(QuotasPath) && File.ReadAllText(QuotasPath).Contains("\"isExceeded\": true");
+        }
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(savedUsedUp);
+    }
+
+    [Fact]
+    public async Task RulesThatDidntLoad_LeaveTheSavedQuotasForWhenTheyDo()
+    {
+        Directory.CreateDirectory(_dataDir);
+        var id = Guid.NewGuid();
+        var monthStart = new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1);
+        File.WriteAllText(RulesPath, "{\"version\":1,\"rules\":[");
+        File.WriteAllText(QuotasPath, $$"""
+            {"version":1,"quotas":[{"ruleId":"{{id}}","processName":"chrome","period":"Monthly",
+             "periodStart":"{{monthStart:yyyy-MM-dd}}","usedBytes":1200,"isExceeded":true,
+             "usedUpAtLimitBytes":1000,"warningNotified":true,"exceededNotified":true}]}
+            """);
+        using (var worker = CreateWorker(new FakeInterceptor(), isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(worker);
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        File.WriteAllText(RulesPath, $$"""
+            {"version":1,"rules":[{"id":"{{id}}","processName":"chrome",
+             "quota":{"limitBytes":1000,"period":"Monthly","onExceeded":"Block"} }]}
+            """);
+        using var restarted = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(restarted);
+        var state = _controlPlane.QuotaTracker!.GetQuotaState(id);
+        await restarted.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(state);
+        Assert.True(state.IsExceeded);
+        Assert.Equal(1200, state.UsedBytes);
+    }
+
+    [Fact]
+    public async Task ARuleEditThatMovesAQuotaToAnotherPeriod_IsSavedRightAway()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1_000_000, Period = QuotaPeriod.Daily, OnExceeded = QuotaAction.Block }
+        };
+        _rules.AddRule(rule);
+        var weekly = rule.Clone();
+        weekly.Quota!.Period = QuotaPeriod.Weekly;
+
+        _rules.UpdateRule(weekly);
+        var saved = File.ReadAllText(QuotasPath);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("\"period\": \"Weekly\"", saved);
+    }
+
+    [Fact]
+    public async Task AQuotaThatRunsOutAtAServiceChange_IsSavedRightAway()
+    {
+        var hosts = new FakeServiceHosts();
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true, hosts);
+        await StartAndWaitForBootAsync(worker);
+        _rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        });
+        _monitor.RecordBytes(1, "chrome", 1500, false);
+
+        hosts.Refresh();
+        var saved = File.ReadAllText(QuotasPath);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("\"isExceeded\": true", saved);
+    }
+
+    [Fact]
+    public async Task AQuotaSaveThatFailed_IsTriedAgainAtTheNextCheck()
+    {
+        var hosts = new FakeServiceHosts();
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true, hosts);
+        await StartAndWaitForBootAsync(worker);
+        _rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        });
+        _monitor.RecordBytes(1, "chrome", 1500, false);
+        // Something holds the temp file's name, so the save when the quota runs out fails.
+        Directory.CreateDirectory(QuotasPath + ".tmp");
+        hosts.Refresh();
+        Directory.Delete(QuotasPath + ".tmp");
+
+        hosts.Refresh();
+        var saved = File.ReadAllText(QuotasPath);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("\"isExceeded\": true", saved);
+    }
+
+    [Fact]
+    public async Task AQuotaFileThatCantBeRead_CountsQuotasFromNow_AndSaysSo()
+    {
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(QuotasPath, "{\"quotas\":[{\"ruleId\":");
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await StartAndWaitForBootAsync(worker);
+        var rule = new BandwidthRule { ProcessName = "chrome", Quota = new QuotaConfig { LimitBytes = 1000 } };
+        _rules.AddRule(rule);
+        var state = _controlPlane.QuotaTracker!.GetQuotaState(rule.Id);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(0, state!.UsedBytes);
+        Assert.Contains("quotas had used", File.ReadAllText(Path.Combine(_dataDir, "last-error.txt")));
     }
 
     [Fact]
