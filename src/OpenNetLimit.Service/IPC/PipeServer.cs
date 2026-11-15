@@ -224,8 +224,15 @@ public class PipeServer
         }
     }
 
+    private static readonly HashSet<string> RuleChanges = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE"
+    };
+
     internal Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
     {
+        if (_controlPlane.ChangesRefused is { } refused && RuleChanges.Contains(action))
+            return Task.FromResult(ErrorResponse(refused));
         return action switch
         {
             "SNAPSHOT" => Task.FromResult(JsonSerializer.Serialize(_trafficMonitor.TakeSnapshot(), JsonOptions)),

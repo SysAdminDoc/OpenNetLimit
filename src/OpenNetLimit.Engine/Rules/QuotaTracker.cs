@@ -80,15 +80,19 @@ public class QuotaTracker
 
     private void UpdateLocked(List<(Action<string, QuotaState>? Event, string Name, QuotaState State)> notifications)
     {
-        var rules = QuotaRules(_ruleEngine.GetAllRules());
+        var allRules = _ruleEngine.GetAllRules();
+        var rules = QuotaRules(allRules);
         var processes = _trafficMonitor.GetAllProcesses();
         bool firstUpdate = !_started;
         _started = true;
 
         var live = rules.Select(r => r.Id).ToHashSet();
+        var existing = allRules.Select(r => r.Id).ToHashSet();
         foreach (var ruleId in _quotas.Keys)
         {
-            if (!live.Contains(ruleId) && _quotas.TryRemove(ruleId, out var gone))
+            // Only a deleted rule's use is kept for it coming back. Turning a cap off and on
+            // again starts it over, which is how a used-up cap gets reset by hand.
+            if (!live.Contains(ruleId) && _quotas.TryRemove(ruleId, out var gone) && !existing.Contains(ruleId))
             {
                 if (_removed.Count >= MaxRemoved)
                     _removed.Clear();

@@ -87,6 +87,11 @@ public class EngineWorker : BackgroundService
     private readonly string _dataDir;
     private readonly string _rulesPath;
     private readonly string _alertsPath;
+    private readonly StateFile _rulesFile;
+    private readonly StateFile _alertsFile;
+
+    /// <summary>Copies a file. Tests make it fail.</summary>
+    internal Action<string, string> CopyFile { get; set; } = File.Copy;
     private readonly object _saveLock = new();
     private readonly string _statsDbPath;
     private readonly string _lastErrorPath;
@@ -141,6 +146,8 @@ public class EngineWorker : BackgroundService
         _dataDir = dataDir;
         _rulesPath = Path.Combine(dataDir, "rules.json");
         _alertsPath = Path.Combine(dataDir, "alerts.json");
+        _rulesFile = new StateFile(_rulesPath);
+        _alertsFile = new StateFile(_alertsPath);
         _statsDbPath = Path.Combine(dataDir, "traffic.db");
         _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
         _stayPausedPath = Path.Combine(dataDir, "paused");
@@ -164,6 +171,10 @@ public class EngineWorker : BackgroundService
         else
         {
             _logger.LogCritical("Prerequisite validation failed; the packet engine will not start");
+            // Rules aren't loaded, so a change would be kept in memory, never saved, and gone at
+            // the next start. Saying so beats taking it.
+            _controlPlane.ChangesRefused =
+                "The service isn't running as administrator, so it didn't load your rules and can't save changes to them.";
         }
 
         _controlPlane.QuotaTracker = _quotaTracker;
@@ -678,44 +689,101 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to load rules from {Path}; starting with empty rule set", _rulesPath);
             RecordLastError($"Failed to load rules: {ex.Message}");
-            KeepUnreadable(_rulesPath);
+            LoadFailed(_rulesFile);
+        }
+    }
+
+    /// <summary>A rules or alerts file, and whether saving over it could lose what's in it.</summary>
+    private sealed class StateFile(string path)
+    {
+        public string Path { get; } = path;
+
+        /// <summary>It's there but didn't load, so what's in memory isn't what it holds.</summary>
+        public bool LoadFailed { get; set; }
+
+        /// <summary>A copy of the file that didn't load is kept, so saving over it loses nothing.</summary>
+        public bool CopyKept { get; set; }
+
+        /// <summary>A rule or alert changed since the load.</summary>
+        public bool Changed { get; set; }
+    }
+
+    private void LoadFailed(StateFile file)
+    {
+        lock (_saveLock)
+        {
+            file.LoadFailed = true;
+            file.CopyKept = KeepUnreadable(file.Path);
         }
     }
 
     /// <summary>
-    /// Copies a file that wouldn't load to <c>.unreadable</c> next to it, since the first rule
-    /// or alert change saves over it.
+    /// Copies a file that wouldn't load to <c>.unreadable</c> next to it, since a change saves
+    /// over it. An earlier copy is never written over: it may hold rules this one doesn't.
+    /// Returns whether a copy of the file as it is now is kept.
     /// </summary>
-    private void KeepUnreadable(string path)
+    private bool KeepUnreadable(string path)
     {
         try
         {
-            if (File.Exists(path))
+            if (!File.Exists(path))
+                return true;
+            var content = File.ReadAllBytes(path);
+            var copy = path + ".unreadable";
+            for (var n = 2; File.Exists(copy); n++)
             {
-                File.Copy(path, path + ".unreadable", overwrite: true);
-                _logger.LogWarning("Kept a copy of {Path} as {Copy}", path, path + ".unreadable");
+                // Started again with the same bad file, which is already kept.
+                if (File.ReadAllBytes(copy).AsSpan().SequenceEqual(content))
+                    return true;
+                copy = $"{path}.unreadable-{n}";
             }
+            CopyFile(path, copy);
+            _logger.LogWarning("Kept a copy of {Path} as {Copy}", path, copy);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Could not keep a copy of {Path}", path);
+            return false;
         }
     }
 
-    private void SaveRules()
+    private void SaveRules() => Save(_rulesFile, _ruleEngine.SaveRules, "rules", atStop: false);
+
+    private void SaveAlerts() => Save(_alertsFile, _alertTracker.SaveRules, "alert rules", atStop: false);
+
+    /// <summary>
+    /// Saves after a change, or at a stop. A file that didn't load is written over only after a
+    /// change, and only once a copy of it is kept, so what's in it can't be lost.
+    /// </summary>
+    private void Save(StateFile file, Action<string> save, string what, bool atStop)
     {
         // Changes from the pipe and the REST API can land together. One at a time, the last
         // save always has every change, and two saves don't fight over the same temp file.
         lock (_saveLock)
         {
+            if (!atStop)
+                file.Changed = true;
+            if (file.LoadFailed)
+            {
+                if (!file.Changed)
+                    return;
+                if (!file.CopyKept && !(file.CopyKept = KeepUnreadable(file.Path)))
+                {
+                    _logger.LogError("The {What} weren't saved: {Path} didn't load and no copy of it could be kept", what, file.Path);
+                    RecordLastError($"The {what} weren't saved, since {file.Path} didn't load and no copy of it could be kept.");
+                    return;
+                }
+            }
             try
             {
-                _ruleEngine.SaveRules(_rulesPath);
-                _logger.LogInformation("Saved rules to {Path}", _rulesPath);
+                save(file.Path);
+                file.LoadFailed = false;
+                _logger.LogInformation("Saved {What} to {Path}", what, file.Path);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save rules to {Path}", _rulesPath);
+                _logger.LogError(ex, "Failed to save {What} to {Path}", what, file.Path);
             }
         }
     }
@@ -732,23 +800,7 @@ public class EngineWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to load alert rules from {Path}; starting with empty alert set", _alertsPath);
             RecordLastError($"Failed to load alert rules: {ex.Message}");
-            KeepUnreadable(_alertsPath);
-        }
-    }
-
-    private void SaveAlerts()
-    {
-        lock (_saveLock)
-        {
-            try
-            {
-                _alertTracker.SaveRules(_alertsPath);
-                _logger.LogInformation("Saved alert rules to {Path}", _alertsPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save alert rules to {Path}", _alertsPath);
-            }
+            LoadFailed(_alertsFile);
         }
     }
 
@@ -931,8 +983,8 @@ public class EngineWorker : BackgroundService
         // would overwrite the user's rules.json.
         if (_stateLoaded)
         {
-            SaveRules();
-            SaveAlerts();
+            Save(_rulesFile, _ruleEngine.SaveRules, "rules", atStop: true);
+            Save(_alertsFile, _alertTracker.SaveRules, "alert rules", atStop: true);
         }
         _statsDb?.Dispose();
         _engineGate.Release();

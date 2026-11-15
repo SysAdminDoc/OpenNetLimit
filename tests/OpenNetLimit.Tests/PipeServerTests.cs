@@ -162,6 +162,37 @@ public class PipeServerTests
         Assert.Empty(rules.GetAllRules());
     }
 
+    // A service that didn't load the rules took changes it then lost on the next save.
+    [Theory]
+    [InlineData("ADD_RULE", """{"processName":"chrome"}""")]
+    [InlineData("import_rules", """[{"processName":"chrome"}]""")]
+    public async Task RuleChange_WhileChangesAreRefused_SaysWhy(string command, string payload)
+    {
+        var rules = new RuleEngine();
+        var controlPlane = new ControlPlaneState { ChangesRefused = "not running as administrator" };
+        var server = CreateServer(rules, new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync(command, payload, CancellationToken.None);
+
+        Assert.Contains("\"error\"", reply);
+        Assert.Contains("not running as administrator", reply);
+        Assert.Empty(rules.GetAllRules());
+    }
+
+    [Fact]
+    public async Task RuleList_WhileChangesAreRefused_StillAnswers()
+    {
+        var rules = new RuleEngine();
+        rules.AddRule(new BandwidthRule { ProcessName = "chrome" });
+        var controlPlane = new ControlPlaneState { ChangesRefused = "not running as administrator" };
+        var server = CreateServer(rules, new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("RULES", string.Empty, CancellationToken.None);
+
+        Assert.Contains("chrome", reply);
+        Assert.DoesNotContain("\"error\"", reply);
+    }
+
     private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
         ControlPlaneState? controlPlane = null)
     {

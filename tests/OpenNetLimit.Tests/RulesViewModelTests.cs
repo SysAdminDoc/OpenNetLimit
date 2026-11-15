@@ -264,6 +264,39 @@ public sealed class RulesViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task NoAlerts_ThenAFailedRead_StopsSayingThereAreNone()
+    {
+        _replies["ALERT_RULES"] = "[]";
+        var vm = Create();
+        await vm.RefreshAsync();
+        Assert.True(vm.HasNoAlerts);
+        _replies["ALERT_RULES"] = """{"error":"Access denied"}""";
+
+        await vm.RefreshAsync();
+
+        Assert.False(vm.HasNoAlerts);
+        Assert.True(vm.MessageIsError);
+    }
+
+    [Fact]
+    public async Task NoRules_ThenAFailedRead_StopsSayingThereAreNone()
+    {
+        _replies["RULES"] = "[]";
+        _replies["ALERT_RULES"] = "[]";
+        var vm = Create();
+        await vm.RefreshAsync();
+        Assert.True(vm.HasNoRules);
+        Assert.True(vm.HasNoAlerts);
+        _replies["RULES"] = null;
+
+        await vm.RefreshAsync();
+
+        Assert.False(vm.HasNoRules);
+        Assert.False(vm.HasNoAlerts);
+        Assert.True(vm.MessageIsError);
+    }
+
+    [Fact]
     public async Task QuotasThatDontLoad_ShowTheError()
     {
         _replies["QUOTAS"] = """{"error":"Access denied"}""";

@@ -132,7 +132,13 @@ public sealed class RulesViewModel : INotifyPropertyChanged
     {
         var rulesReply = await _send("RULES");
         if (ReadList<BandwidthRule>(rulesReply) is not { } rules)
+        {
+            // The lists stay, but an empty one no longer claims there's nothing there.
+            _loaded = _alertsLoaded = false;
+            OnPropertyChanged(nameof(HasNoRules));
+            OnPropertyChanged(nameof(HasNoAlerts));
             return ErrorOf(rulesReply) ?? LocalizationManager.Text("Rules_NoService");
+        }
         var quotasReply = await _send("QUOTAS");
         var quotas = ReadList<QuotaUsage>(quotasReply);
         var alertsReply = await _send("ALERT_RULES");
@@ -142,10 +148,8 @@ public sealed class RulesViewModel : INotifyPropertyChanged
         if (quotas is not null)
             _quotas = quotas.GroupBy(q => q.RuleId).ToDictionary(g => g.Key, g => g.First());
         if (alerts is not null)
-        {
             _alerts = alerts;
-            _alertsLoaded = true;
-        }
+        _alertsLoaded = alerts is not null;
         _loaded = true;
         Rebuild();
         if (quotas is null)

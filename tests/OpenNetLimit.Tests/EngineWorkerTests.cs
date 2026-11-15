@@ -153,6 +153,95 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task UnreadableFiles_WithNoChange_AreLeftAsTheyWereAtStop()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        File.WriteAllText(AlertsPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(broken, File.ReadAllText(RulesPath));
+        Assert.Equal(broken, File.ReadAllText(AlertsPath));
+    }
+
+    [Fact]
+    public async Task UnreadableRulesFile_ThatCantBeCopied_IsNotSavedOverUntilACopyIsKept()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        worker.CopyFile = (_, _) => throw new IOException("The process cannot access the file.");
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+
+        _rules.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        var afterRefusedCopy = File.ReadAllText(RulesPath);
+        worker.CopyFile = File.Copy;
+        _rules.AddRule(new BandwidthRule { ProcessName = "steam", DownloadBytesPerSecond = 1024 });
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(broken, afterRefusedCopy);
+        Assert.Equal(broken, File.ReadAllText(RulesPath + ".unreadable"));
+        Assert.Contains("\"chrome\"", File.ReadAllText(RulesPath));
+    }
+
+    [Fact]
+    public async Task AnEarlierUnreadableCopy_IsNeverWrittenOver()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string kept = """{"version":1,"rules":[{"processName":"discord"}""";
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath + ".unreadable", kept);
+        File.WriteAllText(RulesPath, broken);
+
+        // Twice, like two boots with the same bad file: it's kept once.
+        for (var start = 0; start < 2; start++)
+        {
+            _pipeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+            await worker.StartAsync(CancellationToken.None);
+            await _pipeStarted.Task.WaitAsync(Timeout);
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(kept, File.ReadAllText(RulesPath + ".unreadable"));
+        Assert.Equal(broken, File.ReadAllText(RulesPath + ".unreadable-2"));
+        Assert.False(File.Exists(RulesPath + ".unreadable-3"));
+    }
+
+    [Fact]
+    public async Task NotAdmin_RefusesRuleChangesItCouldNotKeep()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: false);
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        var refused = _controlPlane.ChangesRefused;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("administrator", refused);
+    }
+
+    [Fact]
+    public async Task Admin_TakesRuleChanges()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        var refused = _controlPlane.ChangesRefused;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Null(refused);
+    }
+
+    [Fact]
     public async Task EngineThatStopsOnItsOwn_ReportsWhy()
     {
         var interceptor = new FakeInterceptor();

@@ -14,10 +14,12 @@
 - Export and Import on the Rules tab save your rules to a file and load them back, on the same PC or another one. Import also reads the service's own `rules.json`, and a rule with the same ID replaces the one you have
 
 ### Fixed
-- Rules and speed alerts are saved the moment they change. They used to be written only when the service stopped, so a crash or power cut lost every change since it started. A `rules.json` or `alerts.json` the service can't read is copied to `.unreadable` next to it before a change saves over it
-- Rules with the same priority keep their order when you add, edit or remove another rule. With more than 16 rules, any change could shuffle them and switch which one applies to an app
+- Rules and speed alerts are saved the moment they change. They used to be written only when the service stopped, so a crash or power cut lost every change since it started. A `rules.json` or `alerts.json` the service can't read is copied to `.unreadable` next to it (`.unreadable-2` and up if an older copy is there, which is never written over). The file itself stays as it is until you change a rule, and if no copy can be made, the change isn't saved over it and the app shows why
+- Rules with the same priority keep their order when you add, edit or remove another rule. With more than 16 rules, any change could shuffle them and switch which one applies to an app. A rule you delete and add back, by Undo or by importing it, goes back to its old place among them
 - A rule list with an empty entry in it is refused with a reason instead of dropping the app's or CLI's connection, and a `rules.json` with one loads the rest of its rules
-- A quota rule you delete and import again in the same period carries on with what it had used. It started over from zero, so a used-up app got its whole allowance back
+- A quota rule you delete and import again in the same period carries on with what it had used. It started over from zero, so a used-up app got its whole allowance back. Turning a quota rule off and on again still starts it over, so that's how to reset a used-up cap by hand
+- A service that isn't running as administrator refuses rule and alert changes and says why. It used to take them and lose them, since it never loaded the saved rules and doesn't save over them
+- When the app can't read the rules from the service, the Rules tab no longer says you have no rules or no alerts
 - Long tray balloons, like a bandwidth alert for a program with a long name, end in "…" after the last whole word instead of Windows cutting them off mid-word at 255 characters. When a warning adds a sentence of its own, that sentence stays whole and the rest gets shortened
 - Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too
 - The packet engine starts again. The WinDivert flow layer was opened with the wrong flags and Windows refused it with error 87, so the service ran but never filtered anything (#3)

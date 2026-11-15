@@ -67,6 +67,12 @@ public sealed class RestApiRouter
 
         var query = ParseQuery(request.QueryString);
 
+        // A service that didn't load the rules would keep a change only until it stops.
+        if (method != "GET" && _controlPlane.ChangesRefused is { } refused &&
+            (path.StartsWith("/api/v1/rules", StringComparison.OrdinalIgnoreCase) ||
+             path.StartsWith("/api/v1/alerts/rules", StringComparison.OrdinalIgnoreCase)))
+            return RestApiResponse.Error(503, refused, JsonOptions);
+
         return path switch
         {
             "/api/v1/status" when method == "GET" =>

@@ -162,6 +162,32 @@ public class RestApiRouterTests
         Assert.Equal("chrome", rules.GetAllRules()[0].ProcessName);
     }
 
+    // A service that didn't load the rules took changes it then lost on the next save.
+    [Theory]
+    [InlineData("POST", "/api/v1/rules", """{"processName":"chrome"}""")]
+    [InlineData("POST", "/api/v1/rules/import", """[{"processName":"chrome"}]""")]
+    [InlineData("POST", "/API/V1/ALERTS/RULES", """{"processName":"chrome","thresholdBytesPerSecond":1024}""")]
+    public async Task RuleChange_WhileChangesAreRefused_Answers503WithTheReason(string method, string path, string body)
+    {
+        var (_, rules, router) = CreateRouter("secret", changesRefused: "not running as administrator");
+
+        var response = await router.HandleAsync(new RestApiRequest(method, path, string.Empty, body, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("not running as administrator", response.Body);
+        Assert.Empty(rules.GetAllRules());
+    }
+
+    [Fact]
+    public async Task RuleList_WhileChangesAreRefused_StillAnswers()
+    {
+        var (_, _, router) = CreateRouter("secret", changesRefused: "not running as administrator");
+
+        var response = await router.HandleAsync(new RestApiRequest("GET", "/api/v1/rules", string.Empty, string.Empty, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
     [Theory]
     [InlineData("POST", "/api/v1/rules", """{"downloadBytesPerSecond":1024}""")]
     [InlineData("PUT", "/api/v1/rules/8c0f8b0e-4a39-4f4e-9d55-4f7f6c7a0c11", """{"processPath":""}""")]
@@ -433,13 +459,15 @@ public class RestApiRouterTests
         IGeoIpResolver? geoIpResolver = null,
         TrafficStatsDb? stats = null,
         Func<bool, CancellationToken, Task<DiagnosticInfo>>? pause = null,
-        Func<CancellationToken, Task<DiagnosticInfo>>? resume = null)
+        Func<CancellationToken, Task<DiagnosticInfo>>? resume = null,
+        string? changesRefused = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
         var alertTracker = new BandwidthAlertTracker(monitor);
         var controlPlane = new ControlPlaneState
         {
+            ChangesRefused = changesRefused,
             DiagnosticProvider = () => new DiagnosticInfo
             {
                 Running = true,

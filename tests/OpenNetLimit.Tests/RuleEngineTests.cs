@@ -455,6 +455,53 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void RuleRemovedAndImportedBack_GoesBackWhereItWas()
+    {
+        var engine = new RuleEngine();
+        foreach (var name in new[] { "first", "second", "third" })
+            engine.AddRule(new BandwidthRule { Name = name, ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        var export = engine.ExportRules();
+
+        engine.RemoveRule(engine.GetAllRules()[1].Id);
+        engine.ImportRules(export);
+
+        Assert.Equal(["first", "second", "third"], engine.GetAllRules().Select(r => r.Name));
+    }
+
+    [Fact]
+    public void RuleAddedBack_AfterTheNextOneChangedPriority_StaysAfterTheOneBeforeIt()
+    {
+        var engine = new RuleEngine();
+        foreach (var name in new[] { "a", "x", "w" })
+            engine.AddRule(new BandwidthRule { Name = name, ProcessName = "chrome", Priority = 5, DownloadBytesPerSecond = 1024 });
+        var all = engine.GetAllRules();
+        var w = all[2];
+
+        engine.RemoveRule(all[1].Id);
+        w.Priority = 10;
+        engine.UpdateRule(w);
+        engine.AddRule(all[1]);
+
+        Assert.Equal(["w", "a", "x"], engine.GetAllRules().Select(r => r.Name));
+    }
+
+    [Fact]
+    public void TwoRulesAddedBack_InTheOtherOrder_GoBackInTheirOwnOrder()
+    {
+        var engine = new RuleEngine();
+        foreach (var name in new[] { "x", "w", "v" })
+            engine.AddRule(new BandwidthRule { Name = name, ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        var all = engine.GetAllRules();
+
+        engine.RemoveRule(all[1].Id);
+        engine.RemoveRule(all[0].Id);
+        engine.AddRule(all[1]);
+        engine.AddRule(all[0]);
+
+        Assert.Equal(["x", "w", "v"], engine.GetAllRules().Select(r => r.Name));
+    }
+
+    [Fact]
     public void FindMatchingRule_WithRemotePort_FiltersCorrectly()
     {
         var engine = new RuleEngine();

@@ -11,6 +11,12 @@ public sealed class ControlPlaneState
     public TrafficStatsDb? StatsProvider { get; set; }
     public QuotaTracker? QuotaTracker { get; set; }
 
+    /// <summary>
+    /// Why changes to rules and alerts are refused, or null when the service keeps them. A
+    /// service that couldn't load the rules can't save a change without losing them.
+    /// </summary>
+    public string? ChangesRefused { get; set; }
+
     /// <summary>Pauses the engine (the flag keeps it paused across restarts) and returns the new status.</summary>
     public Func<bool, CancellationToken, Task<DiagnosticInfo>>? PauseHandler { get; set; }
 
