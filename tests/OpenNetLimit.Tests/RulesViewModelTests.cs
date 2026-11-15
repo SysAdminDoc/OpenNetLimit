@@ -278,6 +278,40 @@ public sealed class RulesViewModelTests : IDisposable
         Assert.True(vm.MessageIsError);
     }
 
+    // "No rules yet" offered to add the first one while the service turned every change away.
+    [Fact]
+    public async Task EmptyLists_WhileChangesAreRefused_SayWhyInstead()
+    {
+        var vm = Create();
+        await vm.RefreshAsync();
+
+        vm.ChangesRefused = "rules.json didn't load";
+
+        Assert.False(vm.HasNoRules);
+        Assert.False(vm.HasNoAlerts);
+        Assert.True(vm.ShowsRulesRefused);
+        Assert.True(vm.ShowsAlertsRefused);
+
+        vm.ChangesRefused = null;
+
+        Assert.True(vm.HasNoRules);
+        Assert.False(vm.ShowsRulesRefused);
+    }
+
+    [Fact]
+    public async Task ListsWithRules_WhileChangesAreRefused_ShowTheRules()
+    {
+        _replies["RULES"] = """[{"processName":"steam"}]""";
+        var vm = Create();
+        vm.ChangesRefused = "rules.json didn't load";
+
+        await vm.RefreshAsync();
+
+        Assert.Single(vm.Rules);
+        Assert.False(vm.ShowsRulesRefused);
+        Assert.True(vm.ShowsAlertsRefused);
+    }
+
     [Fact]
     public async Task NoRules_ThenAFailedRead_StopsSayingThereAreNone()
     {

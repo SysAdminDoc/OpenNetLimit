@@ -198,6 +198,28 @@ public class ServiceStatusTests
         Assert.Equal(expected, LimitMenu.HintKey(isAdmin, hasSelection));
     }
 
+    // The app turned edits on whenever it ran as administrator, so a change the service would
+    // turn away looked possible until it was tried.
+    [Theory]
+    [InlineData(false, null, "Menu_AdminRequired")]
+    [InlineData(false, "rules.json didn't load", "Menu_AdminRequired")]
+    [InlineData(true, "rules.json didn't load", "rules.json didn't load")]
+    [InlineData(true, null, null)]
+    public void EditHint_SaysWhyNoChangeCanBeMade(bool isAdmin, string? changesRefused, string? expected)
+    {
+        var hint = LimitMenu.EditHint(isAdmin, changesRefused);
+
+        Assert.Equal(expected == "Menu_AdminRequired" ? LocalizationManager.Text(expected) : expected, hint);
+    }
+
+    [Fact]
+    public void ParseDiagnostics_ReadsWhyChangesAreRefused()
+    {
+        var status = ServiceStatusTracker.ParseDiagnostics("""{"running":true,"changesRefused":"rules.json didn't load"}""");
+
+        Assert.Equal("rules.json didn't load", status?.ChangesRefused);
+    }
+
     [Theory]
     [InlineData("Status_EngineFailed")]
     [InlineData("Status_EngineFailed_Detail")]

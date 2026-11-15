@@ -162,20 +162,37 @@ public class RestApiRouterTests
         Assert.Equal("chrome", rules.GetAllRules()[0].ProcessName);
     }
 
-    // A service that didn't load the rules took changes it then lost on the next save.
+    // A service that didn't load the rules took changes it then lost on the next save. Every
+    // change route is refused, edits, deletes and a replacing import as well as adds, for
+    // rules and alerts both.
     [Theory]
-    [InlineData("POST", "/api/v1/rules", """{"processName":"chrome"}""")]
-    [InlineData("POST", "/api/v1/rules/import", """[{"processName":"chrome"}]""")]
-    [InlineData("POST", "/API/V1/ALERTS/RULES", """{"processName":"chrome","thresholdBytesPerSecond":1024}""")]
-    public async Task RuleChange_WhileChangesAreRefused_Answers503WithTheReason(string method, string path, string body)
+    [InlineData("POST", "/api/v1/rules", "", """{"processName":"steam"}""")]
+    [InlineData("PUT", "/api/v1/rules/{rule}", "", """{"processName":"steam"}""")]
+    [InlineData("DELETE", "/api/v1/rules/{rule}", "", "")]
+    [InlineData("POST", "/api/v1/rules/import", "", """[{"processName":"steam"}]""")]
+    [InlineData("POST", "/api/v1/rules/import", "?replace=true", """[{"processName":"steam"}]""")]
+    [InlineData("POST", "/API/V1/ALERTS/RULES", "", """{"processName":"steam","thresholdBytesPerSecond":1024}""")]
+    [InlineData("PUT", "/api/v1/alerts/rules/{alert}", "", """{"processName":"steam","thresholdBytesPerSecond":1024}""")]
+    [InlineData("DELETE", "/api/v1/alerts/rules/{alert}", "", "")]
+    public async Task Change_WhileChangesAreRefused_Answers503AndChangesNothing(string method, string path, string query, string body)
     {
-        var (_, rules, router) = CreateRouter("secret", changesRefused: "not running as administrator");
+        var alerts = new BandwidthAlertTracker(new TrafficMonitor());
+        var (_, rules, router) = CreateRouter("secret", changesRefused: "not running as administrator", alerts: alerts);
+        var rule = new BandwidthRule { ProcessName = "chrome" };
+        rules.AddRule(rule);
+        var alert = new BandwidthAlertRule { Name = "Big download", ThresholdBytesPerSecond = 2048 };
+        alerts.AddRule(alert);
+        string State() => rules.ExportRules() + string.Join(",",
+            alerts.GetRules().Select(a => $"{a.Id}:{a.ProcessName}:{a.ThresholdBytesPerSecond}"));
+        var before = State();
 
-        var response = await router.HandleAsync(new RestApiRequest(method, path, string.Empty, body, IsLoopback: true, ApiKey: "secret"));
+        var response = await router.HandleAsync(new RestApiRequest(method,
+            path.Replace("{rule}", rule.Id.ToString()).Replace("{alert}", alert.Id.ToString()),
+            query, body, IsLoopback: true, ApiKey: "secret"));
 
         Assert.Equal(503, response.StatusCode);
         Assert.Contains("not running as administrator", response.Body);
-        Assert.Empty(rules.GetAllRules());
+        Assert.Equal(before, State());
     }
 
     [Fact]
@@ -559,11 +576,12 @@ public class RestApiRouterTests
         Func<CancellationToken, Task<DiagnosticInfo>>? resume = null,
         string? changesRefused = null,
         Func<WholePcLimit>? pcLimit = null,
-        Func<WholePcLimit, WholePcLimit>? setPcLimit = null)
+        Func<WholePcLimit, WholePcLimit>? setPcLimit = null,
+        BandwidthAlertTracker? alerts = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
-        var alertTracker = new BandwidthAlertTracker(monitor);
+        var alertTracker = alerts ?? new BandwidthAlertTracker(monitor);
         var controlPlane = new ControlPlaneState
         {
             ChangesRefused = changesRefused,

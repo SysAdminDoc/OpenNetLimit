@@ -17,6 +17,12 @@ public class DiagnosticInfo
     /// <summary>While paused, why the WinDivert driver is still loaded. Null once it's unloaded.</summary>
     public string? DriverLoadedReason { get; set; }
 
+    /// <summary>
+    /// Why the service turns away changes to rules, alerts and the whole-PC limit, so the app can
+    /// say so before one is tried. Null when it takes them.
+    /// </summary>
+    public string? ChangesRefused { get; set; }
+
     public int ActiveFlows { get; set; }
     public int ActiveRules { get; set; }
     public long PacketsDelayed { get; set; }

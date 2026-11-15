@@ -20,13 +20,15 @@ public class RuleEngine : IRuleEngine
     private readonly Dictionary<Guid, long> _order = [];
 
     /// <summary>
-    /// The places of rules removed lately. Adding one back with its id (the Rules tab's undo, or
-    /// importing an export) puts it where it was among the rules of equal priority, however
-    /// those moved or changed priority since.
+    /// The places of rules removed lately, and when each went. Adding one back with its id (the
+    /// Rules tab's undo, or importing an export) puts it where it was among the rules of equal
+    /// priority, however those moved or changed priority since. Once it's full only the oldest
+    /// removal is forgotten. Clearing it all lost the deletes made just before.
     /// </summary>
-    private readonly Dictionary<Guid, long> _removedOrder = [];
+    private readonly Dictionary<Guid, (long Place, long RemovedAt)> _removedOrder = [];
     private const int MaxRemembered = 64;
     private long _nextOrder;
+    private long _removals;
 
     public event Action? OnRulesChanged;
 
@@ -56,17 +58,20 @@ public class RuleEngine : IRuleEngine
 
     public void RemoveRule(Guid ruleId)
     {
+        bool removed;
         lock (_lock)
         {
             if (_order.Remove(ruleId, out var place))
             {
                 if (_removedOrder.Count >= MaxRemembered)
-                    _removedOrder.Clear();
-                _removedOrder[ruleId] = place;
+                    _removedOrder.Remove(_removedOrder.MinBy(p => p.Value.RemovedAt).Key);
+                _removedOrder[ruleId] = (place, _removals++);
             }
-            _rules.RemoveAll(r => r.Id == ruleId);
+            removed = _rules.RemoveAll(r => r.Id == ruleId) > 0;
         }
-        OnRulesChanged?.Invoke();
+        // A rule that wasn't there (a second window deleting it again) changed nothing to save.
+        if (removed)
+            OnRulesChanged?.Invoke();
     }
 
     /// <summary>
@@ -75,18 +80,20 @@ public class RuleEngine : IRuleEngine
     /// </summary>
     private void Insert(BandwidthRule rule)
     {
-        _order[rule.Id] = _removedOrder.Remove(rule.Id, out var place) ? place : _nextOrder++;
+        _order[rule.Id] = _removedOrder.Remove(rule.Id, out var removed) ? removed.Place : _nextOrder++;
         _rules.Add(rule);
     }
 
     /// <summary>
     /// Highest priority first, and rules of equal priority in their own order, since the first
     /// one that matches wins. List.Sort is unstable and could swap them on any change.
+    /// A rule with no place sorts last rather than throwing with the lock held.
     /// Caller holds the lock.
     /// </summary>
     private void SortByPriority()
     {
-        var sorted = _rules.OrderByDescending(r => r.Priority).ThenBy(r => _order[r.Id]).ToList();
+        var sorted = _rules.OrderByDescending(r => r.Priority)
+            .ThenBy(r => _order.GetValueOrDefault(r.Id, long.MaxValue)).ToList();
         _rules.Clear();
         _rules.AddRange(sorted);
     }
@@ -257,8 +264,10 @@ public class RuleEngine : IRuleEngine
             ValidateRule(rule);
         GiveEachItsOwnId(rules);
 
+        bool changed;
         lock (_lock)
         {
+            changed = rules.Count > 0 || (replace && _rules.Count > 0);
             // A replacing import sets the whole order, so nothing removed earlier takes its old
             // place among the new rules.
             if (replace)
@@ -279,7 +288,9 @@ public class RuleEngine : IRuleEngine
             }
             SortByPriority();
         }
-        OnRulesChanged?.Invoke();
+        // An empty file that replaced nothing changed nothing to save.
+        if (changed)
+            OnRulesChanged?.Invoke();
     }
 
     private static void ValidateRule(BandwidthRule? rule)

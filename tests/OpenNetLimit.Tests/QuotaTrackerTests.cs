@@ -669,6 +669,38 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void UsedUpRule_TurnedOffAndOnAgain_StartsOver()
+    {
+        // A rule that was off kept counting, so turning it back on found its cap still used up.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        rule.Enabled = false;
+        ruleEngine.UpdateRule(rule.Clone());
+        tracker.Update();
+        var whileOff = tracker.GetQuotaState(rule.Id);
+        monitor.RecordBytes(1, "chrome", 100, false);
+        rule.Enabled = true;
+        ruleEngine.UpdateRule(rule.Clone());
+        tracker.Update();
+
+        Assert.Null(whileOff);
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
     public void RemovedRule_PutBackAfterItsPeriodReset_CountsFromThen()
     {
         var ruleEngine = new RuleEngine();

@@ -360,6 +360,8 @@
                             </DataGrid>
                             <TextBlock Grid.Row="1" Text="{loc:Loc Rules_Empty}" Style="{StaticResource EmptyListText}"
                                        Visibility="{Binding HasNoRules, Converter={StaticResource BoolToVisibility}}"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ChangesRefused}" Style="{StaticResource EmptyListText}"
+                                       Visibility="{Binding ShowsRulesRefused, Converter={StaticResource BoolToVisibility}}"/>
                         </Grid>
                     </Border>
 
@@ -436,6 +438,8 @@
                             </DataGrid>
                             <TextBlock Grid.Row="1" Text="{loc:Loc Alerts_Empty}" Style="{StaticResource EmptyListText}"
                                        Visibility="{Binding HasNoAlerts, Converter={StaticResource BoolToVisibility}}"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ChangesRefused}" Style="{StaticResource EmptyListText}"
+                                       Visibility="{Binding ShowsAlertsRefused, Converter={StaticResource BoolToVisibility}}"/>
                         </Grid>
                     </Border>
                 </Grid>

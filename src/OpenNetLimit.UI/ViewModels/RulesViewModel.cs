@@ -49,8 +49,33 @@ public sealed class RulesViewModel : INotifyPropertyChanged
     public ObservableCollection<AlertRow> Alerts { get; } = [];
 
     // Only a list the service sent can be empty. Before that the message line says what's wrong.
-    public bool HasNoRules => _loaded && Rules.Count == 0;
-    public bool HasNoAlerts => _alertsLoaded && Alerts.Count == 0;
+    public bool HasNoRules => _loaded && Rules.Count == 0 && ChangesRefused is null;
+    public bool HasNoAlerts => _alertsLoaded && Alerts.Count == 0 && ChangesRefused is null;
+
+    // A service turning changes away may not have loaded what's saved, so an empty list says why
+    // instead of offering to add the first rule.
+    public bool ShowsRulesRefused => _loaded && Rules.Count == 0 && ChangesRefused is not null;
+    public bool ShowsAlertsRefused => _alertsLoaded && Alerts.Count == 0 && ChangesRefused is not null;
+
+    private string? _changesRefused;
+    /// <summary>Why the service turns changes away, or null when it takes them.</summary>
+    public string? ChangesRefused
+    {
+        get => _changesRefused;
+        set
+        {
+            if (SetField(ref _changesRefused, value))
+                OnEmptyListsChanged();
+        }
+    }
+
+    private void OnEmptyListsChanged()
+    {
+        OnPropertyChanged(nameof(HasNoRules));
+        OnPropertyChanged(nameof(HasNoAlerts));
+        OnPropertyChanged(nameof(ShowsRulesRefused));
+        OnPropertyChanged(nameof(ShowsAlertsRefused));
+    }
 
     private RuleRow? _selectedRule;
     public RuleRow? SelectedRule
@@ -135,8 +160,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
         {
             // The lists stay, but an empty one no longer claims there's nothing there.
             _loaded = _alertsLoaded = false;
-            OnPropertyChanged(nameof(HasNoRules));
-            OnPropertyChanged(nameof(HasNoAlerts));
+            OnEmptyListsChanged();
             return ErrorOf(rulesReply) ?? LocalizationManager.Text("Rules_NoService");
         }
         var quotasReply = await _send("QUOTAS");
@@ -382,8 +406,7 @@ public sealed class RulesViewModel : INotifyPropertyChanged
 
         SelectedRule = Rules.FirstOrDefault(r => r.Rule.Id == selectedRuleId);
         SelectedAlert = Alerts.FirstOrDefault(a => a.Alert.Id == selectedAlertId);
-        OnPropertyChanged(nameof(HasNoRules));
-        OnPropertyChanged(nameof(HasNoAlerts));
+        OnEmptyListsChanged();
     }
 
     /// <summary>Sends a change. Returns what went wrong, or null when the service said ok.</summary>

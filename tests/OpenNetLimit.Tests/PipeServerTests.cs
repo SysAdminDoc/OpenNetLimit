@@ -162,21 +162,37 @@ public class PipeServerTests
         Assert.Empty(rules.GetAllRules());
     }
 
-    // A service that didn't load the rules took changes it then lost on the next save.
+    // A service that didn't load the rules took changes it then lost on the next save. Every
+    // change is refused, edits and deletes of rules and alerts as well as adds.
     [Theory]
-    [InlineData("ADD_RULE", """{"processName":"chrome"}""")]
-    [InlineData("import_rules", """[{"processName":"chrome"}]""")]
-    public async Task RuleChange_WhileChangesAreRefused_SaysWhy(string command, string payload)
+    [InlineData("ADD_RULE", """{"processName":"steam"}""")]
+    [InlineData("UPDATE_RULE", """{"id":"{rule}","processName":"steam"}""")]
+    [InlineData("REMOVE_RULE", "{rule}")]
+    [InlineData("IMPORT_RULES", """[{"processName":"steam"}]""")]
+    [InlineData("import_rules", """[{"processName":"steam"}]""")]
+    [InlineData("ADD_ALERT_RULE", """{"processName":"steam","thresholdBytesPerSecond":1024}""")]
+    [InlineData("UPDATE_ALERT_RULE", """{"id":"{alert}","processName":"steam","thresholdBytesPerSecond":1024}""")]
+    [InlineData("REMOVE_ALERT_RULE", "{alert}")]
+    public async Task Change_WhileChangesAreRefused_SaysWhyAndChangesNothing(string command, string payload)
     {
         var rules = new RuleEngine();
+        var rule = new BandwidthRule { ProcessName = "chrome" };
+        rules.AddRule(rule);
+        var alerts = new BandwidthAlertTracker(new TrafficMonitor());
+        var alert = new BandwidthAlertRule { Name = "Big download", ThresholdBytesPerSecond = 2048 };
+        alerts.AddRule(alert);
+        string State() => rules.ExportRules() + string.Join(",",
+            alerts.GetRules().Select(a => $"{a.Id}:{a.ProcessName}:{a.ThresholdBytesPerSecond}"));
+        var before = State();
         var controlPlane = new ControlPlaneState { ChangesRefused = "not running as administrator" };
-        var server = CreateServer(rules, new RecordingLogger(), "unused", controlPlane);
+        var server = CreateServer(rules, new RecordingLogger(), "unused", controlPlane, alerts);
 
-        var reply = await server.ProcessCommandAsync(command, payload, CancellationToken.None);
+        var reply = await server.ProcessCommandAsync(command,
+            payload.Replace("{rule}", rule.Id.ToString()).Replace("{alert}", alert.Id.ToString()), CancellationToken.None);
 
         Assert.Contains("\"error\"", reply);
         Assert.Contains("not running as administrator", reply);
-        Assert.Empty(rules.GetAllRules());
+        Assert.Equal(before, State());
     }
 
     [Fact]
@@ -265,13 +281,13 @@ public class PipeServerTests
     }
 
     private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
-        ControlPlaneState? controlPlane = null)
+        ControlPlaneState? controlPlane = null, BandwidthAlertTracker? alerts = null)
     {
         var monitor = new TrafficMonitor();
         return new PipeServer(
             monitor,
             rules,
-            new BandwidthAlertTracker(monitor),
+            alerts ?? new BandwidthAlertTracker(monitor),
             controlPlane ?? new ControlPlaneState(),
             new UnusedVerifier(),
             new UnusedGeoIpResolver(),

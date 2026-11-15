@@ -90,8 +90,8 @@ public class QuotaTracker
         var existing = allRules.Select(r => r.Id).ToHashSet();
         foreach (var ruleId in _quotas.Keys)
         {
-            // Only a deleted rule's use is kept for it coming back. Turning a cap off and on
-            // again starts it over, which is how a used-up cap gets reset by hand.
+            // Only a deleted rule's use is kept for it coming back. Turning a cap, or its rule,
+            // off and on again starts it over, which is how a used-up cap gets reset by hand.
             if (!live.Contains(ruleId) && _quotas.TryRemove(ruleId, out var gone) && !existing.Contains(ruleId))
             {
                 if (_removed.Count >= MaxRemoved)
@@ -180,9 +180,12 @@ public class QuotaTracker
             return CopyState(state);
     }
 
-    /// <summary>Rules with a quota and something to match: a process name, a path, or both.</summary>
+    /// <summary>
+    /// Rules that are on, with a quota and something to match: a process name, a path, or both.
+    /// A rule that's off doesn't count, or it came back on already used up.
+    /// </summary>
     private static List<BandwidthRule> QuotaRules(IReadOnlyList<BandwidthRule> rules) =>
-        rules.Where(r => r.Quota is not null && (r.ProcessName is not null || r.ProcessPath is not null)).ToList();
+        rules.Where(r => r.Enabled && r.Quota is not null && (r.ProcessName is not null || r.ProcessPath is not null)).ToList();
 
     private static long UsageOf(BandwidthRule rule, IReadOnlyList<ProcessTrafficInfo> processes) =>
         processes

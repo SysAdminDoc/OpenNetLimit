@@ -455,6 +455,61 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void ManyDeletes_ForgetOnlyTheOldest_SoARecentUndoKeepsItsPlace()
+    {
+        // At 64 remembered places the whole list was cleared, so a rule deleted just before the
+        // next delete came back after every rule of its priority.
+        var engine = new RuleEngine();
+        var target = new BandwidthRule { Name = "target", ProcessName = "chrome" };
+        var next = new BandwidthRule { Name = "next", ProcessName = "chrome" };
+        engine.AddRule(target);
+        engine.AddRule(next);
+        var fillers = Enumerable.Range(0, 64).Select(i => new BandwidthRule { ProcessName = $"app{i}" }).ToList();
+        fillers.ForEach(engine.AddRule);
+
+        foreach (var filler in fillers.Take(63))
+            engine.RemoveRule(filler.Id);
+        engine.RemoveRule(target.Id);
+        engine.RemoveRule(fillers[63].Id);
+        engine.AddRule(target.Clone());
+
+        Assert.Equal(["target", "next"], engine.GetAllRules().Select(r => r.Name));
+    }
+
+    [Fact]
+    public void RemovingARuleThatIsntThere_HasNothingToSave()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome" });
+        var changes = 0;
+        engine.OnRulesChanged += () => changes++;
+
+        engine.RemoveRule(Guid.NewGuid());
+
+        Assert.Equal(0, changes);
+        Assert.Single(engine.GetAllRules());
+    }
+
+    [Theory]
+    [InlineData(false, false, 0)]
+    [InlineData(false, true, 0)]
+    [InlineData(true, false, 0)]
+    [InlineData(true, true, 1)]
+    public void EmptyImport_HasSomethingToSaveOnlyWhenItReplacedRules(bool replace, bool hadRules, int expected)
+    {
+        var engine = new RuleEngine();
+        if (hadRules)
+            engine.AddRule(new BandwidthRule { ProcessName = "chrome" });
+        var changes = 0;
+        engine.OnRulesChanged += () => changes++;
+
+        engine.ImportRules("[]", replace);
+
+        Assert.Equal(expected, changes);
+        Assert.Equal(hadRules && !replace, engine.GetAllRules().Count == 1);
+    }
+
+    [Fact]
     public void RuleRemovedAndImportedBack_GoesBackWhereItWas()
     {
         var engine = new RuleEngine();

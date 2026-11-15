@@ -60,9 +60,11 @@ public class BandwidthAlertTracker
 
     public void RemoveRule(Guid id)
     {
+        bool removed;
         lock (_lock)
-            _rules.RemoveAll(r => r.Id == id);
-        OnRulesChanged?.Invoke();
+            removed = _rules.RemoveAll(r => r.Id == id) > 0;
+        if (removed)
+            OnRulesChanged?.Invoke();
     }
 
     public IReadOnlyList<BandwidthAlertEvent> GetRecentEvents(int maxCount = 100)

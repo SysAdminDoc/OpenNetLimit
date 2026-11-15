@@ -92,6 +92,21 @@ public class BandwidthAlertTrackerTests : IDisposable
     }
 
     [Fact]
+    public void RemovingAnAlertThatIsntThere_HasNothingToSave()
+    {
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
+        var tracker = new BandwidthAlertTracker(monitor);
+        tracker.AddRule(new BandwidthAlertRule { Name = "Big download", ThresholdBytesPerSecond = 2048 });
+        var changes = 0;
+        tracker.OnRulesChanged += () => changes++;
+
+        tracker.RemoveRule(Guid.NewGuid());
+
+        Assert.Equal(0, changes);
+        Assert.Single(tracker.GetRules());
+    }
+
+    [Fact]
     public void SaveAndLoad_RoundTripsRules()
     {
         var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);

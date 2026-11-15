@@ -145,21 +145,31 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set
         {
             if (SetField(ref _isAdmin, value))
-            {
-                OnLimitMenuChanged();
-                UpdateRulesAccess();
-                OnPropertyChanged(nameof(CanEditPcLimit));
-                OnPropertyChanged(nameof(PcLimitButtonHint));
-            }
+                OnEditAccessChanged();
         }
     }
 
     public RulesViewModel RulesViewModel { get; }
 
+    /// <summary>Why the service turns changes away, as it last said. Null when it takes them.</summary>
+    private string? ChangesRefused => _engineStatus?.ChangesRefused;
+
+    /// <summary>Why no change can be made right now, or null when changes go through.</summary>
+    private string? EditHint => LimitMenu.EditHint(IsAdmin, ChangesRefused);
+
     private void UpdateRulesAccess()
     {
-        RulesViewModel.CanEdit = IsAdmin;
-        RulesViewModel.EditHint = IsAdmin ? null : LocalizationManager.Text("Menu_AdminRequired");
+        RulesViewModel.CanEdit = EditHint is null;
+        RulesViewModel.EditHint = EditHint;
+        RulesViewModel.ChangesRefused = ChangesRefused;
+    }
+
+    private void OnEditAccessChanged()
+    {
+        OnLimitMenuChanged();
+        UpdateRulesAccess();
+        OnPropertyChanged(nameof(CanEditPcLimit));
+        OnPropertyChanged(nameof(PcLimitButtonHint));
     }
 
     private ProcessViewModel? _selectedProcess;
@@ -173,12 +183,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public bool CanEditLimits => LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is null;
+    public bool CanEditLimits => LimitMenuHint is null;
 
     /// <summary>Tooltip on the limit menu items saying why they're unavailable, or null when they work.</summary>
-    public string? LimitMenuHint => LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is { } key
-        ? LocalizationManager.Text(key)
-        : null;
+    public string? LimitMenuHint => EditHint
+        ?? (LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is { } key ? LocalizationManager.Text(key) : null);
 
     private void OnLimitMenuChanged()
     {
@@ -208,9 +217,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public bool PcLimitHintIsError => _pcLimitError is not null;
 
-    public bool CanEditPcLimit => IsAdmin;
+    public bool CanEditPcLimit => EditHint is null;
 
-    public string? PcLimitButtonHint => IsAdmin ? null : LocalizationManager.Text("Menu_AdminRequired");
+    public string? PcLimitButtonHint => EditHint;
 
     private void OnPcLimitChanged()
     {
@@ -302,6 +311,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             TrayNoticeRaised?.Invoke(notice);
         if (previous?.Paused != status?.Paused || previous?.StayPaused != status?.StayPaused)
             EngineStateChanged?.Invoke();
+        if (previous?.ChangesRefused != status?.ChangesRefused)
+            OnEditAccessChanged();
     }
 
     private string _permissionDisplay = "Read-only";

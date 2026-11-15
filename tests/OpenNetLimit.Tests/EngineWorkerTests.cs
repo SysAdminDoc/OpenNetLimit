@@ -8,6 +8,7 @@ using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service;
 using OpenNetLimit.Service.Control;
+using OpenNetLimit.Service.IPC;
 using OpenNetLimit.Service.Plugins;
 using SharpDivert;
 using Xunit;
@@ -220,6 +221,73 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task AKeptCopy_PastAGapInTheNumbers_IsntCopiedAgain()
+    {
+        // The search for an earlier copy stopped at the first missing number, so a copy deleted
+        // by hand had the same bad file copied again on every start.
+        Directory.CreateDirectory(_dataDir);
+        const string kept = """{"version":1,"rules":[{"processName":"discord"}""";
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath + ".unreadable", kept);
+        File.WriteAllText(RulesPath + ".unreadable-3", broken);
+        File.WriteAllText(RulesPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.False(File.Exists(RulesPath + ".unreadable-2"));
+        Assert.Equal(kept, File.ReadAllText(RulesPath + ".unreadable"));
+        Assert.Null(_controlPlane.ChangesRefused);
+    }
+
+    // It took changes it couldn't save, and said so only in the log.
+    [Fact]
+    public async Task UnreadableRulesFile_ThatCantBeCopied_RefusesChangesAndSaysWhy()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        worker.CopyFile = (_, _) => throw new IOException("The process cannot access the file.");
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        var refused = _controlPlane.ChangesRefused;
+        var status = _controlPlane.GetDiagnostics();
+        var reply = await CreatePipe().ProcessCommandAsync("ADD_RULE", """{"processName":"chrome"}""", CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(refused);
+        Assert.Contains(RulesPath, refused);
+        Assert.Contains("restart", refused);
+        Assert.Equal(refused, status.ChangesRefused);
+        Assert.Contains("\"error\"", reply);
+        Assert.Empty(_rules.GetAllRules());
+        Assert.Equal(broken, File.ReadAllText(RulesPath));
+    }
+
+    [Fact]
+    public async Task UnreadableRulesAndAlerts_ThatCantBeCopied_NameBothFiles()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        File.WriteAllText(AlertsPath, broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        worker.CopyFile = (_, _) => throw new IOException("The process cannot access the file.");
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        var refused = _controlPlane.ChangesRefused;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains(RulesPath, refused);
+        Assert.Contains(AlertsPath, refused);
+    }
+
+    [Fact]
     public async Task NotAdmin_RefusesRuleChangesItCouldNotKeep()
     {
         using var worker = CreateWorker(new FakeInterceptor(), isAdmin: false);
@@ -227,9 +295,15 @@ public sealed class EngineWorkerTests : IDisposable
         await worker.StartAsync(CancellationToken.None);
         await _pipeStarted.Task.WaitAsync(Timeout);
         var refused = _controlPlane.ChangesRefused;
+        var status = _controlPlane.GetDiagnostics();
+        var reply = await CreatePipe().ProcessCommandAsync("ADD_RULE", """{"processName":"chrome"}""", CancellationToken.None);
         await worker.StopAsync(CancellationToken.None);
 
         Assert.Contains("administrator", refused);
+        Assert.Equal(refused, status.ChangesRefused);
+        Assert.Contains("administrator", reply);
+        Assert.Empty(_rules.GetAllRules());
+        Assert.False(File.Exists(RulesPath));
     }
 
     [Fact]
@@ -240,9 +314,14 @@ public sealed class EngineWorkerTests : IDisposable
         await worker.StartAsync(CancellationToken.None);
         await _pipeStarted.Task.WaitAsync(Timeout);
         var refused = _controlPlane.ChangesRefused;
+        var status = _controlPlane.GetDiagnostics();
+        var reply = await CreatePipe().ProcessCommandAsync("ADD_RULE", """{"processName":"chrome"}""", CancellationToken.None);
         await worker.StopAsync(CancellationToken.None);
 
         Assert.Null(refused);
+        Assert.Null(status.ChangesRefused);
+        Assert.DoesNotContain("\"error\"", reply);
+        Assert.Single(_rules.GetAllRules());
     }
 
     [Fact]
@@ -1009,6 +1088,18 @@ public sealed class EngineWorkerTests : IDisposable
 
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>
         CreateWorker(interceptor, () => isAdmin);
+
+    /// <summary>A control pipe on the worker's state, like the service's.</summary>
+    private PipeServer CreatePipe() => new(
+        _monitor,
+        _rules,
+        _alerts,
+        _controlPlane,
+        new RestApiRouterTests.StubVerifier(),
+        new RestApiRouterTests.StubGeoIpResolver(),
+        new PluginManager(new PluginOptions { Enabled = false, PluginDirectory = Path.Combine(_dataDir, "plugins") },
+            NullLogger<PluginManager>.Instance),
+        NullLogger<PipeServer>.Instance);
 
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, Func<bool> isAdmin)
     {

@@ -735,8 +735,16 @@ public class EngineWorker : BackgroundService
         {
             file.LoadFailed = true;
             file.CopyKept = KeepUnreadable(file.Path);
+            // The first change would save over it, and nothing else holds what's in it. Taking
+            // changes it can't save, and saying so only in the log, looked like they'd stuck.
+            if (!file.CopyKept)
+                RefuseChanges($"{file.Path} didn't load and no copy of it could be kept, so saving a change would lose what's in it. Fix or move the file, then restart the OpenNetLimit service.");
         }
     }
+
+    /// <summary>Turns changes away for this reason too, after any reason given already.</summary>
+    private void RefuseChanges(string reason) =>
+        _controlPlane.ChangesRefused = _controlPlane.ChangesRefused is { } earlier ? $"{earlier} {reason}" : reason;
 
     /// <summary>
     /// Copies a file that wouldn't load to <c>.unreadable</c> next to it, since a change saves
@@ -750,14 +758,18 @@ public class EngineWorker : BackgroundService
             if (!File.Exists(path))
                 return true;
             var content = File.ReadAllBytes(path);
+            // Started again with the same bad file, which is already kept. Every copy is checked,
+            // not only those up to the first gap in the numbers: one deleted by hand left a gap,
+            // and the file kept past it was copied again on every start.
+            var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+            foreach (var kept in Directory.EnumerateFiles(directory, Path.GetFileName(path) + ".unreadable*"))
+            {
+                if (File.ReadAllBytes(kept).AsSpan().SequenceEqual(content))
+                    return true;
+            }
             var copy = path + ".unreadable";
             for (var n = 2; File.Exists(copy); n++)
-            {
-                // Started again with the same bad file, which is already kept.
-                if (File.ReadAllBytes(copy).AsSpan().SequenceEqual(content))
-                    return true;
                 copy = $"{path}.unreadable-{n}";
-            }
             CopyFile(path, copy);
             _logger.LogWarning("Kept a copy of {Path} as {Copy}", path, copy);
             return true;
@@ -792,7 +804,6 @@ public class EngineWorker : BackgroundService
                 if (!file.CopyKept && !(file.CopyKept = KeepUnreadable(file.Path)))
                 {
                     _logger.LogError("The {What} weren't saved: {Path} didn't load and no copy of it could be kept", what, file.Path);
-                    RecordLastError($"The {what} weren't saved, since {file.Path} didn't load and no copy of it could be kept.");
                     return;
                 }
             }
@@ -1131,6 +1142,7 @@ public class EngineWorker : BackgroundService
             // after the next restart, and the app says so.
             StayPaused = _stayPaused,
             DriverLoadedReason = paused ? driverLoadedReason : null,
+            ChangesRefused = _controlPlane.ChangesRefused,
             ActiveFlows = _flowTracker.GetActiveConnections().Count,
             ActiveRules = _ruleEngine.GetAllRules().Count,
             StartedAt = _startedAt,

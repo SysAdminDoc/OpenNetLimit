@@ -13,8 +13,9 @@ public sealed class ControlPlaneState
     public QuotaTracker? QuotaTracker { get; set; }
 
     /// <summary>
-    /// Why changes to rules and alerts are refused, or null when the service keeps them. A
-    /// service that couldn't load the rules can't save a change without losing them.
+    /// Why changes to rules, alerts and the whole-PC limit are refused, or null when the service
+    /// keeps them. A service that couldn't load the rules, or couldn't keep a copy of a file
+    /// that didn't load, can't save a change without losing them.
     /// </summary>
     public string? ChangesRefused { get; set; }
 
