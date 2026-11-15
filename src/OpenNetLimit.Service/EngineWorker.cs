@@ -39,6 +39,8 @@ public class EngineWorker : BackgroundService
     private volatile bool _engineStarted;
     private volatile bool _stopping;
     private bool _stateLoaded;
+    private bool _prerequisitesMet;
+    private readonly CancellationTokenSource _shutdown = new();
 
     private static readonly string DefaultDataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -98,29 +100,53 @@ public class EngineWorker : BackgroundService
         _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    // Since .NET 10 the host runs ExecuteAsync on a thread-pool thread and starts the next
+    // hosted service (the REST API) right away, so the saved rules load here, before
+    // base.StartAsync returns, or the API and pipe could answer with an empty rule set.
+    public override Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("OpenNetLimit engine starting");
         _controlPlane.DiagnosticProvider = GetDiagnosticInfo;
 
-        if (ValidatePrerequisites())
+        _prerequisitesMet = ValidatePrerequisites();
+        if (_prerequisitesMet)
         {
             ClearLastError();
             EnsureDataDirectory();
-            LoadState(stoppingToken);
-
-            if (await TryStartInterceptorAsync(stoppingToken))
-                StartBackgroundWork();
+            LoadState(_shutdown.Token);
         }
         else
         {
             _logger.LogCritical("Prerequisite validation failed; the packet engine will not start");
         }
 
-        // The control pipe stays up even when the engine can't start. Without it the app
-        // could only report "Service not running" and never the reason.
         _controlPlane.QuotaTracker = _quotaTracker;
         _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
+        return base.StartAsync(cancellationToken);
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _shutdown.CancelAsync();
+        await base.StopAsync(cancellationToken);
+    }
+
+    public override void Dispose()
+    {
+        // Safe on a second Dispose: a disposed source still reports the cancellation it had.
+        if (!_shutdown.IsCancellationRequested)
+            _shutdown.Cancel();
+        base.Dispose();
+        _shutdown.Dispose();
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (_prerequisitesMet && await TryStartInterceptorAsync(stoppingToken))
+            StartBackgroundWork();
+
+        // The control pipe stays up even when the engine can't start. Without it the app
+        // could only report "Service not running" and never the reason.
         _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
         _logger.LogInformation("IPC pipe server started");
 
@@ -291,7 +317,11 @@ public class EngineWorker : BackgroundService
 
             try
             {
+                // X509CertificateLoader replaces the byte and file loaders, but nothing in the BCL
+                // reads the Authenticode signer out of a .sys file, so this obsolete call stays.
+#pragma warning disable SYSLIB0057
                 using var baseCert = X509Certificate.CreateFromSignedFile(driverPath);
+#pragma warning restore SYSLIB0057
                 using var cert = new X509Certificate2(baseCert);
                 if (cert.NotAfter < DateTime.Now)
                 {

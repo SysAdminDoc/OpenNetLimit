@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using DataGrid = System.Windows.Controls.DataGrid;
 using WpfScrollBar = System.Windows.Controls.Primitives.ScrollBar;
 
 namespace OpenNetLimit.UI.Services;

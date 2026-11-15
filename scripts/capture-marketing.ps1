@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $solution = Join-Path $repoRoot 'OpenNetLimit.sln'
 $captureProject = Join-Path $repoRoot 'tools\OpenNetLimit.MarketingCapture\OpenNetLimit.MarketingCapture.csproj'
-$app = Join-Path $repoRoot 'src\OpenNetLimit.UI\bin\Release\net8.0-windows\OpenNetLimit.UI.exe'
+$app = Join-Path $repoRoot 'src\OpenNetLimit.UI\bin\Release\net10.0-windows\OpenNetLimit.UI.exe'
 $output = Join-Path $repoRoot 'assets\screenshots'
 
 dotnet build $solution -c Release

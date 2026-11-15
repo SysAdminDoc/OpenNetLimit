@@ -8,7 +8,7 @@
   <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-27C7F3?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4BE5A2?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0A84FF?style=flat-square">
-  <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-6D4AFF?style=flat-square">
+  <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-6D4AFF?style=flat-square">
 </p>
 
 <p align="center">
@@ -107,7 +107,7 @@ See the [CLI and REST API guide](docs/automation-api.md) for authentication, rem
 
 ## Build from source
 
-You need the .NET 8 SDK on Windows.
+You need the .NET 10 SDK on Windows.
 
 ```powershell
 dotnet restore

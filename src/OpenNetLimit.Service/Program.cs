@@ -48,6 +48,8 @@ builder.Services.AddSingleton<RestApiRouter>();
 builder.Services.AddSingleton<IProcessVerifier, VirusTotalVerifier>();
 builder.Services.AddSingleton<IGeoIpResolver, FreeIpApiGeoIpResolver>();
 builder.Services.AddSingleton<PluginManager>();
+// EngineWorker must stay first: it loads the saved rules in StartAsync, and the host starts
+// the REST API only after that returns.
 builder.Services.AddHostedService<EngineWorker>();
 builder.Services.AddHostedService<RestApiServer>();
 

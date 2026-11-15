@@ -106,6 +106,24 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task SavedRules_AreLoadedBeforeStartAsyncReturns()
+    {
+        // The host starts the REST API as soon as this worker's StartAsync returns. On .NET 10
+        // ExecuteAsync runs on its own thread, so a slow startup used to leave the API serving
+        // an empty rule set.
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(RulesPath, """{"version":1,"rules":[{"processName":"steam.exe","downloadBytesPerSecond":500000}]}""");
+        using var worker = CreateWorker(new FakeInterceptor(), () => { Thread.Sleep(200); return true; });
+
+        await worker.StartAsync(CancellationToken.None);
+        var rulesWhenStarted = _rules.GetAllRules().Count;
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(1, rulesWhenStarted);
+    }
+
+    [Fact]
     public void StartFailure_MissingDll_SaysWhatIsMissing()
     {
         var message = EngineWorker.DescribeStartFailure(new DllNotFoundException("Unable to load DLL 'WinDivert.dll'"));
@@ -121,7 +139,10 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.Equal("boom", message);
     }
 
-    private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin)
+    private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>
+        CreateWorker(interceptor, () => isAdmin);
+
+    private EngineWorker CreateWorker(IPacketInterceptor interceptor, Func<bool> isAdmin)
     {
         var monitor = new TrafficMonitor();
         return new EngineWorker(
@@ -137,7 +158,7 @@ public sealed class EngineWorkerTests : IDisposable
             _controlPlane,
             NullLogger<EngineWorker>.Instance,
             _dataDir,
-            () => isAdmin);
+            isAdmin);
     }
 
     private async Task RunPipe(CancellationToken ct)

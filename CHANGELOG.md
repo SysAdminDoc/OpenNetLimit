@@ -30,6 +30,10 @@
 - Stopping the service takes a fraction of a second instead of up to 10 seconds, so uninstalling, updating and shutting down Windows don't wait on it
 - When the service isn't installed, the app points you to the setup first and to `Install-Service.ps1` only for the ZIP
 
+### Changed
+- OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK
+- The service loads your saved rules before the REST API starts, so a script that calls the API right after a restart never sees an empty rule list
+
 ## 1.0.2 (2026-09-12)
 
 ### Changed
