@@ -88,7 +88,7 @@ OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires admin
 
 The rule applies right away and keeps applying after the app restarts. OpenNetLimit won't block or limit system-critical Windows processes.
 
-Windows Update, Delivery Optimization and other Windows services run inside `svchost.exe`, so the list shows each svchost with the services in it, like `svchost (BITS)`. A limit on one of those goes on the service, and it follows the service if Windows restarts it in another svchost. When several services share one svchost, the dialog asks which one and names the others the limit will slow too. A svchost running DNS, DHCP, RPC, the firewall or another service Windows needs to stay online is never limited, and its row says why.
+Windows Update, Delivery Optimization and other Windows services run inside `svchost.exe`, so the list shows each svchost with the services in it, like `svchost (BITS)`. A limit on one of those goes on the service, and it follows the service if Windows restarts it in another svchost. When several services share one svchost, the dialog asks which one and names the others the limit will slow too. A svchost running DNS, DHCP, RPC, the firewall, the connection sharing behind Mobile Hotspot and WSL, or another service Windows needs to stay online is never limited, and its row says why.
 
 ### Limit the whole PC
 

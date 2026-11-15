@@ -43,13 +43,16 @@ public static class ProtectedProcesses
     /// Services that keep the svchost they run in out of every rule: name resolution and
     /// addressing, the network stack's own bookkeeping, the firewall and IPsec, VPN and Wi-Fi
     /// sign-in, domain sign-in, time, certificate checks, and RPC, which everything above uses.
+    /// Connection sharing too: SharedAccess answers DNS and DHCP for Mobile Hotspot and WSL
+    /// clients, which icssvc and the Host Network Service (hns) set up.
     /// </summary>
     public static readonly FrozenSet<string> NetworkingServices = new[]
     {
         "Dnscache", "Dhcp", "nsi", "NlaSvc", "netprofm", "Wcmsvc", "NcbService", "iphlpsvc",
         "WinHttpAutoProxySvc", "BFE", "mpssvc", "IKEEXT", "PolicyAgent", "RasMan", "SstpSvc",
         "Wlansvc", "dot3svc", "EapHost", "Netlogon", "W32Time", "CryptSvc",
-        "RpcSs", "RpcEptMapper", "DcomLaunch", "LSM"
+        "RpcSs", "RpcEptMapper", "DcomLaunch", "LSM",
+        "SharedAccess", "icssvc", "hns"
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="services">The services running in the process, null when there are none or they aren't known.</param>

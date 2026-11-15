@@ -371,6 +371,9 @@ public class ServiceHostsTests
     [InlineData("svchost", "BITS,wuauserv", ProcessProtection.None)]
     [InlineData("svchost", "Dnscache", ProcessProtection.Networking)]
     [InlineData("SVCHOST", "dnscache,NlaSvc", ProcessProtection.Networking)]
+    [InlineData("svchost", "SharedAccess", ProcessProtection.Networking)]
+    [InlineData("svchost", "icssvc", ProcessProtection.Networking)]
+    [InlineData("svchost", "hns", ProcessProtection.Networking)]
     [InlineData("svchost", "BITS,Dnscache", ProcessProtection.Windows)]
     [InlineData("svchost", "DcomLaunch,BrokerInfrastructure,Power", ProcessProtection.Windows)]
     public void Of_KeepsWindowsAndItsNetworkingOutOfRules(string name, string? services, ProcessProtection expected)

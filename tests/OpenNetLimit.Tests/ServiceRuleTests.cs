@@ -83,6 +83,7 @@ public class ServiceRuleTests
     [InlineData(@"..\BITS", null, null, "isn't a Windows service name")]
     [InlineData("Dnscache", null, null, "part of Windows networking")]
     [InlineData("rpcss", null, null, "part of Windows networking")]
+    [InlineData("SharedAccess", null, null, "part of Windows networking")]
     public void AddRule_ServiceRuleThatCanNotWork_IsRefused(string service, string? name, string? path, string reason)
     {
         var rules = new RuleEngine();
