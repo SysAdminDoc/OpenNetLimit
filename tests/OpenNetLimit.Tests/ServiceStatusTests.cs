@@ -106,6 +106,23 @@ public class ServiceStatusTests
     }
 
     [Fact]
+    public void PausedAfterAFailedResume_ShowsTheErrorAndWhatHoldsTheDriver()
+    {
+        var (tracker, _) = NewTracker();
+
+        tracker.StatusReceived(new DiagnosticInfo
+        {
+            Paused = true,
+            DriverLoadedReason = "wireguard.exe has it open.",
+            EngineError = "WinDivert rejected the flags (Windows error 87)."
+        });
+
+        Assert.True(tracker.Current.Paused);
+        Assert.Equal("WinDivert rejected the flags (Windows error 87). wireguard.exe has it open.",
+            tracker.Current.ResolveDetail());
+    }
+
+    [Fact]
     public void RunningEngine_ShowsConnectedWithNoDetail()
     {
         var (tracker, _) = NewTracker();

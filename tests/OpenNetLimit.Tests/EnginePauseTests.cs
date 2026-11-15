@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Resources;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.UI.Services;
 using Xunit;
@@ -211,12 +213,28 @@ public sealed class EnginePauseTests
     [InlineData("short", 10, "short")]
     [InlineData("exactly10!", 10, "exactly10!")]
     [InlineData("one two three", 9, "one two…")]
+    [InlineData("one two three", 10, "one two…")]
+    [InlineData("abcdefghij", 5, "abcd…")]
+    [InlineData("a bcdefghijkl", 8, "a bcdef…")]
+    [InlineData("abcdefghij", 1, "…")]
+    [InlineData("abcdefghij", 0, "")]
+    [InlineData("abcdefghij", -1, "")]
     public void Fit_CutsLongTextWithAnEllipsis(string text, int max, string expected)
     {
         var fitted = TrayNotice.Fit(text, max);
 
         Assert.Equal(expected, fitted);
-        Assert.True(fitted.Length <= max);
+        Assert.True(fitted.Length <= Math.Max(max, 0));
+    }
+
+    [Fact]
+    public void Fit_NeverSplitsAnEmoji()
+    {
+        var smile = char.ConvertFromUtf32(0x1F600);
+
+        var fitted = TrayNotice.Fit("abc" + smile + "defgh", 5);
+
+        Assert.Equal("abc…", fitted);
     }
 }
 
@@ -230,9 +248,30 @@ public sealed class TrayNoticeTextTests
     public void LongServiceWording_FitsTheBalloon()
     {
         var body = new TrayNotice("Pause_StillLoaded_Title", Body: LongReason).ResolveBody();
+        var kept = body[..^1];
 
-        Assert.Equal(TrayNotice.MaxBodyLength, body.Length);
+        // It cuts at the last whole word now, so it can fall a few characters short of the limit.
+        Assert.True(body.Length <= TrayNotice.MaxBodyLength, $"{body.Length} characters");
+        Assert.True(body.Length > TrayNotice.MaxBodyLength / 2, $"{body.Length} characters");
         Assert.EndsWith("…", body);
+        Assert.StartsWith(kept, LongReason);
+        Assert.Equal(' ', LongReason[kept.Length]);
+    }
+
+    [Theory]
+    [InlineData("Pause_StayNotSaved_Body", "")]
+    [InlineData("Pause_StayNotSaved_Body", "es")]
+    [InlineData("Pause_StayNotCleared_Body", "")]
+    [InlineData("Pause_StayNotCleared_Body", "es")]
+    public void StayWarnings_LeaveRoomForWhatHoldsTheDriver(string key, string culture)
+    {
+        var resources = new ResourceManager("OpenNetLimit.UI.Resources.Strings", typeof(LocalizationManager).Assembly);
+        var warning = resources.GetString(key, CultureInfo.GetCultureInfo(culture))!;
+        var holder = string.Join(" ", Enumerable.Repeat("svchost.exe (Windows Sandbox) has it open.", 3));
+
+        // A 150-character list of programs still fits whole beside the warning.
+        Assert.True(warning.Length <= 100, $"{warning.Length} characters");
+        Assert.True(holder.Length + 1 + warning.Length <= TrayNotice.MaxBodyLength);
     }
 
     [Fact]

@@ -25,6 +25,9 @@ public sealed class EngineWorkerTests : IDisposable
     private readonly DriverPreflightTests.FakeDriverService _driver = new();
     private string[] _programsUsingWinDivert = [];
 
+    /// <summary>Runs each time the driver unloader lists the programs that have WinDivert open.</summary>
+    private Action? _whenListingPrograms;
+
     /// <summary>Runs on each wait while a pause watches the driver unload.</summary>
     private Action? _duringUnloadWait;
 
@@ -569,7 +572,109 @@ public sealed class EngineWorkerTests : IDisposable
 
         Assert.False(status.Running);
         Assert.Null(status.EngineError);
+        // Not paused, not running and no error is what the app shows as Failed to start.
+        Assert.True(status.Paused);
         Assert.True(after.Paused);
+    }
+
+    [Fact]
+    public async Task StatusRead_ThatAResumeOvertakes_KeepsSayingTheDriverIsLoading()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        using var starting = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        interceptor.WhenStarting = () => { starting.Set(); release.Wait(Timeout); };
+        Task<DiagnosticInfo>? resuming = null;
+        // The read has decided to recheck the driver. The resume marks it as loading first, and
+        // the recheck used to see it still unloaded and clear that.
+        worker.WhenRecheckingDriver = () =>
+        {
+            resuming = Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None));
+            starting.Wait(Timeout);
+        };
+
+        _controlPlane.GetDiagnostics();
+        var whileLoading = _controlPlane.GetDiagnostics();
+        release.Set();
+        var resumed = await resuming!.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(whileLoading.Paused);
+        Assert.Equal(EngineWorker.LoadingReason, whileLoading.DriverLoadedReason);
+        Assert.True(resumed.Running);
+    }
+
+    [Fact]
+    public async Task FailedResume_SaysUnloadingWhileItUnloadsTheDriverAgain()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        interceptor.WhenStarting = () =>
+            _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending, DriverServiceState.Stopped);
+        interceptor.StartFailure = new WinDivertOpenException(
+            WinDivert.Layer.Network, WinDivert.Flag.Sniff, 87, "The parameter is incorrect.");
+        DiagnosticInfo? duringUnload = null;
+        _duringUnloadWait = () => duringUnload ??= _controlPlane.GetDiagnostics();
+
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(duringUnload);
+        Assert.Equal(EngineWorker.UnloadingReason, duringUnload.DriverLoadedReason);
+        Assert.True(resumed.Paused);
+        Assert.Null(resumed.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task Resume_CutShortByAServiceStop_LeavesTheDriverAlone()
+    {
+        // An unload there would be cancelled by the same stop and only slow it down.
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(StayPausedPath, "");
+        var interceptor = new FakeInterceptor { StartWaitsForStop = true };
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.WhenStarting = () => _driver.Then(DriverServiceState.Running);
+
+        var resuming = _controlPlane.ResumeHandler!(CancellationToken.None);
+        await interceptor.Started.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+        var resumed = await resuming.WaitAsync(Timeout);
+
+        Assert.True(resumed.Paused);
+        Assert.Equal(0, _driver.StopRequests);
+    }
+
+    [Fact]
+    public async Task RefusedResume_AsTheDriverUnloads_LeavesNoErrorBehind()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        // The other program lets go while the resume lists it, and a poll sees that before the
+        // refusal is written.
+        _whenListingPrograms = () =>
+        {
+            _whenListingPrograms = null;
+            _driver.Then(DriverServiceState.Stopped);
+            _controlPlane.GetDiagnostics();
+        };
+
+        var refused = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        var after = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(after.Paused);
+        Assert.Null(after.EngineError);
+        Assert.Null(after.DriverLoadedReason);
+        Assert.Null(refused.EngineError);
     }
 
     [Fact]
@@ -680,7 +785,11 @@ public sealed class EngineWorkerTests : IDisposable
             NullLogger<EngineWorker>.Instance,
             _dataDir,
             isAdmin,
-            new DriverUnloader(_driver, (_, _) => _duringUnloadWait?.Invoke(), () => _programsUsingWinDivert));
+            new DriverUnloader(_driver, (_, _) => _duringUnloadWait?.Invoke(), () =>
+            {
+                _whenListingPrograms?.Invoke();
+                return _programsUsingWinDivert;
+            }));
     }
 
     private async Task StartAndWaitForBootAsync(EngineWorker worker)

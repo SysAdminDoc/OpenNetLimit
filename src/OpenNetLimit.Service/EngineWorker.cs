@@ -58,6 +58,9 @@ public class EngineWorker : BackgroundService
 
     /// <summary>Tests hold the boot start here so a pause or resume can get in first.</summary>
     internal Task? BootStartHold { get; set; }
+
+    /// <summary>Tests run this once as a status read starts rechecking the driver, to race it.</summary>
+    internal Action? WhenRecheckingDriver { get; set; }
     private bool _backgroundStarted;
     private RuleReconciler? _reconciler;
     private QuotaTracker? _quotaTracker;
@@ -379,10 +382,14 @@ public class EngineWorker : BackgroundService
     {
         lock (_driverReasonLock)
         {
-            _driverLoadedReason ??= placeholder;
+            // A program known to hold the driver stays named. A placeholder gives way to the step
+            // now running, so a failed resume's unload doesn't still say it's loading.
+            if (_driverLoadedReason is null or UnloadingReason or LoadingReason)
+                _driverLoadedReason = placeholder;
             _driverReasonVersion++;
+            // Under the lock, so a recheck that saw no change in progress also sees the new version.
+            _changingDriver = true;
         }
-        _changingDriver = true;
     }
 
     private void SetDriverReason(string? reason)
@@ -969,6 +976,14 @@ public class EngineWorker : BackgroundService
         string? driverLoadedReason = paused && !changingDriver ? RecheckDriver() : _driverLoadedReason;
 
         var running = _interceptor.IsRunning;
+        // A pause raises the flag before it stops the engine. If it raced this read, "not running"
+        // comes from the pause, and the app should say Paused, not Failed to start. The reason is
+        // read again too: the pause set its placeholder before the flag.
+        if (!paused && !running && _paused)
+        {
+            paused = true;
+            driverLoadedReason = _driverLoadedReason;
+        }
         var engineError = _engineError;
         // A pause stops the engine after it sets the flag and a resume clears the flag after the
         // engine starts, so either one finishing between the two reads above can pair "not
@@ -1003,10 +1018,20 @@ public class EngineWorker : BackgroundService
     /// </summary>
     private string? RecheckDriver()
     {
+        if (WhenRecheckingDriver is { } hook)
+        {
+            WhenRecheckingDriver = null;
+            hook();
+        }
+
         string? known;
         int version;
         lock (_driverReasonLock)
         {
+            // A pause or resume that began after the caller looked owns the reason until it's done.
+            // Rechecking now would see the driver half changed and could wipe "loading".
+            if (_changingDriver)
+                return _driverLoadedReason;
             known = _driverLoadedReason;
             version = _driverReasonVersion;
         }

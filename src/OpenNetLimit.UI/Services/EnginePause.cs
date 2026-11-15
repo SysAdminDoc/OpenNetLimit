@@ -23,12 +23,30 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
         // The added sentence is ours and says what happens next, so the service's wording gives
         // way to it rather than Windows cutting the warning off the end.
         var extra = LocalizationManager.Text(ExtraKey);
-        return Fit(body, MaxBodyLength - extra.Length - 1) + " " + extra;
+        var fitted = Fit(body, MaxBodyLength - extra.Length - 1);
+        return fitted.Length == 0 ? Fit(extra, MaxBodyLength) : fitted + " " + extra;
     }
 
-    /// <summary>Cuts text to at most <paramref name="maxLength"/> characters, ending in an ellipsis when it cut.</summary>
-    public static string Fit(string text, int maxLength) =>
-        text.Length <= maxLength ? text : text[..Math.Max(0, maxLength - 1)].TrimEnd() + "…";
+    /// <summary>
+    /// Cuts text to at most <paramref name="maxLength"/> characters, ending in an ellipsis when it
+    /// cut. It ends on a whole word when one ends in the second half, and never splits an emoji.
+    /// </summary>
+    public static string Fit(string text, int maxLength)
+    {
+        if (text.Length <= maxLength)
+            return text;
+        if (maxLength <= 1)
+            return maxLength == 1 ? "…" : string.Empty;
+        var cut = maxLength - 1;
+        if (char.IsHighSurrogate(text[cut - 1]))
+            cut--;
+        // text[cut] exists, since the text is longer than maxLength. A space there means the
+        // word before it is whole already.
+        var space = text.LastIndexOf(' ', cut);
+        if (space > cut / 2)
+            cut = space;
+        return text[..cut].TrimEnd() + "…";
+    }
 }
 
 /// <summary>Builds the pause and resume requests and decides what the tray says about their answers.</summary>

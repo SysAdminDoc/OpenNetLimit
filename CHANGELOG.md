@@ -18,7 +18,7 @@
 - Rules with the same priority keep their order when you add, edit or remove another rule. With more than 16 rules, any change could shuffle them and switch which one applies to an app
 - A rule list with an empty entry in it is refused with a reason instead of dropping the app's or CLI's connection, and a `rules.json` with one loads the rest of its rules
 - A quota rule you delete and import again in the same period carries on with what it had used. It started over from zero, so a used-up app got its whole allowance back
-- Long tray balloons, like a bandwidth alert for a program with a long name, end in "…" instead of Windows cutting them off mid-word at 255 characters. When a warning adds a sentence of its own, that sentence stays whole and the rest gets shortened
+- Long tray balloons, like a bandwidth alert for a program with a long name, end in "…" after the last whole word instead of Windows cutting them off mid-word at 255 characters. When a warning adds a sentence of its own, that sentence stays whole and the rest gets shortened
 - Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too
 - The packet engine starts again. The WinDivert flow layer was opened with the wrong flags and Windows refused it with error 87, so the service ran but never filtered anything (#3)
 - Apps show up in the list again. Flow addresses were read in the wrong byte order, so no packet was ever matched to the app that sent it (#4)
