@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using OpenNetLimit.Core;
 
 namespace OpenNetLimit.Engine.Monitoring;
 
@@ -56,15 +57,23 @@ public static class ProtectedProcesses
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="services">The services running in the process, null when there are none or they aren't known.</param>
-    /// <param name="processPath">The program's full path, null when it couldn't be read.</param>
+    /// <param name="processPath">
+    /// The program's full path, null when it couldn't be read. A Windows name counts only from
+    /// System32 or SysWOW64: a copy anywhere else is anyone's program under that name. With no
+    /// path the name is all there is to go on, and the kernel (System) never has one.
+    /// </param>
     public static ProcessProtection Of(string processName, IReadOnlyList<string>? services, string? processPath = null)
     {
-        if (NetworkingNames.Contains(processName))
-            return InSystem32(processPath) ? ProcessProtection.Networking : ProcessProtection.Windows;
-        if (Names.Contains(processName))
-            return ProcessProtection.Windows;
-        if (!ServiceHosts.IsServiceHost(processName))
+        bool networkingName = NetworkingNames.Contains(processName);
+        bool serviceHost = ServiceHosts.IsServiceHost(processName);
+        if (!networkingName && !serviceHost && !Names.Contains(processName))
             return ProcessProtection.None;
+        if (processPath is not null && !WindowsFolders.Contain(processPath))
+            return ProcessProtection.None;
+        if (networkingName)
+            return processPath is null ? ProcessProtection.Windows : ProcessProtection.Networking;
+        if (!serviceHost)
+            return ProcessProtection.Windows;
         // A svchost whose services haven't been read yet is kept safe until they are.
         if (services is not { Count: > 0 })
             return ProcessProtection.Windows;
@@ -78,10 +87,6 @@ public static class ProtectedProcesses
             return ProcessProtection.None;
         return networking == services.Count ? ProcessProtection.Networking : ProcessProtection.Windows;
     }
-
-    private static bool InSystem32(string? processPath) =>
-        processPath is not null
-        && string.Equals(Path.GetDirectoryName(processPath), Environment.SystemDirectory, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The services in the list that keep a svchost out of every rule.</summary>
     public static string[] NetworkingIn(IReadOnlyList<string>? services) =>

@@ -37,7 +37,8 @@ public class BandwidthRule
     /// <summary>
     /// The rule is on svchost itself, by name or by the file its path ends in, rather than on a
     /// service. Such a rule never matches, since a svchost is reached only through a service in
-    /// it. A wildcard path that takes svchost in among other programs isn't one.
+    /// it. A wildcard path that takes svchost in among other programs isn't one, and neither is
+    /// a path to a svchost.exe outside Windows' folders, which is some other program's copy.
     /// </summary>
     public bool TargetsServiceHost()
     {
@@ -47,10 +48,22 @@ public class BandwidthRule
             return true;
         if (string.IsNullOrWhiteSpace(ProcessPath))
             return false;
-        var file = Path.GetFileName(ProcessPath.Trim().Trim('"'));
-        return file.IndexOfAny(['*', '?']) < 0
-            && string.Equals(ProcessNames.Normalize(file), ServiceHostName, StringComparison.OrdinalIgnoreCase);
+        var path = ProcessPath.Trim().Trim('"');
+        var file = Path.GetFileName(path);
+        if (file.IndexOfAny(['*', '?']) >= 0
+            || !string.Equals(ProcessNames.Normalize(file), ServiceHostName, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var folder = Path.GetDirectoryName(path);
+        return string.IsNullOrEmpty(folder) || folder.IndexOfAny(['*', '?']) >= 0 || WindowsFolders.Contain(path);
     }
+
+    /// <summary>
+    /// Windows' own svchost: one by that name with no path to go on, or one in System32 or SysWOW64.
+    /// A copy anywhere else is some other program under its name, which rules reach like any other.
+    /// </summary>
+    public static bool IsServiceHost(string processName, string? processPath) =>
+        processName.Equals(ServiceHostName, StringComparison.OrdinalIgnoreCase)
+        && (processPath is null || WindowsFolders.Contain(processPath));
 
     private string? _serviceName;
 
@@ -109,7 +122,7 @@ public class BandwidthRule
 
         // A svchost runs Windows services, often several at once. Only a rule on one of them by
         // name covers it, so a rule on svchost or a path that takes it in can't slow them all.
-        if (processName.Equals(ServiceHostName, StringComparison.OrdinalIgnoreCase))
+        if (IsServiceHost(processName, processPath))
             return false;
 
         if (ProcessPath is not null && processPath is not null)

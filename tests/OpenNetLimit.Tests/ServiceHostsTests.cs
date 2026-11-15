@@ -426,22 +426,51 @@ public class ServiceHostsTests
 
     [Theory]
     // The Windows DNS Server only ever sends DNS, its replies from local port 53 included.
-    [InlineData("dns", true, ProcessProtection.Networking)]
-    [InlineData("DNS", true, ProcessProtection.Networking)]
-    [InlineData("dhcp", true, ProcessProtection.Networking)]
-    [InlineData("dnscache", true, ProcessProtection.Networking)]
-    // Anyone can copy a program to dns.exe somewhere else. It keeps Windows' protection, no more.
-    [InlineData("dns", false, ProcessProtection.Windows)]
-    [InlineData("dnscache", false, ProcessProtection.Windows)]
-    // Only the networking names go by where they run.
-    [InlineData("lsass", true, ProcessProtection.Windows)]
-    [InlineData("chrome", true, ProcessProtection.None)]
-    public void Of_TrustsNetworkingNamesOnlyFromSystem32(string name, bool inSystem32, ProcessProtection expected)
+    [InlineData("dns", "System32", ProcessProtection.Networking)]
+    [InlineData("DNS", "System32", ProcessProtection.Networking)]
+    [InlineData("dhcp", "System32", ProcessProtection.Networking)]
+    [InlineData("dnscache", "System32", ProcessProtection.Networking)]
+    [InlineData("lsass", "System32", ProcessProtection.Windows)]
+    [InlineData("csrss", "System32", ProcessProtection.Windows)]
+    [InlineData("services", "System32", ProcessProtection.Windows)]
+    [InlineData("wininit", "System32", ProcessProtection.Windows)]
+    [InlineData("smss", "System32", ProcessProtection.Windows)]
+    [InlineData("svchost", "System32", ProcessProtection.Windows)]
+    [InlineData("svchost", "SysWOW64", ProcessProtection.Windows)]
+    // Anyone can copy a program to one of these names somewhere else, no admin needed. Rules
+    // reach it like the program it is.
+    [InlineData("dns", "Temp", ProcessProtection.None)]
+    [InlineData("dnscache", "Temp", ProcessProtection.None)]
+    [InlineData("lsass", "Temp", ProcessProtection.None)]
+    [InlineData("LSASS", "Temp", ProcessProtection.None)]
+    [InlineData("csrss", "Temp", ProcessProtection.None)]
+    [InlineData("services", "Temp", ProcessProtection.None)]
+    [InlineData("wininit", "Temp", ProcessProtection.None)]
+    [InlineData("smss", "Temp", ProcessProtection.None)]
+    [InlineData("System", "Temp", ProcessProtection.None)]
+    [InlineData("ntoskrnl", "Temp", ProcessProtection.None)]
+    [InlineData("svchost", "Temp", ProcessProtection.None)]
+    // Under System32 isn't in it, and Windows' own folder holds no programs of these names.
+    [InlineData("lsass", @"System32\drivers", ProcessProtection.None)]
+    [InlineData("lsass", "", ProcessProtection.None)]
+    [InlineData("chrome", "System32", ProcessProtection.None)]
+    public void Of_TrustsWindowsNamesOnlyFromWindowsFolders(string name, string folder, ProcessProtection expected)
     {
-        var folder = inSystem32 ? Environment.SystemDirectory : Path.Combine(Path.GetTempPath(), "x");
-        var path = Path.Combine(folder, name + ".exe");
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var where = folder == "Temp" ? Path.Combine(Path.GetTempPath(), "x") : Path.Combine(windows, folder);
+        var path = Path.Combine(where, name + ".exe");
 
         Assert.Equal(expected, ProtectedProcesses.Of(name, null, path));
+    }
+
+    [Fact]
+    public void Of_ACopyNamedSvchost_IsAProgramEvenBeforeItsServicesAreRead()
+    {
+        // The service manager never lists services in it, so "not read yet" would last for good.
+        var copy = Path.Combine(Path.GetTempPath(), "svchost.exe");
+
+        Assert.Equal(ProcessProtection.None, ProtectedProcesses.Of("svchost", null, copy));
+        Assert.Equal(ProcessProtection.Windows, ProtectedProcesses.Of("svchost", null, null));
     }
 
     [Fact]

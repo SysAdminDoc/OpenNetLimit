@@ -90,7 +90,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _serviceHosts = serviceHosts;
         _preflight = new DriverPreflight(driverService);
         _socketOwners = new SocketOwners(flowTracker, OsSocketTable.Read,
-            processId => new ProcessIdentity(ResolveProcessName(processId), ResolveProcessPath(processId)));
+            processId => new ProcessIdentity(ResolveProcessName(processId), ProcessImage.PathOf(processId)));
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -631,19 +631,6 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         catch
         {
             return $"PID-{processId}";
-        }
-    }
-
-    private static string? ResolveProcessPath(uint processId)
-    {
-        try
-        {
-            using var process = Process.GetProcessById((int)processId);
-            return process.MainModule?.FileName;
-        }
-        catch
-        {
-            return null;
         }
     }
 
