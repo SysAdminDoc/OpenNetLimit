@@ -1,6 +1,7 @@
 using System.Net;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.Monitoring;
 using Xunit;
 
 namespace OpenNetLimit.Tests;
@@ -190,22 +191,54 @@ public class FlowTrackerTests
     }
 
     [Fact]
-    public void AFlowNamedBeforeAHeldProcessWasForgotten_IsTurnedAwayWhenItArrivesLate()
+    public void AForgetWithNothingKnownAboutTheId_TurnsNoLaterFlowAway()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
         var tracker = new FlowTracker(() => now);
         var namedEarlier = now;
         now += TimeSpan.FromSeconds(1);
 
-        // A held process exits, so there's no cutoff: the ID is still its own.
+        // Who has the ID now isn't known, so a flow named before may be the next process's.
         tracker.ForgetProcess(200);
-        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
-        // A flow the next process with the ID opens is named after the forget.
-        now += TimeSpan.FromSeconds(1);
-        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, namedEarlier);
 
-        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
-        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(2))?.ProcessName);
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
+    }
+
+    [Fact]
+    public void ACutoffFromBeforeTheClockWasSetBack_TurnsNoNewProcessAway()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        tracker.ForgetProcess(200, now);
+
+        // The clock goes back an hour, and the next process with the ID is named.
+        now -= TimeSpan.FromHours(1);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, now);
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
+
+        // A cutoff just ahead of the clock still holds: the next process is stamped 16 ms past its start.
+        tracker.ForgetProcess(300, now + HeldProcess.StartStampLag);
+        tracker.RegisterFlow(MakeFlowKey(2), 300, "svchost", null, now);
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(2)));
+    }
+
+    [Fact]
+    public void ACutoffFromBeforeTheClockWasSetBack_IsLetGo_BeforeTheClockCatchesUpWithIt()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var cutoff = now;
+        tracker.ForgetProcess(200, cutoff);
+        now -= TimeSpan.FromHours(1);
+        tracker.ForgetProcess(300, now);
+
+        // Almost an hour on, the clock is nearly back at the cutoff. A flow named in that hour
+        // belongs to whatever has the ID now.
+        now = cutoff - TimeSpan.FromMilliseconds(500);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, cutoff - TimeSpan.FromMilliseconds(600));
+
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
     }
 
     [Fact]

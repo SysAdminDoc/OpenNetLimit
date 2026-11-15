@@ -23,7 +23,10 @@ internal sealed class SocketOwners
     private readonly record struct SocketKey(TransportProtocol Protocol, IPAddress Address, ushort Port);
 
     /// <param name="StartedAt">When the process started, to tell it from a later one with its ID.</param>
-    /// <param name="IdentifiedAt">When the read that named it began. The name held from then on.</param>
+    /// <param name="IdentifiedAt">
+    /// When it counts as named: the read's start, or the process's start if that's later. Never
+    /// well past the clock when it was named, so a clock set back can't put it out of a forget's reach.
+    /// </param>
     private readonly record struct Owner(uint ProcessId, ProcessIdentity Identity, long? StartedAt, DateTime IdentifiedAt);
 
     private readonly IFlowTracker _flowTracker;
@@ -114,9 +117,10 @@ internal sealed class SocketOwners
     {
         // Read before the name, so a process that takes the ID in between is named again next time.
         long? startedAt = _startedAt(processId);
+        var now = _utcNow();
         if (startedAt is not null && known.TryGetValue(processId, out var last) && last.StartedAt == startedAt)
-            return last with { IdentifiedAt = readAt };
-        return new Owner(processId, _identify(processId), startedAt, NamedAt(readAt, startedAt));
+            return last with { IdentifiedAt = NoLaterThan(readAt, now) };
+        return new Owner(processId, _identify(processId), startedAt, NamedAt(readAt, startedAt, now));
     }
 
     /// <summary>
@@ -124,13 +128,24 @@ internal sealed class SocketOwners
     /// (while the tables were being read): a name is never older than its process, or the next
     /// process check would take it for an earlier one that had the ID.
     /// </summary>
-    private static DateTime NamedAt(DateTime readAt, long? startedAt)
+    private static DateTime NamedAt(DateTime readAt, long? startedAt, DateTime now)
     {
-        if (startedAt is not { } started || started <= 0)
-            return readAt;
-        var startedUtc = DateTime.FromFileTimeUtc(started) + HeldProcess.StartStampLag;
-        return startedUtc > readAt ? startedUtc : readAt;
+        var named = readAt;
+        if (startedAt is { } started && started > 0)
+        {
+            var startedUtc = DateTime.FromFileTimeUtc(started) + HeldProcess.StartStampLag;
+            if (startedUtc > named)
+                named = startedUtc;
+        }
+        return NoLaterThan(named, now);
     }
+
+    /// <summary>
+    /// A start or a read stamped well past the clock happened before the clock was set back. A
+    /// name that far ahead would outlast every forget until the clock caught up, so it's named now.
+    /// </summary>
+    private static DateTime NoLaterThan(DateTime named, DateTime now) =>
+        named - now > HeldProcess.MostAheadOfTheClock ? now : named;
 
     /// <summary>
     /// Drops the sockets of a process that exited. The last read can be 30 seconds old, and a

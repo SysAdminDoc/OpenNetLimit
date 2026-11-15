@@ -122,7 +122,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AProcessThatExits_TakesItsFlowsWithIt_SoALatePacketCantNameTheNextOneWithItsId()
     {
-        var flows = new FlowTracker();
+        var flows = new FlowTracker(() => _now);
         flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
         flows.RegisterFlow(Flow(2), 200, "svchost", SvchostPath);
         flows.UnregisterFlow(Flow(2));
@@ -134,6 +134,7 @@ public class TrafficMonitorTests
         monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
         monitor.SampleRates();
 
+        _now += TimeSpan.FromSeconds(1);
         svchost.HasExited = true;
         monitor.SampleRates();
 
@@ -169,12 +170,12 @@ public class TrafficMonitorTests
     [Fact]
     public void AnExitedProcessesSocket_CantAdoptALatePacketBackToIt_AndItsIdIsNamedAfresh()
     {
-        var flows = new FlowTracker();
+        var flows = new FlowTracker(() => _now);
         var names = new Dictionary<uint, string> { [200] = "svchost" };
         var local = Flow(1).LocalAddress;
         var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, local, 1, 200) };
         var owners = new SocketOwners(flows, () => sockets.ToList(), processId => new ProcessIdentity(names[processId], null),
-            _ => 1);
+            _ => 1, utcNow: () => _now);
         owners.Refresh();
         Assert.True(owners.TryAdopt(Flow(1), isOutbound: true));
         var svchost = new FakeProcess();
@@ -183,6 +184,7 @@ public class TrafficMonitorTests
         monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
         monitor.SampleRates();
 
+        _now += TimeSpan.FromSeconds(1);
         svchost.HasExited = true;
         monitor.SampleRates();
 
@@ -266,6 +268,48 @@ public class TrafficMonitorTests
         monitor.RecordBytes(200, chrome.ProcessName, 100, isUpload: false, chrome.ProcessPath, chrome.IdentifiedAt);
         monitor.SampleRates();
         Assert.Equal("chrome", Assert.Single(monitor.GetAllProcesses()).ProcessName);
+    }
+
+    [Fact]
+    public void AFlowNamedBeforeAHeldProcessExited_IsTurnedAwayWhenItArrivesLate()
+    {
+        var flows = new FlowTracker(() => _now);
+        var svchost = new FakeProcess();
+        _running[200] = svchost;
+        using var monitor = Held(flows: flows);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+        var namedEarlier = _now;
+
+        // It's held until it's let go, so the ID is its own until then.
+        _now += TimeSpan.FromSeconds(1);
+        svchost.HasExited = true;
+        monitor.SampleRates();
+        // A socket owner looked up before the exit, registering after it.
+        flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath, namedEarlier);
+        // The next process with the ID is named after it was let go.
+        _now += TimeSpan.FromSeconds(1);
+        flows.RegisterFlow(Flow(2), 200, "chrome", ChromePath);
+
+        Assert.Null(flows.LookupConnection(Flow(1)));
+        Assert.Equal("chrome", flows.LookupConnection(Flow(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void AProcessGoneBeforeItCouldBeHeld_LeavesNoCutoffBehind()
+    {
+        var flows = new FlowTracker(() => _now);
+        using var monitor = Held(flows: flows);
+        var namedEarlier = _now;
+        monitor.RecordBytes(300, "curl", 700, isUpload: true);
+        _now += TimeSpan.FromSeconds(1);
+        monitor.SampleRates();
+        Assert.Empty(monitor.GetAllProcesses());
+
+        // Nothing is known about who has the ID since, so a flow named before may be the next one's.
+        flows.RegisterFlow(Flow(1), 300, "chrome", ChromePath, namedEarlier);
+
+        Assert.Equal("chrome", flows.LookupConnection(Flow(1))?.ProcessName);
     }
 
     [Fact]

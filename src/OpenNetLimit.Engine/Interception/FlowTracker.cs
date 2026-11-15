@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Monitoring;
 
 namespace OpenNetLimit.Engine.Interception;
 
@@ -34,7 +35,7 @@ public class FlowTracker : IFlowTracker
     {
         var registeredAt = _utcNow();
         var namedAt = identifiedAt ?? registeredAt;
-        if (Forgotten(processId, namedAt))
+        if (Forgotten(processId, namedAt, registeredAt))
             return;
         var connection = new ConnectionInfo
         {
@@ -66,7 +67,7 @@ public class FlowTracker : IFlowTracker
             return updated;
         });
         // Forgotten while this went in, and missed by the forget's sweep of the flows.
-        if (Forgotten(processId, namedAt))
+        if (Forgotten(processId, namedAt, registeredAt))
         {
             _flows.TryRemove(KeyValuePair.Create(flowKey, stored));
             return;
@@ -74,8 +75,14 @@ public class FlowTracker : IFlowTracker
         FlowRegistered?.Invoke(processId, processName, processPath);
     }
 
-    private bool Forgotten(uint processId, DateTime namedAt) =>
-        _forgottenBefore.TryGetValue(processId, out var cutoff) && namedAt < cutoff;
+    /// <summary>
+    /// Whether a flow named at <paramref name="namedAt"/> was named for a process that's been
+    /// forgotten since. A cutoff well ahead of <paramref name="now"/> was made before the clock was
+    /// set back, and would turn away every process that gets the ID until the clock caught up.
+    /// </summary>
+    private bool Forgotten(uint processId, DateTime namedAt, DateTime now) =>
+        _forgottenBefore.TryGetValue(processId, out var cutoff) && namedAt < cutoff
+        && cutoff - now <= HeldProcess.MostAheadOfTheClock;
 
     public void UnregisterFlow(FlowKey flowKey)
     {
@@ -102,15 +109,15 @@ public class FlowTracker : IFlowTracker
 
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
-        var now = _utcNow();
-        // With no cutoff the process is still held, so its ID can't have gone to another yet:
-        // whatever was named for it until now was named for the one that exited.
-        var cutoff = identifiedBefore ?? now;
-        var stale = now - ForgottenKeptFor;
-        foreach (var (otherId, otherCutoff) in _forgottenBefore)
-            if (otherCutoff < stale)
-                _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
-        _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
+        if (identifiedBefore is { } cutoff)
+        {
+            var now = _utcNow();
+            var stale = now - ForgottenKeptFor;
+            foreach (var (otherId, otherCutoff) in _forgottenBefore)
+                if (otherCutoff < stale || otherCutoff - now > HeldProcess.MostAheadOfTheClock)
+                    _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
+            _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
+        }
         ForgettingProcess?.Invoke(processId, identifiedBefore);
         foreach (var (flowKey, connection) in _flows)
         {

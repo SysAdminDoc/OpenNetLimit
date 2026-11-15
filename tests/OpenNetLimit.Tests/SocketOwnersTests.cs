@@ -353,6 +353,28 @@ public class SocketOwnersTests
     }
 
     [Fact]
+    public void AProcessStartedBeforeTheClockWasSetBack_IsNamedAsOfTheClock()
+    {
+        var started = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        // The clock went back an hour after the process started.
+        var now = started - TimeSpan.FromHours(1);
+        var tracker = new FlowTracker(() => now);
+        var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, Local, 51000, 4242) };
+        var owners = new SocketOwners(tracker, () => sockets.ToList(), _ => new ProcessIdentity("app", null),
+            _ => started.ToFileTimeUtc(), utcNow: () => now);
+        owners.Refresh();
+
+        Assert.True(owners.TryAdopt(Https, isOutbound: true));
+        Assert.Equal(now, tracker.LookupConnection(Https)!.IdentifiedAt);
+
+        // So when it exits, the forget reaches its flow and its socket.
+        now += TimeSpan.FromSeconds(1);
+        tracker.ForgetProcess(4242, now);
+        Assert.Null(tracker.LookupConnection(Https));
+        Assert.False(owners.TryAdopt(Https, isOutbound: true));
+    }
+
+    [Fact]
     public void OsTables_ListThisProcessesSockets()
     {
         var pid = (uint)Environment.ProcessId;
