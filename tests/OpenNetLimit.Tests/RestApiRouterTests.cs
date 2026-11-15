@@ -10,6 +10,7 @@ using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Security;
+using OpenNetLimit.Service.Storage;
 using Xunit;
 
 namespace OpenNetLimit.Tests;
@@ -93,6 +94,51 @@ public class RestApiRouterTests
         Assert.Equal(201, response.StatusCode);
         Assert.Single(rules.GetAllRules());
         Assert.Equal("chrome", rules.GetAllRules()[0].ProcessName);
+    }
+
+    [Fact]
+    public async Task AddRule_NamedWithExe_MatchesTheApp()
+    {
+        var (_, rules, router) = CreateRouter("secret");
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST",
+            "/api/v1/rules",
+            string.Empty,
+            """{"processName":"steam.exe","downloadBytesPerSecond":100000}""",
+            IsLoopback: true,
+            ApiKey: "secret"));
+
+        Assert.Equal(201, response.StatusCode);
+        Assert.NotNull(rules.FindMatchingRule("steam", @"C:\Games\Steam\steam.exe"));
+    }
+
+    [Fact]
+    public async Task HourlyStats_ForANameWithExe_ReturnThatAppsHistory()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"onl_test_{Guid.NewGuid()}.db");
+        using (var stats = new TrafficStatsDb(dbPath))
+        {
+            stats.RecordSnapshot(new TrafficSnapshot
+            {
+                Processes = [new ProcessTrafficInfo { ProcessId = 1, ProcessName = "steam", CurrentDownloadBytesPerSecond = 4096 }]
+            });
+            var (_, _, router) = CreateRouter(stats: stats);
+
+            var response = await router.HandleAsync(new RestApiRequest(
+                "GET",
+                "/api/v1/stats/hourly",
+                "processName=steam.exe&hours=1",
+                string.Empty,
+                IsLoopback: true,
+                ApiKey: null));
+
+            Assert.Equal(200, response.StatusCode);
+            Assert.Contains("\"bytesReceived\":4096", response.Body);
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var file in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+            File.Delete(file);
     }
 
     [Theory]
@@ -300,10 +346,11 @@ public class RestApiRouterTests
         Assert.Equal(RestApiOptions.DefaultUrl, Assert.Single(options.Urls));
     }
 
-    private static (ITrafficMonitor Monitor, RuleEngine Rules, RestApiRouter Router) CreateRouter(
+    internal static (ITrafficMonitor Monitor, RuleEngine Rules, RestApiRouter Router) CreateRouter(
         string? apiKey = null,
         IProcessVerifier? verifier = null,
-        IGeoIpResolver? geoIpResolver = null)
+        IGeoIpResolver? geoIpResolver = null,
+        TrafficStatsDb? stats = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
@@ -315,7 +362,8 @@ public class RestApiRouterTests
                 Running = true,
                 ActiveRules = rules.GetAllRules().Count,
                 StartedAt = DateTime.UtcNow
-            }
+            },
+            StatsProvider = stats
         };
         var options = new RestApiOptions { ApiKey = apiKey };
         return (monitor, rules, new RestApiRouter(
@@ -329,7 +377,7 @@ public class RestApiRouterTests
             new PluginManager(new PluginOptions(), NullLogger<PluginManager>.Instance)));
     }
 
-    private sealed class StubVerifier : IProcessVerifier
+    internal sealed class StubVerifier : IProcessVerifier
     {
         public string? LastPath { get; private set; }
 
@@ -348,7 +396,7 @@ public class RestApiRouterTests
         public IReadOnlyList<ProcessVerificationInfo> GetCachedResults() => [];
     }
 
-    private sealed class StubGeoIpResolver : IGeoIpResolver
+    internal sealed class StubGeoIpResolver : IGeoIpResolver
     {
         public string? LastIp { get; private set; }
 

@@ -313,7 +313,7 @@ public sealed class RestApiRouter
 
         var hours = GetInt(query, "hours", 24, 1, 24 * 365);
         query.TryGetValue("processName", out var processName);
-        return RestApiResponse.Json(200, _controlPlane.StatsProvider.GetHourlyStats(BlankToNull(processName), hours), JsonOptions);
+        return RestApiResponse.Json(200, _controlPlane.StatsProvider.GetHourlyStats(BlankToNull(ProcessNames.Normalize(processName)), hours), JsonOptions);
     }
 
     private RestApiResponse GetDailyStats(IReadOnlyDictionary<string, string> query)
@@ -323,7 +323,7 @@ public sealed class RestApiRouter
 
         var days = GetInt(query, "days", 30, 1, 3650);
         query.TryGetValue("processName", out var processName);
-        return RestApiResponse.Json(200, _controlPlane.StatsProvider.GetDailyStats(BlankToNull(processName), days), JsonOptions);
+        return RestApiResponse.Json(200, _controlPlane.StatsProvider.GetDailyStats(BlankToNull(ProcessNames.Normalize(processName)), days), JsonOptions);
     }
 
     private RestApiResponse GetTopProcesses(IReadOnlyDictionary<string, string> query)

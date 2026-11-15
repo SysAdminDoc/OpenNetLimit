@@ -34,6 +34,22 @@ public class BandwidthAlertTrackerTests : IDisposable
     }
 
     [Fact]
+    public void AlertNamedWithExe_FiresForTheApp()
+    {
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);
+        var tracker = new BandwidthAlertTracker(monitor);
+        tracker.AddRule(new BandwidthAlertRule { ProcessName = "chrome.exe", ThresholdBytesPerSecond = 1000 });
+        BandwidthAlertEvent? alert = null;
+        tracker.OnAlert += e => alert = e;
+
+        monitor.RecordBytes(1, "chrome", 1500, isUpload: false);
+        monitor.SampleRates();
+        tracker.Update();
+
+        Assert.NotNull(alert);
+    }
+
+    [Fact]
     public void Update_RespectsCooldown()
     {
         var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false);

@@ -86,7 +86,7 @@ public sealed class EngineWorkerTests : IDisposable
 
         Assert.True(status.Running);
         Assert.Null(status.EngineError);
-        Assert.Contains("steam.exe", File.ReadAllText(RulesPath));
+        Assert.Contains("\"steam\"", File.ReadAllText(RulesPath));
     }
 
     [Fact]

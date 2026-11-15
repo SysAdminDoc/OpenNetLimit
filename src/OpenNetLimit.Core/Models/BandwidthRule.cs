@@ -23,7 +23,12 @@ public class BandwidthRule
     public string Name { get; set; } = string.Empty;
     public bool Enabled { get; set; } = true;
 
-    public string? ProcessName { get; set; }
+    private string? _processName;
+    public string? ProcessName
+    {
+        get => _processName;
+        set => _processName = ProcessNames.Normalize(value);
+    }
     public string? ProcessPath { get; set; }
 
     public RuleAction Action { get; set; } = RuleAction.Limit;

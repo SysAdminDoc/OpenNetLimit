@@ -36,6 +36,23 @@ public class RuleReconcilerTests
         Assert.True(limiter.HasLimit(100));
     }
 
+    [Theory]
+    [InlineData("curl.exe")]
+    [InlineData("CURL.EXE")]
+    [InlineData(" curl.exe ")]
+    public void RuleNamedTheWayExplorerShowsIt_LimitsTheApp(string typed)
+    {
+        var rules = new RuleEngine();
+        var limiter = new ProcessRateLimiter();
+        var reconciler = new RuleReconciler(rules, limiter, new FlowTracker());
+        rules.AddRule(new BandwidthRule { ProcessName = typed, DownloadBytesPerSecond = 262_144 });
+
+        reconciler.EnsureLimit(100, "curl", @"C:\Windows\System32\curl.exe");
+
+        Assert.True(limiter.HasLimit(100));
+        Assert.Equal("curl", Assert.Single(rules.GetAllRules()).ProcessName, ignoreCase: true);
+    }
+
     [Fact]
     public void Reconcile_RemovesLimitWhenRuleDeleted()
     {
