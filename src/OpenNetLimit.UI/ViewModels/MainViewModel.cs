@@ -688,6 +688,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 existing.TotalUpDisplay = ProcessViewModel.FormatTotalBytes(proc.TotalBytesSent);
                 existing.LimitDisplay = ProcessRowText.LimitText(proc);
                 existing.Services = proc.Services;
+                existing.ProcessPath = proc.ProcessPath ?? existing.ProcessPath;
                 var reason = ProcessRowText.ProtectedReason(proc);
                 if (existing.ProtectedReason != reason)
                 {
@@ -706,6 +707,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                     ProcessId = proc.ProcessId,
                     ProcessName = proc.ProcessName,
                     FirstSeenAt = proc.FirstSeenAt,
+                    ProcessPath = proc.ProcessPath,
                     Services = proc.Services,
                     ProtectedReason = ProcessRowText.ProtectedReason(proc),
                     DownloadDisplay = ProcessViewModel.FormatBytes(proc.CurrentDownloadBytesPerSecond),
@@ -735,9 +737,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return $"{bytesPerSecond:F0} B/s";
     }
 
-    /// <summary>Limits the program, or the service when <paramref name="serviceName"/> names one in a svchost.</summary>
+    /// <summary>
+    /// Limits the program, or the service when <paramref name="serviceName"/> names one in a
+    /// svchost. <paramref name="processPath"/> lets a svchost copy outside Windows' folders be
+    /// limited by its path.
+    /// </summary>
     public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec,
-        string? serviceName = null)
+        string? serviceName = null, string? processPath = null)
     {
         if (_client.State != ConnectionState.Connected) return;
 
@@ -748,7 +754,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             try
             {
                 var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
-                existingRule = rules is null ? null : LimitMenu.ExistingLimit(rules, processName, serviceName);
+                existingRule = rules is null ? null : LimitMenu.ExistingLimit(rules, processName, serviceName, processPath);
             }
             catch { }
         }
@@ -762,14 +768,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            var rule = LimitMenu.NewLimit(processName, serviceName, downloadBytesPerSec, uploadBytesPerSec);
+            var rule = LimitMenu.NewLimit(processName, serviceName, downloadBytesPerSec, uploadBytesPerSec, processPath);
             var json = JsonSerializer.Serialize(rule, JsonOptions);
             await _client.SendCommandAsync($"ADD_RULE {json}");
         }
     }
 
     /// <summary>Removes the rules on the program and on any service running in it.</summary>
-    public async Task RemoveLimitAsync(string processName, IReadOnlyList<string>? services = null)
+    public async Task RemoveLimitAsync(string processName, IReadOnlyList<string>? services = null,
+        string? processPath = null)
     {
         if (_client.State != ConnectionState.Connected) return;
 
@@ -781,7 +788,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
             if (rules is null) return;
 
-            foreach (var rule in LimitMenu.RulesFor(rules, processName, services).ToList())
+            foreach (var rule in LimitMenu.RulesFor(rules, processName, services, processPath).ToList())
             {
                 await _client.SendCommandAsync($"REMOVE_RULE {rule.Id}");
             }
@@ -913,6 +920,9 @@ public class ProcessViewModel : INotifyPropertyChanged
 
     /// <summary>When the service first saw the process, which tells it apart from an earlier one with its ID.</summary>
     public DateTime FirstSeenAt { get; init; }
+
+    /// <summary>Where the program runs from, null until the service has read it.</summary>
+    public string? ProcessPath { get; set; }
 
     private IReadOnlyList<string>? _services;
 

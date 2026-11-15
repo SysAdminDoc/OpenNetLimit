@@ -165,7 +165,7 @@ public partial class MainWindow : Window
         {
             var downBytes = dialog.DownloadKBps * 1024;
             var upBytes = dialog.UploadKBps * 1024;
-            await _viewModel.SetLimitAsync(process.ProcessName, downBytes, upBytes, dialog.ServiceName);
+            await _viewModel.SetLimitAsync(process.ProcessName, downBytes, upBytes, dialog.ServiceName, process.ProcessPath);
         }
     }
 
@@ -185,7 +185,7 @@ public partial class MainWindow : Window
     private async void OnRemoveLimit(object sender, RoutedEventArgs e)
     {
         if (ProcessGrid.SelectedItem is not ProcessViewModel process) return;
-        await _viewModel.RemoveLimitAsync(process.ProcessName, process.Services);
+        await _viewModel.RemoveLimitAsync(process.ProcessName, process.Services, process.ProcessPath);
     }
 
     private void OnToggleTheme(object sender, RoutedEventArgs e)

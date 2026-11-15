@@ -20,6 +20,9 @@ public class ProtectedNameTests
     [InlineData(@"SYSTEM32\SVCHOST.EXE", true)]
     [InlineData(@"SysWOW64\svchost.exe", true)]
     [InlineData(@"System32\drivers\lsass.exe", false)]
+    [InlineData(@"Temp\svchost.exe", false)]
+    // A program can't run from Sysnative, so a real folder by that name is someone's own.
+    [InlineData(@"Sysnative\lsass.exe", false)]
     [InlineData(@"lsass.exe", false)]
     public void WindowsFolders_HoldOnlyProgramsDirectlyInSystem32OrSysWOW64(string underWindows, bool contained)
     {
@@ -99,6 +102,81 @@ public class ProtectedNameTests
     {
         Assert.Equal(onSvchost, new BandwidthRule { ProcessPath = path }.TargetsServiceHost());
         Assert.True(new BandwidthRule { ProcessPath = Path.Combine(Windows, "System32", "svchost.exe") }.TargetsServiceHost());
+    }
+
+    [Theory]
+    [InlineData("svchost", @"C:\Tools\svchost.exe", false)]
+    [InlineData("svchost.exe", @"C:\Tools\SVCHOST.EXE", false)]
+    [InlineData("steam", @"C:\Tools\svchost.exe", false)]
+    [InlineData("svchost", @"\\server\share\svchost.exe", false)]
+    // A folder's name can end in a dot, and the kernel can name a program by its volume.
+    [InlineData("svchost", @"C:\Tools.\svchost.exe", false)]
+    [InlineData("svchost", @"\Device\HarddiskVolume5\Tools\svchost.exe", false)]
+    // Run from a share, even Windows' own file is a copy: no service runs in it, and only it has that path.
+    [InlineData("svchost", @"\\localhost\C$\Windows\System32\svchost.exe", false)]
+    // Written so it never equals a running program's path, which leaves the name to decide.
+    [InlineData("svchost", @"C:\Tools\\svchost.exe", true)]
+    [InlineData("svchost", @"C:\Tools\..\Other\svchost.exe", true)]
+    [InlineData("svchost.exe", @"""C:\Tools\SVCHOST.EXE""", true)]
+    [InlineData("steam", @"""C:\Tools\svchost.exe""", false)]
+    [InlineData("svchost", @" C:\Tools\svchost.exe", true)]
+    [InlineData("svchost", @"%SystemRoot%\System32\svchost.exe", true)]
+    [InlineData("svchost", @"C:\Tools\..\Windows\System32\svchost.exe", true)]
+    [InlineData("svchost", @"C:\Tools\svchost.exe ", true)]
+    [InlineData("svchost", "C:\\Tools\0\\svchost.exe", true)]
+    [InlineData("svchost", @"\\?\C:\Tools\svchost.exe", true)]
+    [InlineData("svchost", @"\\.\C:\Tools\svchost.exe", true)]
+    [InlineData("svchost", @"C:/Tools/svchost.exe", true)]
+    [InlineData("svchost", @"Tools\svchost.exe", true)]
+    [InlineData("svchost", @"C:Tools\svchost.exe", true)]
+    [InlineData("svchost", null, true)]
+    [InlineData("svchost", @"C:\Tools\*", true)]
+    [InlineData("svchost", @"C:\*\svchost.exe", true)]
+    [InlineData("svchost", @"C:\Tools\steam.exe", true)]
+    public void TargetsServiceHost_APathToASvchostDecides_WhateverTheName(string name, string? path, bool onSvchost)
+    {
+        // Set limit on a copy in the app list names the program and its path.
+        Assert.Equal(onSvchost, new BandwidthRule { ProcessName = name, ProcessPath = path }.TargetsServiceHost());
+        Assert.True(new BandwidthRule { ProcessName = name, ProcessPath = Path.Combine(Windows, "System32", "svchost.exe") }.TargetsServiceHost());
+    }
+
+    [Theory]
+    [InlineData("svchost", @"sysWOW64\SVCHOST.EXE")]
+    [InlineData("steam", @"SysWOW64\svchost.exe")]
+    [InlineData("svchost", @"Sysnative\svchost.exe")]
+    [InlineData("steam", @"Sysnative\svchost.exe")]
+    [InlineData(null, @"Sysnative\svchost.exe")]
+    [InlineData(null, @"System32\svchost.exe")]
+    public void TargetsServiceHost_WindowsOwnSvchost_HoweverTheFolderIsSpelled(string? name, string underWindows)
+    {
+        var path = Path.Combine(Windows, underWindows);
+        // The same file by its volume's kernel name, which the service never gives a program on a drive.
+        var onVolume = @"\Device\HarddiskVolume3" + path[Path.GetPathRoot(path)!.TrimEnd('\\').Length..];
+
+        Assert.True(new BandwidthRule { ProcessName = name, ProcessPath = path }.TargetsServiceHost());
+        Assert.True(new BandwidthRule { ProcessName = name, ProcessPath = path.ToUpperInvariant() }.TargetsServiceHost());
+        Assert.True(new BandwidthRule { ProcessName = name, ProcessPath = onVolume }.TargetsServiceHost());
+    }
+
+    [Fact]
+    public void TargetsServiceHost_AVeryLongPath_IsReadWithoutThrowing()
+    {
+        // Long paths are fine for a running program.
+        var folder = @"C:\" + new string('a', 32760);
+
+        Assert.False(new BandwidthRule { ProcessName = "svchost", ProcessPath = folder + @"\svchost.exe" }.TargetsServiceHost());
+        Assert.False(new BandwidthRule { ProcessName = "svchost", ProcessPath = @"\Device\HarddiskVolume3" + folder[2..] + @"\svchost.exe" }.TargetsServiceHost());
+        Assert.False(new BandwidthRule { ProcessName = "steam", ProcessPath = folder + @"\steam.exe" }.TargetsServiceHost());
+        Assert.True(new BandwidthRule { ProcessName = "svchost", ProcessPath = folder + @"\*" }.TargetsServiceHost());
+    }
+
+    [Fact]
+    public void ProtectedProcesses_ACopyInAFolderNamedSysnative_IsntWindows()
+    {
+        var path = Path.Combine(Windows, "Sysnative", "lsass.exe");
+
+        Assert.Equal(ProcessProtection.None, ProtectedProcesses.Of("lsass", null, path));
+        Assert.False(WindowsFolders.Contain(path));
     }
 
     [Fact]

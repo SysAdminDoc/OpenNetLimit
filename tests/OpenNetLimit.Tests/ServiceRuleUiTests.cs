@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
 using Xunit;
@@ -135,6 +136,8 @@ public sealed class ServiceRuleUiTests
         Assert.Same(BitsService, LimitMenu.ExistingLimit(Rules, "svchost.exe", "bits"));
         Assert.Same(DoSvcLimit, LimitMenu.ExistingLimit(Rules, "svchost", "DoSvc"));
         Assert.Null(LimitMenu.ExistingLimit(Rules, "svchost", "wuauserv"));
+        var off = new BandwidthRule { ServiceName = "BITS", Enabled = false, DownloadBytesPerSecond = 5 };
+        Assert.Same(BitsService, LimitMenu.ExistingLimit([off, BitsService], "svchost", "BITS"));
     }
 
     [Fact]
@@ -158,6 +161,181 @@ public sealed class ServiceRuleUiTests
         Assert.Equal("steam", program.ProcessName);
         Assert.Null(program.ServiceName);
         Assert.Equal(2048, program.DownloadBytesPerSecond);
+    }
+
+    private const string CopyPath = @"C:\Tools\svchost.exe";
+    private static readonly string WindowsSvchost =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "svchost.exe");
+
+    [Fact]
+    public void NewLimit_ASvchostCopyOutsideWindows_GoesOnItsPath()
+    {
+        var copy = LimitMenu.NewLimit("svchost.exe", null, 1024, 0, CopyPath);
+
+        Assert.Equal(("svchost", CopyPath), (copy.ProcessName, copy.ProcessPath));
+        Assert.False(copy.TargetsServiceHost());
+        var rules = new RuleEngine();
+        rules.AddRule(copy);
+        Assert.Single(rules.GetAllRules());
+    }
+
+    [Fact]
+    public void NewLimit_AnyOtherProgram_StaysOnItsName()
+    {
+        Assert.Null(LimitMenu.NewLimit("steam", null, 1024, 0, @"C:\Games\steam.exe").ProcessPath);
+        Assert.Null(LimitMenu.NewLimit("svchost", null, 1024, 0, null).ProcessPath);
+        Assert.Null(LimitMenu.NewLimit("svchost", null, 1024, 0, WindowsSvchost).ProcessPath);
+        Assert.Null(LimitMenu.NewLimit("svchost", "BITS", 1024, 0, CopyPath).ProcessPath);
+    }
+
+    [Fact]
+    public void ExistingLimit_ForASvchostCopy_IsTheRuleOnItsPath()
+    {
+        var onCopy = new BandwidthRule { ProcessName = "svchost", ProcessPath = CopyPath, DownloadBytesPerSecond = 2 };
+        var onOther = new BandwidthRule { ProcessPath = @"C:\Other\svchost.exe", DownloadBytesPerSecond = 3 };
+        var oldByName = new BandwidthRule { ProcessName = "svchost", DownloadBytesPerSecond = 1 };
+        BandwidthRule[] rules = [onCopy, onOther, oldByName];
+
+        Assert.Same(onCopy, LimitMenu.ExistingLimit(rules, "svchost", null, @"c:\tools\SVCHOST.exe"));
+        Assert.Same(onOther, LimitMenu.ExistingLimit(rules, "svchost", null, @"C:\Other\svchost.exe"));
+        // An older rule on the name reaches every copy that has no rule of its own.
+        Assert.Same(oldByName, LimitMenu.ExistingLimit(rules, "svchost", null, @"C:\New\svchost.exe"));
+        Assert.Null(LimitMenu.ExistingLimit([onCopy, onOther], "svchost", null, @"C:\New\svchost.exe"));
+        // The service reaches Windows' own svchost, and one whose path it hasn't read yet, only
+        // through a service in it, so no rule on the name or a copy's path is its limit.
+        Assert.Null(LimitMenu.ExistingLimit(rules, "svchost", null, WindowsSvchost));
+        Assert.Null(LimitMenu.ExistingLimit(rules, "svchost", null, null));
+    }
+
+    [Fact]
+    public void ExistingLimit_ARuleThatsOffOrOutsideItsHours_IsSkipped()
+    {
+        var off = new BandwidthRule { ProcessName = "steam", Enabled = false, DownloadBytesPerSecond = 1 };
+        var ended = new BandwidthRule { ProcessName = "steam", ActiveUntil = DateTime.UtcNow.AddDays(-1), DownloadBytesPerSecond = 2 };
+        var steam = new BandwidthRule { ProcessName = "steam", DownloadBytesPerSecond = 3 };
+
+        // Changing either would leave the app at whatever limit applies now.
+        Assert.Same(steam, LimitMenu.ExistingLimit([off, ended, steam], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Null(LimitMenu.ExistingLimit([off, ended], "steam", null, null));
+    }
+
+    [Fact]
+    public void ExistingLimit_ARulesPatternThatMissesTheApp_IsntItsLimit()
+    {
+        var steamOnD = new BandwidthRule { ProcessName = "steam", ProcessPath = @"D:\Other\*", DownloadBytesPerSecond = 1 };
+
+        Assert.Null(LimitMenu.ExistingLimit([steamOnD], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Same(steamOnD, LimitMenu.ExistingLimit([steamOnD], "steam", null, @"D:\Other\steam.exe"));
+    }
+
+    [Fact]
+    public void ExistingLimit_ARuleWithNoName_CountsOnlyOnTheAppsExactPath()
+    {
+        var onPath = new BandwidthRule { ProcessPath = @"C:\Games\steam.exe", DownloadBytesPerSecond = 1 };
+        var inGames = new BandwidthRule { ProcessPath = @"C:\Games\*", DownloadBytesPerSecond = 2 };
+
+        Assert.Same(onPath, LimitMenu.ExistingLimit([inGames, onPath], "steam", null, @"c:\games\STEAM.EXE"));
+        // A folder rule covers other apps too, so Set limit adds one of the app's own.
+        Assert.Null(LimitMenu.ExistingLimit([inGames], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Null(LimitMenu.ExistingLimit([onPath], "steam", null, null));
+    }
+
+    [Fact]
+    public void ExistingLimit_ForASvchostCopy_IsTheRuleInForceWhenAnOlderOneComesFirst()
+    {
+        // The service tries rules in list order, so a rule on the name ahead of the copy's own
+        // is the one that limits it, and changing the copy's would change nothing.
+        var oldByName = new BandwidthRule { ProcessName = "svchost", DownloadBytesPerSecond = 1 };
+        var onCopy = new BandwidthRule { ProcessName = "svchost", ProcessPath = CopyPath, DownloadBytesPerSecond = 2 };
+        var inTools = new BandwidthRule { ProcessName = "svchost", ProcessPath = @"C:\Tools\*", DownloadBytesPerSecond = 3 };
+
+        Assert.Same(oldByName, LimitMenu.ExistingLimit([oldByName, onCopy], "svchost", null, CopyPath));
+        Assert.Same(inTools, LimitMenu.ExistingLimit([inTools, onCopy], "svchost", null, CopyPath));
+        Assert.Same(onCopy, LimitMenu.ExistingLimit([onCopy, oldByName, inTools], "svchost", null, CopyPath));
+    }
+
+    [Fact]
+    public void ExistingLimit_ARuleOnAnotherExactPath_IsLeftToThatProgram()
+    {
+        var steamOnD = new BandwidthRule { ProcessName = "steam", ProcessPath = @"D:\steam.exe", DownloadBytesPerSecond = 1 };
+        var steamInGames = new BandwidthRule { ProcessName = "steam", ProcessPath = @"C:\Games\*", DownloadBytesPerSecond = 2 };
+
+        Assert.Null(LimitMenu.ExistingLimit([steamOnD], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Same(steamInGames, LimitMenu.ExistingLimit([steamOnD, steamInGames], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Same(steamOnD, LimitMenu.ExistingLimit([steamOnD, steamInGames], "steam", null, @"d:\STEAM.EXE"));
+        // Until the service has read where the app runs from, the name is all there is.
+        Assert.Same(steamOnD, LimitMenu.ExistingLimit([steamOnD, steamInGames], "steam", null, null));
+    }
+
+    [Fact]
+    public void RulesFor_WithNoPathYet_TakesEveryRuleOnTheName()
+    {
+        var steamOnD = new BandwidthRule { ProcessName = "steam", ProcessPath = @"D:\steam.exe", DownloadBytesPerSecond = 1 };
+        var steam = new BandwidthRule { ProcessName = "steam", DownloadBytesPerSecond = 2 };
+
+        Assert.Equal(new[] { steamOnD, steam }, LimitMenu.RulesFor([steamOnD, steam], "steam", null, null));
+        Assert.Equal(new[] { steamOnD, steam }, LimitMenu.RulesFor([steamOnD, steam], "steam", null, @"d:\STEAM.exe"));
+    }
+
+    [Fact]
+    public void RulesFor_ARuleOnACopysPath_StaysOffEveryOtherSvchost()
+    {
+        var onCopy = new BandwidthRule { ProcessName = "svchost", ProcessPath = CopyPath, DownloadBytesPerSecond = 1024 };
+        BandwidthRule[] rules = [onCopy, BitsService];
+
+        Assert.Equal(new[] { BitsService }, LimitMenu.RulesFor(rules, "svchost", ["BITS"], WindowsSvchost));
+        Assert.Empty(LimitMenu.RulesFor(rules, "svchost", null, @"C:\Other\svchost.exe"));
+        Assert.Equal(new[] { onCopy }, LimitMenu.RulesFor(rules, "svchost", null, CopyPath));
+    }
+
+    [Fact]
+    public void RulesFor_ANameRuleWithAFolderPattern_IsStillTheProgramsOwn()
+    {
+        var steamInGames = new BandwidthRule { ProcessName = "steam", ProcessPath = @"C:\Games\*", DownloadBytesPerSecond = 1024 };
+        var steamElsewhere = new BandwidthRule { ProcessName = "steam", ProcessPath = @"D:\steam.exe", DownloadBytesPerSecond = 1024 };
+
+        Assert.Equal(new[] { steamInGames }, LimitMenu.RulesFor([steamInGames, steamElsewhere], "steam", null, @"C:\Games\steam.exe"));
+        Assert.Empty(LimitMenu.RulesFor([steamInGames], "steam", null, @"D:\Other\steam.exe"));
+    }
+
+    [Fact]
+    public void RulesFor_ARuleWithNoNameOnTheAppsExactPath_IsItsOwn()
+    {
+        var onPath = new BandwidthRule { ProcessPath = @"C:\Games\steam.exe", DownloadBytesPerSecond = 1 };
+        var inGames = new BandwidthRule { ProcessPath = @"C:\Games\*", DownloadBytesPerSecond = 2 };
+        BandwidthRule[] rules = [onPath, inGames];
+
+        Assert.Equal(new[] { onPath }, LimitMenu.RulesFor(rules, "steam", null, @"c:\GAMES\steam.exe"));
+        Assert.Empty(LimitMenu.RulesFor(rules, "steam", null, @"D:\steam.exe"));
+        Assert.Empty(LimitMenu.RulesFor(rules, "steam", null, null));
+        // A blank name from the API or a rules file is no name.
+        var blankName = new BandwidthRule { ProcessName = "  ", ProcessPath = @"C:\Games\steam.exe" };
+        Assert.Equal(new[] { blankName }, LimitMenu.RulesFor([blankName], "steam", null, @"C:\Games\steam.exe"));
+    }
+
+    [Fact]
+    public void RulesFor_ARuleThatsOff_IsStillRemoved()
+    {
+        // It's still the app's, and it would limit the app again once turned back on.
+        var off = new BandwidthRule { ProcessName = "steam", Enabled = false, DownloadBytesPerSecond = 1 };
+
+        Assert.Equal(new[] { off }, LimitMenu.RulesFor([off], "steam", null, @"C:\Games\steam.exe"));
+    }
+
+    [Fact]
+    public void RulesFor_WindowsSvchost_LeavesRulesOnTheNameOrACopy()
+    {
+        // None of them reach it, so they're left for the copies they were made for.
+        BandwidthRule[] rules =
+        [
+            new() { ProcessName = "svchost", DownloadBytesPerSecond = 1 },
+            new() { ProcessName = "svchost", ProcessPath = @"C:\Tools\*", DownloadBytesPerSecond = 2 },
+            new() { ProcessName = "svchost", ProcessPath = CopyPath, DownloadBytesPerSecond = 3 },
+            BitsService
+        ];
+
+        Assert.Equal(new[] { BitsService }, LimitMenu.RulesFor(rules, "svchost", ["BITS"], WindowsSvchost));
+        Assert.Equal(new[] { BitsService }, LimitMenu.RulesFor(rules, "svchost", ["BITS"], null));
     }
 
     [Fact]
@@ -230,6 +408,52 @@ public sealed class ServiceRuleUiTests
 
         Assert.Null(result.Rule);
         Assert.Equal(("RuleEditor_UseService", DraftField.Service), (result.ErrorKey, result.Field));
+    }
+
+    [Fact]
+    public void Draft_ASvchostCopyByNameAndPath_IsAnOrdinaryProgram()
+    {
+        var result = new RuleDraft { ProcessName = "svchost", ProcessPath = CopyPath, DownloadKbps = "256" }.Build(null);
+
+        Assert.Null(result.ErrorKey);
+        Assert.Equal(("svchost", CopyPath), (result.Rule!.ProcessName, result.Rule.ProcessPath));
+
+        // Taking the path off, or pointing it at Windows' own, makes it a rule on svchost again.
+        var copyRule = result.Rule;
+        var noPath = RuleDraft.From(copyRule);
+        noPath.ProcessPath = "";
+        Assert.Equal("RuleEditor_UseService", noPath.Build(copyRule).ErrorKey);
+        var onWindows = RuleDraft.From(copyRule);
+        onWindows.ProcessPath = WindowsSvchost;
+        Assert.Equal("RuleEditor_UseService", onWindows.Build(copyRule).ErrorKey);
+    }
+
+    [Fact]
+    public void SetLimit_OnACopyWithAnOlderRuleOnTheName_ChangesTheLimitThatApplies()
+    {
+        // Saved before service rules existed, so it comes in through the service's own file.
+        var file = Path.Combine(Path.GetTempPath(), $"onl-copy-rule-{Guid.NewGuid():N}.json");
+        File.WriteAllText(file, """{"version":1,"rules":[{"processName":"svchost","downloadBytesPerSecond":1024}]}""");
+        var rules = new RuleEngine();
+        try
+        {
+            rules.LoadRules(file);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+
+        // What Set limit does with the list the service sends back.
+        var existing = LimitMenu.ExistingLimit(rules.GetAllRules(), "svchost", null, CopyPath);
+        Assert.NotNull(existing);
+        existing.DownloadBytesPerSecond = 4096;
+        rules.UpdateRule(existing);
+        Assert.Equal(4096, rules.FindMatchingRule("svchost", CopyPath)!.DownloadBytesPerSecond);
+
+        // A new rule on the copy's path would sit behind the older one and change nothing.
+        rules.AddRule(LimitMenu.NewLimit("svchost", null, 8192, 0, CopyPath));
+        Assert.Equal(4096, rules.FindMatchingRule("svchost", CopyPath)!.DownloadBytesPerSecond);
     }
 
     [Fact]

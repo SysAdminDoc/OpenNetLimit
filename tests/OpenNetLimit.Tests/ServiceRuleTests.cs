@@ -149,6 +149,44 @@ public class ServiceRuleTests
     }
 
     [Fact]
+    public void AddRule_ACopyOfSvchostByNameAndPath_IsTakenAndLimitsOnlyTheCopy()
+    {
+        var rules = new RuleEngine();
+        var copy = new BandwidthRule { ProcessName = "svchost", ProcessPath = @"C:\Tools\svchost.exe", DownloadBytesPerSecond = 1024 };
+
+        rules.AddRule(copy);
+
+        Assert.Equal(copy.Id, Assert.Single(rules.GetAllRules()).Id);
+        Assert.True(copy.MatchesProcess("svchost", @"C:\Tools\svchost.exe"));
+        Assert.False(copy.MatchesProcess("svchost", SvchostPath));
+        Assert.False(copy.MatchesProcess("svchost", @"C:\Other\svchost.exe"));
+        Assert.Equal(copy.Id, rules.FindMatchingRule("svchost", @"C:\Tools\svchost.exe")?.Id);
+        // A svchost whose path isn't read yet is taken for Windows' own.
+        Assert.Null(rules.FindMatchingRule("svchost", null));
+        Assert.Null(rules.FindMatchingRule("svchost", WindowsSvchost));
+    }
+
+    private static readonly string WindowsSvchost =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "svchost.exe");
+
+    [Fact]
+    public void UpdateRule_CantMoveACopysRuleOntoSvchost()
+    {
+        var rules = new RuleEngine();
+        var copy = new BandwidthRule { ProcessName = "svchost", ProcessPath = @"C:\Tools\svchost.exe", DownloadBytesPerSecond = 1024 };
+        rules.AddRule(copy);
+
+        var onWindows = copy.Clone();
+        onWindows.ProcessPath = WindowsSvchost;
+        Assert.Throws<ArgumentException>(() => rules.UpdateRule(onWindows));
+        var noPath = copy.Clone();
+        noPath.ProcessPath = null;
+        Assert.Throws<ArgumentException>(() => rules.UpdateRule(noPath));
+
+        Assert.Equal(@"C:\Tools\svchost.exe", Assert.Single(rules.GetAllRules()).ProcessPath);
+    }
+
+    [Fact]
     public void UpdateRule_CantAddOrMakeARuleOnSvchost()
     {
         // Update adds a rule whose id isn't in the list, so it went around AddRule's check.

@@ -38,27 +38,41 @@ public class BandwidthRule
     /// The rule is on svchost itself, by name or by the file its path ends in, rather than on a
     /// service. Such a rule never matches, since a svchost is reached only through a service in
     /// it. A wildcard path that takes svchost in among other programs isn't one, and neither is
-    /// a path to a svchost.exe outside Windows' folders, which is some other program's copy.
+    /// a full path to a svchost.exe outside Windows' folders, which is some other program's copy
+    /// whatever name the rule gives it.
     /// </summary>
     public bool TargetsServiceHost()
     {
         if (ServiceName is not null)
             return false;
-        if (string.Equals(ProcessName, ServiceHostName, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (string.IsNullOrWhiteSpace(ProcessPath))
-            return false;
-        var path = ProcessPath.Trim().Trim('"');
-        var file = Path.GetFileName(path);
-        if (file.IndexOfAny(['*', '?']) >= 0
+        var onName = string.Equals(ProcessName, ServiceHostName, StringComparison.OrdinalIgnoreCase);
+        var path = ProcessPath?.Trim().Trim('"');
+        var file = string.IsNullOrEmpty(path) ? null : Path.GetFileName(path);
+        if (file is null || file.IndexOfAny(['*', '?']) >= 0
             || !string.Equals(ProcessNames.Normalize(file), ServiceHostName, StringComparison.OrdinalIgnoreCase))
-            return false;
+            return onName;
         var folder = Path.GetDirectoryName(path);
-        return string.IsNullOrEmpty(folder) || folder.IndexOfAny(['*', '?']) >= 0 || WindowsFolders.Contain(path);
+        if (string.IsNullOrEmpty(folder) || folder.IndexOfAny(['*', '?']) >= 0 || WindowsFolders.NamedIn(path))
+            return true;
+        // A copy. Rules match by path first, so a path a program can run from decides. One
+        // written any other way never equals a program's, which leaves the name.
+        return onName && !CouldBeAProgramsPath(ProcessPath!);
     }
 
     /// <summary>
-    /// Windows' own svchost: one by that name with no path to go on, or one in System32 or SysWOW64.
+    /// The path could be one Windows gives a running program: a drive, share or \Device\ path,
+    /// with no quotes, spaces or variable around it and no "." or ".." folders, doubled
+    /// backslashes or forward slashes left to resolve. The caller has already turned away a
+    /// \\?\ one by its "?", and a \\.\ one has a "." folder.
+    /// </summary>
+    private static bool CouldBeAProgramsPath(string path) =>
+        path == path.Trim() && path.IndexOfAny(['/', '\0']) < 0
+        && path.IndexOf(@"\\", 1, StringComparison.Ordinal) < 0
+        && (Path.IsPathFullyQualified(path) || path.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase))
+        && !path.Split('\\').Any(folder => folder is "." or "..");
+
+    /// <summary>
+    /// Windows' own svchost: one by that name with no path to go on, or one in Windows' folders.
     /// A copy anywhere else is some other program under its name, which rules reach like any other.
     /// </summary>
     public static bool IsServiceHost(string processName, string? processPath) =>
