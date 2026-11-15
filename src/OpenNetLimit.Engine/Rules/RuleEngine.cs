@@ -52,11 +52,7 @@ public class RuleEngine : IRuleEngine
     public void AddRule(BandwidthRule rule)
     {
         ValidateRule(rule);
-        // Only on adding: one saved before service rules existed can still be edited or turned
-        // off. It never matches a svchost either way.
-        if (rule.ServiceName is null && ServiceHosts.IsServiceHost(rule.ProcessName ?? string.Empty))
-            throw new ArgumentException(
-                "svchost runs Windows services, often several in one process. Limit one of them by its service name instead.");
+        RefuseNewServiceHostRule(rule, existing: null);
         lock (_lock)
         {
             // Edits, removal and quotas find a rule by id. A rule copied from an export keeps
@@ -135,6 +131,7 @@ public class RuleEngine : IRuleEngine
         lock (_lock)
         {
             var index = _rules.FindIndex(r => r.Id == rule.Id);
+            RefuseNewServiceHostRule(rule, index >= 0 ? _rules[index] : null);
             if (index >= 0)
             {
                 _rules[index] = rule;
@@ -147,6 +144,18 @@ public class RuleEngine : IRuleEngine
             SortByPriority();
         }
         OnRulesChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Turns away a rule on svchost itself, which would never match, unless it replaces one
+    /// that already was: a rule saved like that before service rules existed can still be
+    /// edited and turned off.
+    /// </summary>
+    private static void RefuseNewServiceHostRule(BandwidthRule rule, BandwidthRule? existing)
+    {
+        if (rule.TargetsServiceHost() && existing?.TargetsServiceHost() != true)
+            throw new ArgumentException(
+                "svchost runs Windows services, often several in one process. Limit one of them by its service name instead.");
     }
 
     public BandwidthRule? GetRule(Guid ruleId)
@@ -313,6 +322,10 @@ public class RuleEngine : IRuleEngine
         bool changed;
         lock (_lock)
         {
+            // Checked against the rules before any of them change, so a file can carry an old
+            // svchost rule back over itself but can't bring in a new one.
+            foreach (var rule in rules)
+                RefuseNewServiceHostRule(rule, _rules.Find(r => r.Id == rule.Id));
             changed = rules.Count > 0 || (replace && _rules.Count > 0);
             // A replacing import sets the whole order, so nothing removed earlier takes its old
             // place among the new rules.

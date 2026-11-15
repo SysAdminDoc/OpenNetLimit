@@ -118,16 +118,90 @@ public class ServiceRuleTests
         Assert.Empty(rules.GetAllRules());
     }
 
+    [Theory]
+    [InlineData(SvchostPath)]
+    [InlineData("\"C:\\Windows\\SysWOW64\\SVCHOST.EXE\"")]
+    [InlineData(@"C:\*\svchost.exe")]
+    public void AddRule_OnSvchostByPath_PointsAtServiceRules(string path)
+    {
+        // It never matches either, so it would sit in the list limiting nothing.
+        var rules = new RuleEngine();
+
+        var ex = Assert.Throws<ArgumentException>(() => rules.AddRule(
+            new BandwidthRule { ProcessPath = path, DownloadBytesPerSecond = 1024 }));
+
+        Assert.Contains("by its service name", ex.Message);
+        Assert.Empty(rules.GetAllRules());
+    }
+
+    [Theory]
+    [InlineData(@"C:\Windows\System32\*")]
+    [InlineData(@"C:\Windows\System32\svc*.exe")]
+    [InlineData(@"C:\Tools\svchostmonitor.exe")]
+    public void AddRule_APathThatOnlyTakesSvchostIn_IsKept(string path)
+    {
+        var rules = new RuleEngine();
+
+        rules.AddRule(new BandwidthRule { ProcessPath = path, DownloadBytesPerSecond = 1024 });
+
+        Assert.Single(rules.GetAllRules());
+    }
+
+    [Fact]
+    public void UpdateRule_CantAddOrMakeARuleOnSvchost()
+    {
+        // Update adds a rule whose id isn't in the list, so it went around AddRule's check.
+        var rules = new RuleEngine();
+        var curl = new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 1024 };
+        rules.AddRule(curl);
+
+        Assert.Throws<ArgumentException>(() => rules.UpdateRule(
+            new BandwidthRule { ProcessName = "svchost", DownloadBytesPerSecond = 1024 }));
+        var moved = curl.Clone();
+        moved.ProcessName = null;
+        moved.ProcessPath = SvchostPath;
+        Assert.Throws<ArgumentException>(() => rules.UpdateRule(moved));
+
+        var kept = Assert.Single(rules.GetAllRules());
+        Assert.Equal(("curl", (string?)null), (kept.ProcessName, kept.ProcessPath));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImportRules_CantBringInARuleOnSvchost(bool replace)
+    {
+        var rules = new RuleEngine();
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 1024 });
+
+        var ex = Assert.Throws<ArgumentException>(() => rules.ImportRules(
+            $$"""[{"processName":"steam","downloadBytesPerSecond":1024},{"processPath":{{JsonSerializer.Serialize(SvchostPath)}},"downloadBytesPerSecond":1024}]""",
+            replace));
+
+        Assert.Contains("by its service name", ex.Message);
+        Assert.Equal("curl", Assert.Single(rules.GetAllRules()).ProcessName);
+    }
+
     [Fact]
     public void ASvchostRuleFromBefore_StillLoadsAndCanBeTurnedOff_ButLimitsNothing()
     {
+        // Saved before service rules existed, so it comes in through the service's own file.
+        var file = Path.Combine(Path.GetTempPath(), $"onl-svchost-rule-{Guid.NewGuid():N}.json");
+        File.WriteAllText(file, """{"version":1,"rules":[{"processName":"svchost","downloadBytesPerSecond":1024}]}""");
         var rules = new RuleEngine();
+        try
+        {
+            rules.LoadRules(file);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
         var limiter = new ProcessRateLimiter();
         var flows = new FlowTracker();
         var hosts = new FakeServiceHosts();
         hosts.Set(200, "BITS");
         flows.RegisterFlow(Key(100), 200, "svchost", SvchostPath);
-        rules.ImportRules("""[{"processName":"svchost","downloadBytesPerSecond":1024}]""");
 
         new RuleReconciler(rules, limiter, flows, serviceHosts: hosts).Reconcile();
         Assert.False(limiter.HasLimit(200));
@@ -136,6 +210,12 @@ public class ServiceRuleTests
         rule.Enabled = false;
         rules.UpdateRule(rule);
         Assert.False(rules.GetRule(rule.Id)!.Enabled);
+
+        // An export of the list carries it back over itself, with or without replacing the rest.
+        var exported = rules.ExportRules();
+        rules.ImportRules(exported);
+        rules.ImportRules(exported, replace: true);
+        Assert.Equal(rule.Id, Assert.Single(rules.GetAllRules()).Id);
     }
 
     [Fact]

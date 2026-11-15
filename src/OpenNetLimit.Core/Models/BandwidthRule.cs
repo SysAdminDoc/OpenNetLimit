@@ -34,6 +34,24 @@ public class BandwidthRule
     /// <summary>The process Windows runs shared services in.</summary>
     public const string ServiceHostName = "svchost";
 
+    /// <summary>
+    /// The rule is on svchost itself, by name or by the file its path ends in, rather than on a
+    /// service. Such a rule never matches, since a svchost is reached only through a service in
+    /// it. A wildcard path that takes svchost in among other programs isn't one.
+    /// </summary>
+    public bool TargetsServiceHost()
+    {
+        if (ServiceName is not null)
+            return false;
+        if (string.Equals(ProcessName, ServiceHostName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.IsNullOrWhiteSpace(ProcessPath))
+            return false;
+        var file = Path.GetFileName(ProcessPath.Trim().Trim('"'));
+        return file.IndexOfAny(['*', '?']) < 0
+            && string.Equals(ProcessNames.Normalize(file), ServiceHostName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private string? _serviceName;
 
     /// <summary>

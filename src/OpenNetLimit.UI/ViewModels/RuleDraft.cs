@@ -91,16 +91,15 @@ public sealed class RuleDraft
         // only narrow it to nothing. The service turns such a rule away too.
         if (serviceName.Length > 0 && (processName.Length > 0 || processPath.Length > 0))
             return Fail("RuleEditor_ServiceAlone", DraftField.Service);
-        // A rule on svchost by name never matches, and the service won't add one. A rule saved
-        // like that before service rules existed can still be edited and turned off.
-        if (serviceName.Length == 0 && ProcessRowText.IsServiceHost(processName)
-            && !ProcessRowText.IsServiceHost(original?.ProcessName))
-            return Fail("RuleEditor_UseService", DraftField.Service);
 
         rule.Name = Name.Trim();
         rule.ProcessName = processName.Length == 0 ? null : processName;
         rule.ProcessPath = processPath.Length == 0 ? null : processPath;
         rule.ServiceName = serviceName.Length == 0 ? null : serviceName;
+        // A rule on svchost by name or path never matches, and the service won't add one. A rule
+        // saved like that before service rules existed can still be edited and turned off.
+        if (rule.TargetsServiceHost() && original?.TargetsServiceHost() != true)
+            return Fail("RuleEditor_UseService", DraftField.Service);
         rule.Action = Action;
         rule.Enabled = Enabled;
         rule.GroupName = GroupName.Trim() is { Length: > 0 } group ? group : null;

@@ -194,6 +194,17 @@ public sealed class ServiceRuleUiTests
         Assert.Equal(("RuleEditor_UseService", DraftField.Service), (result.ErrorKey, result.Field));
     }
 
+    [Theory]
+    [InlineData(@"C:\Windows\System32\svchost.exe")]
+    [InlineData("\"C:\\Windows\\SysWOW64\\SVCHOST.EXE\"")]
+    public void Draft_ANewRuleOnSvchostByPath_AsksForTheService(string path)
+    {
+        var result = new RuleDraft { ProcessPath = path, DownloadKbps = "256" }.Build(null);
+
+        Assert.Null(result.Rule);
+        Assert.Equal(("RuleEditor_UseService", DraftField.Service), (result.ErrorKey, result.Field));
+    }
+
     [Fact]
     public void Draft_AnOldRuleOnSvchost_CanStillBeEditedAndTurnedOff()
     {
