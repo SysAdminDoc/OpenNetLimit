@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `onl selftest` checks that limits work on your PC. It limits its own upload for a few seconds, measures loopback traffic against the limit, then removes the rule and checks the speed comes back
+
 ### Fixed
+- Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too
 - The packet engine starts again. The WinDivert flow layer was opened with the wrong flags and Windows refused it with error 87, so the service ran but never filtered anything (#3)
 - Apps show up in the list again. Flow addresses were read in the wrong byte order, so no packet was ever matched to the app that sent it (#4)
 - Downloads and connections that were already open when the engine started are now credited to their app, and so are the many new flows Windows reports as belonging to System (#4)
