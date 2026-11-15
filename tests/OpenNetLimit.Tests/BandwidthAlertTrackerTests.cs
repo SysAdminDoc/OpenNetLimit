@@ -98,14 +98,34 @@ public class BandwidthAlertTrackerTests : IDisposable
     // With a name as well, the name decides when there's no path.
     [InlineData("curl", @"C:\Tools\curl.exe", true)]
     [InlineData("wget", @"C:\Tools\wget.exe", false)]
-    // Neither: it watches every app.
+    // Neither: it watches every app. A blank path is no path.
     [InlineData(null, null, true)]
+    [InlineData(null, "", true)]
+    [InlineData(null, "  ", true)]
+    [InlineData("curl", "", true)]
+    [InlineData("wget", " ", false)]
     public void Rule_ForAProcessWithNoPath_GoesByItsNameOnly(string? name, string? path, bool matches)
     {
         var rule = new BandwidthAlertRule { ProcessName = name, ProcessPath = path, ThresholdBytesPerSecond = 1000 };
         var process = new ProcessTrafficInfo { ProcessName = "curl", CurrentDownloadBytesPerSecond = 2000 };
 
         Assert.Equal(matches, rule.Matches(process));
+    }
+
+    [Fact]
+    public void Rule_WithABlankPathFromAFile_StillWatchesAppsWithAKnownPath()
+    {
+        var rule = System.Text.Json.JsonSerializer.Deserialize<BandwidthAlertRule>(
+            """{"ProcessName":"chrome","ProcessPath":"","ThresholdBytesPerSecond":1000}""")!;
+        var process = new ProcessTrafficInfo
+        {
+            ProcessName = "chrome",
+            ProcessPath = @"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            CurrentDownloadBytesPerSecond = 2000
+        };
+
+        Assert.Null(rule.ProcessPath);
+        Assert.True(rule.Matches(process));
     }
 
     [Fact]

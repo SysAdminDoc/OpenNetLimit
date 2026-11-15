@@ -14,7 +14,14 @@ public class BandwidthAlertRule
         get => _processName;
         set => _processName = ProcessNames.Normalize(value);
     }
-    public string? ProcessPath { get; set; }
+
+    private string? _processPath;
+    /// <summary>A blank path (REST, the pipe or an imported file can send one) means no path.</summary>
+    public string? ProcessPath
+    {
+        get => _processPath;
+        set => _processPath = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
     public RuleDirection Direction { get; set; } = RuleDirection.Both;
     public long ThresholdBytesPerSecond { get; set; }
     public int CooldownSeconds { get; set; } = 300;
