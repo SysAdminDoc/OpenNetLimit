@@ -149,19 +149,29 @@ public sealed class ServiceHosts : IServiceHosts, IDisposable
         }
         var hosts = new Dictionary<uint, string[]>();
         var watches = new Dictionary<uint, Watch>();
-        foreach (var (processId, services) in read)
+        try
         {
-            // A process watched since an earlier read is still that process: its id can't have
-            // been reused while it's held open.
-            if (!_watches.Remove(processId, out var watch))
+            foreach (var (processId, services) in read)
             {
-                var token = watch = new Watch();
-                watch.Handle = _watchExit(processId, started, () => OnExited(processId, token));
-                if (watch.Handle is null)
-                    continue;
+                // A process watched since an earlier read is still that process: its id can't have
+                // been reused while it's held open.
+                if (!_watches.Remove(processId, out var watch))
+                {
+                    var token = watch = new Watch();
+                    watch.Handle = _watchExit(processId, started, () => OnExited(processId, token));
+                    if (watch.Handle is null)
+                        continue;
+                }
+                hosts[processId] = services.Order(StringComparer.OrdinalIgnoreCase).ToArray();
+                watches[processId] = watch;
             }
-            hosts[processId] = services.Order(StringComparer.OrdinalIgnoreCase).ToArray();
-            watches[processId] = watch;
+        }
+        catch
+        {
+            // Put back what this read took over, so their exits still drop them and let go.
+            foreach (var (processId, watch) in watches)
+                _watches[processId] = watch;
+            throw;
         }
         released.AddRange(_watches.Values);
         _watches = watches;
@@ -237,7 +247,7 @@ public sealed class ServiceHosts : IServiceHosts, IDisposable
             return error == ErrorInvalidParameter ? null : Unwatched;
         }
         if (GetProcessTimes(handle, out long created, out _, out _, out _)
-            && DateTime.FromFileTimeUtc(created) > readStartedUtc)
+            && HeldProcess.StartedSince(DateTime.FromFileTimeUtc(created), readStartedUtc, DateTime.UtcNow))
         {
             handle.Dispose();
             return null;

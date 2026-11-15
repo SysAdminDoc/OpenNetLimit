@@ -47,19 +47,22 @@ internal sealed class HeldProcess : IHeldProcess
             handle.Dispose();
             return error == ErrorInvalidParameter ? null : Unheld;
         }
-        // Created after it was first seen means the ID went to another process. One created
-        // "after now" means the clock was set back since, and says nothing.
-        if (GetProcessTimes(handle, out long created, out _, out _, out _))
+        if (GetProcessTimes(handle, out long created, out _, out _, out _)
+            && StartedSince(DateTime.FromFileTimeUtc(created), firstSeenUtc, DateTime.UtcNow))
         {
-            var createdUtc = DateTime.FromFileTimeUtc(created);
-            if (createdUtc > firstSeenUtc && createdUtc <= DateTime.UtcNow)
-            {
-                handle.Dispose();
-                return null;
-            }
+            handle.Dispose();
+            return null;
         }
         return new HeldProcess(handle);
     }
+
+    /// <summary>
+    /// Whether a process created at <paramref name="createdUtc"/> started after <paramref name="sinceUtc"/>,
+    /// so it can't be the one seen then and the ID went to another process. One created after
+    /// <paramref name="nowUtc"/> means the clock was set back since, which says nothing either way.
+    /// </summary>
+    internal static bool StartedSince(DateTime createdUtc, DateTime sinceUtc, DateTime nowUtc) =>
+        createdUtc > sinceUtc && createdUtc <= nowUtc;
 
     private sealed class ProcessWait : WaitHandle
     {

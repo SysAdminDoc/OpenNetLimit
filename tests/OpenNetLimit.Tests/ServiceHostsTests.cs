@@ -49,6 +49,7 @@ public class ServiceHostsTests
     private readonly Dictionary<uint, FakeWatch> _watches = new();
     private readonly HashSet<uint> _newerThanTheRead = [];
     private readonly HashSet<uint> _unwatchable = [];
+    private readonly HashSet<uint> _watchThrows = [];
 
     private sealed class FakeWatch(Action exited) : IDisposable
     {
@@ -72,6 +73,8 @@ public class ServiceHostsTests
             return null;
         if (_unwatchable.Contains(processId))
             return ServiceHosts.Unwatched;
+        if (_watchThrows.Contains(processId))
+            throw new InvalidOperationException("watch failed");
         return _watches[processId] = new FakeWatch(exited);
     }
 
@@ -235,6 +238,44 @@ public class ServiceHostsTests
 
         Assert.All(_watches.Values, watch => Assert.True(watch.Disposed));
         Assert.Equal(1, _reads);
+    }
+
+    [Fact]
+    public void AWatchThatThrows_KeepsTheProcessesTheReadHadAlreadyTakenOver()
+    {
+        _running[200] = ["DoSvc"];
+        _running[201] = ["BITS"];
+        var hosts = Create();
+        hosts.Refresh();
+        var doSvc = _watches[200];
+        var bits = _watches[201];
+
+        // The read takes over 200 and 201 from the last one, then fails on 202.
+        _running[202] = ["wuauserv"];
+        _watchThrows.Add(202);
+        Assert.Throws<InvalidOperationException>(hosts.Refresh);
+
+        Assert.Equal(new[] { "DoSvc" }, hosts.ServicesIn(200));
+        doSvc.Exit();
+        Assert.Null(hosts.ServicesIn(200));
+        Assert.True(doSvc.Disposed);
+
+        hosts.Dispose();
+        Assert.True(bits.Disposed);
+    }
+
+    [Theory]
+    [InlineData(-60, false)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(7200, false)]
+    public void StartedSince_IsTrueOnlyForAProcessCreatedBetweenThenAndNow(int createdSecondsAfter, bool startedSince)
+    {
+        var seen = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var now = seen.AddHours(1);
+
+        // 7200: created "after now", so the clock was set back since. That's no sign the id was reused.
+        Assert.Equal(startedSince, HeldProcess.StartedSince(seen.AddSeconds(createdSecondsAfter), seen, now));
     }
 
     [Fact]
