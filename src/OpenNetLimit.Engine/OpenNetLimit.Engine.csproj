@@ -18,4 +18,8 @@
     <ProjectReference Include="..\OpenNetLimit.Core\OpenNetLimit.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="OpenNetLimit.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -26,6 +26,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         "dns", "dhcp", "dnscache", "System", "ntoskrnl"
     };
 
+    /// <summary>
+    /// The Flow layer only reports events, so WinDivert requires it to be opened as a
+    /// passive observer with both Sniff and RecvOnly. Any other combination makes
+    /// WinDivertOpen fail with ERROR_INVALID_PARAMETER (87).
+    /// </summary>
+    internal const WinDivert.Flag FlowLayerFlags = WinDivert.Flag.Sniff | WinDivert.Flag.RecvOnly;
+
+    /// <summary>
+    /// The Network layer diverts packets so they can be delayed or dropped, then reinjected.
+    /// </summary>
+    internal const WinDivert.Flag NetworkLayerFlags = 0;
+
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
     private CancellationTokenSource? _cts;
@@ -69,8 +81,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
         try
         {
-            _flowHandle = new WinDivert("true", WinDivert.Layer.Flow, 0, WinDivert.Flag.Sniff);
-            _networkHandle = new WinDivert("true", WinDivert.Layer.Network, 0, default);
+            _flowHandle = OpenHandle(WinDivert.Layer.Flow, FlowLayerFlags);
+            _networkHandle = OpenHandle(WinDivert.Layer.Network, NetworkLayerFlags);
         }
         catch
         {
@@ -97,6 +109,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             TaskScheduler.Default);
 
         return Task.CompletedTask;
+    }
+
+    private static WinDivert OpenHandle(WinDivert.Layer layer, WinDivert.Flag flags)
+    {
+        try
+        {
+            return new WinDivert("true", layer, 0, flags);
+        }
+        catch (WinDivertException ex)
+        {
+            throw new WinDivertOpenException(layer, flags, ex);
+        }
     }
 
     public async Task StopAsync()
