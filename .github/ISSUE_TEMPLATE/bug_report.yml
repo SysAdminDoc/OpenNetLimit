@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in OpenNetLimit doesn't work the way it should
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: OpenNetLimit version
+      description: The release you installed, like 1.0.2.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver` and copy the version and OS build, like "24H2, build 26100.2605".
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Setup program (OpenNetLimit-v...-setup.exe)
+        - ZIP with Install-Service.ps1
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what you saw instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      placeholder: |
+        1. Add a 500 KB/s limit to firefox
+        2. Start a download
+        3. The speed stays above 5 MB/s
+  - type: textarea
+    id: last-error
+    attributes:
+      label: Contents of last-error.txt
+      description: If the engine couldn't start, it writes the reason to `C:\ProgramData\OpenNetLimit\last-error.txt`. Paste the whole file here if it exists.
+      render: text
+  - type: textarea
+    id: selftest
+    attributes:
+      label: Output of onl selftest
+      description: On versions after 1.0.2, open an Administrator terminal in the install folder, run `.\onl.exe selftest` and paste what it prints. It checks whether limits work on your PC.
+      render: text
+  - type: textarea
+    id: event-log
+    attributes:
+      label: Errors from Event Viewer (optional)
+      description: In Event Viewer, under Windows Logs > Application, look for entries with the source OpenNetLimit around the time of the problem and paste their text.
+      render: text

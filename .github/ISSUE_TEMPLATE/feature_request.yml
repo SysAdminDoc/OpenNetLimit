@@ -1,0 +1,21 @@
+name: Feature request
+description: Something you'd like OpenNetLimit to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What do you want to do?
+      description: Describe the job, like "keep Steam from slowing down everyone else's video calls in the evening".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you handle it today?
+      description: Another tool, a workaround, or nothing at all.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else?
+      description: Screenshots, links to tools that already do this, or details about your setup.
