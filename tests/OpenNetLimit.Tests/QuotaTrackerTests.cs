@@ -8,6 +8,107 @@ namespace OpenNetLimit.Tests;
 
 public class QuotaTrackerTests
 {
+    private static BandwidthRule QuotaRule(QuotaAction action, long limitBytes = 1000) => new()
+    {
+        ProcessName = "curl",
+        Quota = new QuotaConfig { LimitBytes = limitBytes, Period = QuotaPeriod.Daily, OnExceeded = action }
+    };
+
+    [Theory]
+    [InlineData(QuotaAction.Block)]
+    [InlineData(QuotaAction.Throttle)]
+    public void UpdateIfDue_ChecksAQuotaThatCanRunOutEverySecond(QuotaAction action)
+    {
+        long now = 0;
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(action));
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => now);
+        Assert.True(tracker.UpdateIfDue());
+
+        // A fast download runs through the whole cap within the second.
+        monitor.RecordBytes(1, "curl", 5000, false);
+        now += 999;
+        Assert.False(tracker.UpdateIfDue());
+        now += 1;
+        Assert.True(tracker.UpdateIfDue());
+
+        Assert.True(tracker.GetQuotaState("curl")!.IsExceeded);
+    }
+
+    [Fact]
+    public void UpdateIfDue_ChecksEvery30Seconds_WhenNoQuotaCanRunOut()
+    {
+        long now = 0;
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(QuotaAction.WarnOnly));
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => now);
+        Assert.True(tracker.UpdateIfDue());
+
+        now += 1000;
+        Assert.False(tracker.UpdateIfDue());
+        now += 28_999;
+        Assert.False(tracker.UpdateIfDue());
+        now += 1;
+        Assert.True(tracker.UpdateIfDue());
+    }
+
+    [Fact]
+    public void UpdateIfDue_GoesBackTo30Seconds_OnceTheQuotaHasRunOut()
+    {
+        long now = 0;
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(QuotaAction.Block));
+        monitor.RecordBytes(1, "curl", 500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => now);
+        tracker.UpdateIfDue();
+        monitor.RecordBytes(1, "curl", 5000, false);
+        now += 1000;
+        tracker.UpdateIfDue();
+        Assert.True(tracker.GetQuotaState("curl")!.IsExceeded);
+
+        now += 1000;
+        Assert.False(tracker.UpdateIfDue());
+    }
+
+    [Fact]
+    public void UpdateIfDue_ChecksAtOnce_AfterThePeriodResets()
+    {
+        long now = 0;
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(QuotaAction.Block));
+        monitor.RecordBytes(1, "curl", 500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => now);
+        tracker.UpdateIfDue();
+        monitor.RecordBytes(1, "curl", 5000, false);
+        now += 1000;
+        tracker.UpdateIfDue();
+
+        tracker.ResetPeriod(QuotaPeriod.Daily);
+        now += 1;
+
+        Assert.True(tracker.UpdateIfDue());
+    }
+
+    [Fact]
+    public void AnUpdateFromARuleEdit_PutsOffTheNextCheck()
+    {
+        long now = 0;
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        ruleEngine.AddRule(QuotaRule(QuotaAction.Block));
+        var tracker = new QuotaTracker(ruleEngine, monitor, () => now);
+        tracker.UpdateIfDue();
+
+        now += 900;
+        tracker.Update();
+        now += 900;
+
+        Assert.False(tracker.UpdateIfDue());
+    }
     [Fact]
     public void Update_TracksQuotaUsage()
     {

@@ -26,7 +26,7 @@ public class QuotaTracker
 
     /// <summary>
     /// Serializes <see cref="Update"/> and <see cref="ResetPeriod"/>. A rule edit updates quotas
-    /// while the 30 s timer may be doing the same; without this the timer could finish last with
+    /// while the quota timer may be doing the same; without this the timer could finish last with
     /// the rules it read before the edit and put the old app's used-up state back.
     /// </summary>
     private readonly object _updateLock = new();
@@ -37,13 +37,57 @@ public class QuotaTracker
     /// </summary>
     private bool _started;
 
+    private readonly Func<long> _nowMs;
+
+    /// <summary>
+    /// When the last update ran, by the tick count, or null when the next check is due at once.
+    /// Only read and written under <see cref="_updateLock"/>.
+    /// </summary>
+    private long? _lastUpdateMs;
+
+    /// <summary>
+    /// Whether a Block or Throttle quota still had traffic left at the last update. One can run
+    /// out between two checks, and everything it lets through until the next is past its cap.
+    /// Only read and written under <see cref="_updateLock"/>.
+    /// </summary>
+    private bool _canRunOut;
+
+    /// <summary>How often <see cref="UpdateIfDue"/> checks while a Block or Throttle quota has traffic left.</summary>
+    internal static readonly TimeSpan CheckEveryNearACap = TimeSpan.FromSeconds(1);
+
+    /// <summary>How often it checks otherwise, for warnings and usage on the Rules tab.</summary>
+    internal static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(30);
+
     public event Action<string, QuotaState>? OnQuotaWarning;
     public event Action<string, QuotaState>? OnQuotaExceeded;
 
     public QuotaTracker(IRuleEngine ruleEngine, ITrafficMonitor trafficMonitor)
+        : this(ruleEngine, trafficMonitor, () => Environment.TickCount64)
+    {
+    }
+
+    internal QuotaTracker(IRuleEngine ruleEngine, ITrafficMonitor trafficMonitor, Func<long> nowMs)
     {
         _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
+        _nowMs = nowMs;
+    }
+
+    /// <summary>
+    /// Runs <see cref="Update"/> when it's due: every second while a Block or Throttle quota has
+    /// traffic left, so a fast download can't run far past it, and every 30 seconds otherwise.
+    /// Returns whether it ran.
+    /// </summary>
+    public bool UpdateIfDue()
+    {
+        lock (_updateLock)
+        {
+            var every = _canRunOut ? CheckEveryNearACap : CheckEvery;
+            if (_lastUpdateMs is { } last && _nowMs() - last < (long)every.TotalMilliseconds)
+                return false;
+        }
+        Update();
+        return true;
     }
 
     public void Update()
@@ -85,6 +129,9 @@ public class QuotaTracker
         var processes = _trafficMonitor.GetUsageTotals();
         bool firstUpdate = !_started;
         _started = true;
+
+        _lastUpdateMs = _nowMs();
+        _canRunOut = false;
 
         var live = rules.Select(r => r.Id).ToHashSet();
         var existing = allRules.Select(r => r.Id).ToHashSet();
@@ -163,6 +210,9 @@ public class QuotaTracker
                     state.WarningNotified = true;
                     notifications.Add((OnQuotaWarning, DisplayName(rule), CopyState(state)));
                 }
+
+                if (!state.IsExceeded && state.Action != QuotaAction.WarnOnly)
+                    _canRunOut = true;
             }
         }
     }
@@ -252,6 +302,8 @@ public class QuotaTracker
     {
         lock (_updateLock)
         {
+            // Quotas that ran out have their traffic back, so the next check is due at once.
+            _lastUpdateMs = null;
             var processes = _trafficMonitor.GetUsageTotals();
             var rules = _ruleEngine.GetAllRules();
 

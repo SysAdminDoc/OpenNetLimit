@@ -73,6 +73,16 @@ public class EngineWorker : BackgroundService
     private Timer? _purgeTimer;
     private Timer? _flowPurgeTimer;
     private Timer? _quotaTimer;
+
+    /// <summary>Set while a quota check runs, so a slow one isn't joined by the next tick's.</summary>
+    private int _quotaChecking;
+
+    /// <summary>
+    /// How often the quota timer asks whether a check is due. Ticking at the 1 s check interval
+    /// itself, a tick that fired a few milliseconds early found the check not yet due and put it
+    /// off a whole second.
+    /// </summary>
+    private static readonly TimeSpan QuotaTimerTick = TimeSpan.FromMilliseconds(250);
     private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
     private Timer? _scheduleTimer;
@@ -283,7 +293,7 @@ public class EngineWorker : BackgroundService
                 name, state.UsedBytes, state.LimitBytes, state.Action);
             DispatchPluginEvent("quota.exceeded", state, stoppingToken);
             // The reconciler enforces the Block or Throttle action right after this Update, for
-            // every matching process and until the period resets (UpdateQuotas).
+            // every matching process and until the period resets (UpdateQuotasIfDue).
         };
         _alertTracker.OnAlert += alert =>
         {
@@ -630,7 +640,7 @@ public class EngineWorker : BackgroundService
         }
 
         _flowPurgeTimer = new Timer(_ => PurgeStaleFlows(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
-        _quotaTimer = new Timer(_ => UpdateQuotas(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _quotaTimer = new Timer(_ => UpdateQuotasIfDue(), null, QuotaTimerTick, QuotaTimerTick);
         _scheduleTimer = new Timer(_ => OnScheduleTick(), null, UntilNextMinute(DateTime.Now), Timeout.InfiniteTimeSpan);
         _quotaResetTimer = new Timer(_ => CheckQuotaResets(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
@@ -979,7 +989,7 @@ public class EngineWorker : BackgroundService
 
     /// <summary>
     /// The first quota update sets where the saved quotas start counting. Run at load, a quota
-    /// added before the 30 s timer's first tick counts from when it was added, like any later
+    /// added before the quota timer's first check counts from when it was added, like any later
     /// one. It runs after the plugins load so an alert it raises reaches them.
     /// </summary>
     private void StartQuotaCounts()
@@ -1005,19 +1015,25 @@ public class EngineWorker : BackgroundService
     }
 
     /// <summary>
-    /// Reads quota usage, then enforces a quota that just ran out (or lifts one whose limit was
-    /// raised) without waiting for a rule edit.
+    /// Reads quota usage when it's due (every second while a Block or Throttle quota has traffic
+    /// left), then enforces a quota that just ran out without waiting for a rule edit.
     /// </summary>
-    private void UpdateQuotas()
+    private void UpdateQuotasIfDue()
     {
+        if (Interlocked.Exchange(ref _quotaChecking, 1) == 1)
+            return;
         try
         {
-            _quotaTracker?.Update();
-            _reconciler?.ReconcileIfChanged();
+            if (_quotaTracker?.UpdateIfDue() == true)
+                _reconciler?.ReconcileIfChanged();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Quota update failed");
+        }
+        finally
+        {
+            Volatile.Write(ref _quotaChecking, 0);
         }
     }
 
