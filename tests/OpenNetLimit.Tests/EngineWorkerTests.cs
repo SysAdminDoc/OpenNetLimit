@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenNetLimit.Core.Interfaces;
+using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Monitoring;
@@ -389,21 +390,115 @@ public sealed class EngineWorkerTests : IDisposable
     {
         // The REST API answers before the boot start runs. A resume that gets in first used to
         // be followed by a second start and a second set of background timers.
-        var interceptor = new FakeInterceptor { HoldStart = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var interceptor = new FakeInterceptor();
         using var worker = CreateWorker(interceptor, isAdmin: true);
-        _pipeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await worker.StartAsync(CancellationToken.None);
-        var resume = _controlPlane.ResumeHandler!(CancellationToken.None);
-        await interceptor.Started.Task.WaitAsync(Timeout);
-        interceptor.HoldStart!.SetResult();
-        await resume.WaitAsync(Timeout);
-        await _pipeStarted.Task.WaitAsync(Timeout);
+        var resumed = await ResumeBeforeTheBootStartAsync(worker);
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Running);
+        Assert.True(status.Running);
+        Assert.Equal(1, interceptor.StartCount);
+    }
+
+    [Fact]
+    public async Task ResumeBeforeTheBootStart_WithAStayPausedMarkerThatWontGo_KeepsRunning()
+    {
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(StayPausedPath, "");
+        using var markerInUse = new FileStream(StayPausedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+
+        await ResumeBeforeTheBootStartAsync(worker);
         var status = _controlPlane.GetDiagnostics();
         await worker.StopAsync(CancellationToken.None);
 
         Assert.True(status.Running);
+        Assert.False(status.Paused);
+        Assert.True(status.StayPaused);
         Assert.Equal(1, interceptor.StartCount);
+        Assert.Equal(0, _driver.StopRequests);
+    }
+
+    [Fact]
+    public async Task Resume_ThatCantRemoveTheStayPausedMarker_SaysItComesUpPausedAfterARestart()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(true, CancellationToken.None);
+
+        DiagnosticInfo resumed;
+        using (new FileStream(StayPausedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Running);
+        Assert.False(resumed.Paused);
+        Assert.True(resumed.StayPaused);
+    }
+
+    [Fact]
+    public async Task Resume_ThatFailsAfterLoadingTheDriver_UnloadsItAgain()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+
+        // The flow handle opened, which loads the driver, then the network handle failed.
+        interceptor.WhenStarting = () => _driver.Then(DriverServiceState.Running, DriverServiceState.Stopped);
+        interceptor.StartFailure = new WinDivertOpenException(
+            WinDivert.Layer.Network, WinDivert.Flag.Sniff, 87, "The parameter is incorrect.");
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Paused);
+        Assert.False(resumed.Running);
+        Assert.Null(resumed.DriverLoadedReason);
+        Assert.Equal(1, _driver.StopRequests);
+    }
+
+    [Fact]
+    public async Task RefusedResume_ItsErrorGoesOnceTheDriverUnloads()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+
+        var refused = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        _driver.Then(DriverServiceState.Stopped);
+        var released = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("wireguard.exe", refused.EngineError);
+        Assert.True(released.Paused);
+        Assert.Null(released.DriverLoadedReason);
+        Assert.Null(released.EngineError);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileAPauseClosesOurOwnHandles_SaysUnloadingWithoutBlamingAnotherProgram()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.Running, DriverServiceState.Stopped);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        DiagnosticInfo? duringStop = null;
+        interceptor.WhenStopping = () => duringStop ??= _controlPlane.GetDiagnostics();
+
+        var paused = await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        interceptor.WhenStopping = null;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(duringStop);
+        Assert.True(duringStop.Paused);
+        Assert.Equal(EngineWorker.UnloadingReason, duringStop.DriverLoadedReason);
+        Assert.Null(paused.DriverLoadedReason);
     }
 
     [Fact]
@@ -481,6 +576,20 @@ public sealed class EngineWorkerTests : IDisposable
         await _pipeStarted.Task.WaitAsync(Timeout);
     }
 
+    /// <summary>Holds the boot start until a resume has finished, then lets it run.</summary>
+    private async Task<DiagnosticInfo> ResumeBeforeTheBootStartAsync(EngineWorker worker)
+    {
+        var bootStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        worker.BootStartHold = bootStart.Task;
+        _pipeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await worker.StartAsync(CancellationToken.None);
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None).WaitAsync(Timeout);
+        bootStart.SetResult();
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        return resumed;
+    }
+
     private async Task RunPipe(CancellationToken ct)
     {
         _pipeStarted.TrySetResult();
@@ -513,8 +622,11 @@ public sealed class EngineWorkerTests : IDisposable
         /// <summary>Like a start waiting on another program's driver load: it ends when the service stops.</summary>
         public bool StartWaitsForStop { get; init; }
 
-        /// <summary>When set, a start doesn't finish until this completes.</summary>
-        public TaskCompletionSource? HoldStart { get; init; }
+        /// <summary>Runs as a start begins, before it can fail.</summary>
+        public Action? WhenStarting { get; set; }
+
+        /// <summary>Runs as a stop begins, while the handles are still open.</summary>
+        public Action? WhenStopping { get; set; }
         public bool IsRunning { get; set; }
         public long TotalBlocked => 0;
         public long TotalDelayed => 0;
@@ -525,17 +637,17 @@ public sealed class EngineWorkerTests : IDisposable
         {
             StartCount++;
             Started.TrySetResult();
+            WhenStarting?.Invoke();
             if (StartFailure is not null)
                 throw StartFailure;
             if (StartWaitsForStop)
                 await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
-            if (HoldStart is not null)
-                await HoldStart.Task.WaitAsync(cancellationToken);
             IsRunning = true;
         }
 
         public Task StopAsync()
         {
+            WhenStopping?.Invoke();
             IsRunning = false;
             return Task.CompletedTask;
         }

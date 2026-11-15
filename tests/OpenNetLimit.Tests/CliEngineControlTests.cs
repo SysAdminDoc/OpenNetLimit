@@ -59,6 +59,15 @@ public sealed class CliEngineControlTests
     }
 
     [Fact]
+    public void Resumed_ButStayPausedNotCleared_WarnsThatItComesUpPaused()
+    {
+        var code = Cli.ResumeOutcome("""{"running":true,"paused":false,"stayPaused":true}""", _error);
+
+        Assert.Equal(0, code);
+        Assert.Contains("comes up paused again after a restart", _error.ToString());
+    }
+
+    [Fact]
     public void ResumeFailed_ExitsOneWithTheEngineError()
     {
         var code = Cli.ResumeOutcome("""{"running":false,"engineError":"Close wireguard.exe."}""", _error);

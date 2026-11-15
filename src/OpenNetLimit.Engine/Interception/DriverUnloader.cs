@@ -68,6 +68,9 @@ public sealed class DriverUnloader
     /// <summary>Whether the driver is unloaded now. A stop left pending finishes on its own.</summary>
     public bool IsUnloaded() => IsUnloaded(TryQueryState(out _));
 
+    /// <summary>Whether a stop is waiting for another program to close the driver. One state query.</summary>
+    public bool IsStopPending() => TryQueryState(out _) == DriverServiceState.StopPending;
+
     /// <summary>Null when the driver is unloaded, or why it's loaded and what to do. Doesn't stop it.</summary>
     /// <param name="stopPending">Whether a stop is waiting for another program to close the driver.</param>
     public string? WhyLoaded(out bool stopPending)

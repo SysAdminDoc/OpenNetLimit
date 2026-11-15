@@ -89,6 +89,23 @@ public class ServiceStatusTests
     }
 
     [Fact]
+    public void PausedAfterAResumeThatDidNotStart_ShowsWhy()
+    {
+        var (tracker, _) = NewTracker();
+
+        tracker.StatusReceived(new DiagnosticInfo
+        {
+            Paused = true,
+            DriverLoadedReason = "wireguard.exe has it open.",
+            EngineError = "It can't resume until the driver finishes unloading. wireguard.exe has it open."
+        });
+
+        Assert.True(tracker.Current.Paused);
+        Assert.Equal("It can't resume until the driver finishes unloading. wireguard.exe has it open.",
+            tracker.Current.ResolveDetail());
+    }
+
+    [Fact]
     public void RunningEngine_ShowsConnectedWithNoDetail()
     {
         var (tracker, _) = NewTracker();
@@ -189,6 +206,8 @@ public class ServiceStatusTests
     [InlineData("Engine_ConnectionLost")]
     [InlineData("Pause_StayNotSaved_Body")]
     [InlineData("Pause_StayNotCleared_Body")]
+    [InlineData("Pause_CanResume_Body")]
+    [InlineData("Resume_StayNotCleared_Body")]
     public void NewStatusStrings_ExistInEveryLanguage(string key)
     {
         var resources = new ResourceManager("OpenNetLimit.UI.Resources.Strings", typeof(LocalizationManager).Assembly);

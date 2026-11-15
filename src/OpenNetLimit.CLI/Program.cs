@@ -137,13 +137,20 @@ public static class Program
         return 0;
     }
 
-    /// <summary>0 when the engine runs again, 1 (with why on stderr) when it doesn't.</summary>
+    /// <summary>
+    /// 0 when the engine runs again, 1 (with why on stderr) when it doesn't. A stay-paused choice
+    /// the service couldn't clear gets a warning on stderr.
+    /// </summary>
     internal static int ResumeOutcome(string statusJson, TextWriter error)
     {
         if (!TryParseStatus(statusJson, error, out var status))
             return 1;
         if (IsTrue(status, "running"))
+        {
+            if (IsTrue(status, "stayPaused"))
+                error.WriteLine("Warning: resumed, but the choice to stay paused couldn't be cleared, so the engine comes up paused again after a restart.");
             return 0;
+        }
         error.WriteLine($"Error: the engine didn't start. {Text(status, "engineError")}".TrimEnd());
         return 1;
     }

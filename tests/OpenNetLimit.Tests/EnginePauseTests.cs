@@ -82,7 +82,8 @@ public sealed class EnginePauseTests
     {
         var notice = EnginePause.AfterPause("{}", Unloaded, stayRequested: true);
 
-        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_StayNotSaved_Body", IsWarning: true), notice);
+        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_Unloaded_Body", IsWarning: true,
+            ExtraKey: "Pause_StayNotSaved_Body"), notice);
     }
 
     [Fact]
@@ -90,7 +91,18 @@ public sealed class EnginePauseTests
     {
         var notice = EnginePause.AfterPause("{}", new DiagnosticInfo { Paused = true, StayPaused = true }, stayRequested: false);
 
-        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_StayNotCleared_Body", IsWarning: true), notice);
+        Assert.Equal(new TrayNotice("Status_Paused", BodyKey: "Pause_Unloaded_Body", IsWarning: true,
+            ExtraKey: "Pause_StayNotCleared_Body"), notice);
+    }
+
+    [Fact]
+    public void Pause_DriverStillLoadedAndStayPausedNotSaved_WarnsAboutBoth()
+    {
+        var notice = EnginePause.AfterPause("{}", Held, stayRequested: true);
+
+        Assert.Equal(new TrayNotice("Pause_StillLoaded_Title", Body: "wireguard.exe has it open.", IsWarning: true,
+            ExtraKey: "Pause_StayNotSaved_Body"), notice);
+        Assert.Equal("wireguard.exe has it open. " + LocalizationManager.Text("Pause_StayNotSaved_Body"), notice.ResolveBody());
     }
 
     [Fact]
@@ -110,6 +122,15 @@ public sealed class EnginePauseTests
     }
 
     [Fact]
+    public void Resume_RunningButStayPausedNotCleared_WarnsItComesUpPausedAfterARestart()
+    {
+        var notice = EnginePause.AfterResume("{}", new DiagnosticInfo { Running = true, StayPaused = true });
+
+        Assert.Equal(new TrayNotice("Resume_Done_Title", BodyKey: "Resume_Done_Body", IsWarning: true,
+            ExtraKey: "Resume_StayNotCleared_Body"), notice);
+    }
+
+    [Fact]
     public void Resume_EngineDidNotStart_ShowsWhy()
     {
         var notice = EnginePause.AfterResume("{}", new DiagnosticInfo { Running = false, EngineError = "Close wireguard.exe." });
@@ -124,6 +145,20 @@ public sealed class EnginePauseTests
     {
         Assert.Equal(new TrayNotice("Pause_Unloaded_Title", BodyKey: "Pause_Unloaded_Body"),
             EnginePause.AfterPoll(Held, Unloaded));
+    }
+
+    [Fact]
+    public void Poll_DriverUnloadsAfterARefusedResume_SaysResumeWorksNow()
+    {
+        var refused = new DiagnosticInfo
+        {
+            Paused = true,
+            DriverLoadedReason = "wireguard.exe has it open.",
+            EngineError = "It can't resume until the driver finishes unloading. wireguard.exe has it open."
+        };
+
+        Assert.Equal(new TrayNotice("Pause_Unloaded_Title", BodyKey: "Pause_CanResume_Body"),
+            EnginePause.AfterPoll(refused, Unloaded));
     }
 
     [Fact]

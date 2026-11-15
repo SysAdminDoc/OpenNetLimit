@@ -57,13 +57,15 @@
   <data name="Pause_Failed_Title" xml:space="preserve"><value>No se pudo pausar</value></data>
   <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>En pausa, pero el controlador sigue cargado</value></data>
   <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Ya no queda nada de OpenNetLimit cargado, así que puedes iniciar tu juego.</value></data>
-  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>El controlador está descargado, pero no se pudo guardar la opción de seguir en pausa. La pausa termina cuando se reinicie el servicio.</value></data>
-  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>El controlador está descargado, pero no se pudo borrar una opción anterior de seguir en pausa. Seguirá en pausa tras reiniciar hasta que lo reanudes.</value></data>
+  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>No se pudo guardar la opción de seguir en pausa, así que la pausa termina cuando se reinicie el servicio.</value></data>
+  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>No se pudo borrar una opción anterior de seguir en pausa, así que seguirá en pausa tras reiniciar hasta que lo reanudes.</value></data>
+  <data name="Pause_CanResume_Body" xml:space="preserve"><value>El controlador WinDivert está descargado, así que ya puedes reanudar.</value></data>
   <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Controlador descargado</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Lista de trafico por proceso</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>
   <data name="Resume_Done_Body" xml:space="preserve"><value>Tus límites y bloqueos vuelven a aplicarse.</value></data>
   <data name="Resume_Done_Title" xml:space="preserve"><value>Reanudado</value></data>
+  <data name="Resume_StayNotCleared_Body" xml:space="preserve"><value>No se pudo borrar la opción de seguir en pausa, así que volverá a arrancar en pausa tras reiniciar.</value></data>
   <data name="Resume_Failed_Title" xml:space="preserve"><value>No se pudo reanudar</value></data>
   <data name="ServiceStatus_Automation" xml:space="preserve"><value>Estado del servicio</value></data>
   <data name="SetLimit_DownloadAutomation" xml:space="preserve"><value>Limite de descarga en KB/s</value></data>

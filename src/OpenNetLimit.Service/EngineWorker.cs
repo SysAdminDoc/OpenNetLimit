@@ -33,10 +33,23 @@ public class EngineWorker : BackgroundService
     private volatile bool _stayPaused;
     private volatile string? _driverLoadedReason;
 
+    /// <summary>
+    /// Guards writes to <see cref="_driverLoadedReason"/>. Each write bumps the version, so a
+    /// status read that rechecked the driver can't put back a reason a pause or resume replaced.
+    /// </summary>
+    private readonly object _driverReasonLock = new();
+    private int _driverReasonVersion;
+
     /// <summary>Set while a pause unloads the driver or a resume reopens it, so status reads don't recheck it mid-change.</summary>
     private volatile bool _changingDriver;
 
+    /// <summary>The engine error a refused resume left. It goes once the driver unloads.</summary>
+    private volatile string? _resumeRefusal;
+
     internal const string UnloadingReason = "The WinDivert driver is unloading.";
+
+    /// <summary>Tests hold the boot start here so a pause or resume can get in first.</summary>
+    internal Task? BootStartHold { get; set; }
     private bool _backgroundStarted;
     private RuleReconciler? _reconciler;
     private QuotaTracker? _quotaTracker;
@@ -166,7 +179,11 @@ public class EngineWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (_prerequisitesMet)
+        {
+            if (BootStartHold is { } hold)
+                await hold;
             await StartEngineAsync(stoppingToken);
+        }
 
         // The control pipe stays up even when the engine can't start. Without it the app
         // could only report "Service not running" and never the reason.
@@ -269,16 +286,20 @@ public class EngineWorker : BackgroundService
         await _engineGate.WaitAsync(CancellationToken.None);
         try
         {
+            // A resume that got in first has started everything already, even if it couldn't
+            // remove the stay-paused marker.
+            if (_backgroundStarted)
+                return;
             if (File.Exists(_stayPausedPath))
             {
+                MarkDriverChanging();
                 _paused = _stayPaused = true;
                 _logger.LogInformation("The packet engine stays paused, as asked before the restart");
                 // A stop from before the restart can still be waiting on another program, or
                 // something loaded the driver since.
                 UnloadDriver();
             }
-            // A resume that got in first has started everything already.
-            if (!_backgroundStarted && (_paused || await TryStartInterceptorAsync(stoppingToken)))
+            if (_paused || await TryStartInterceptorAsync(stoppingToken))
                 StartBackgroundWork();
         }
         finally
@@ -302,19 +323,29 @@ public class EngineWorker : BackgroundService
             if (_stopping)
                 return GetDiagnosticInfo();
 
-            _paused = true;
-            _engineError = null;
+            // Before it counts as paused: a status read while our own handles close mustn't
+            // look for the program holding the driver and blame another one.
+            MarkDriverChanging();
             try
             {
-                await _interceptor.StopAsync();
+                _paused = true;
+                _engineError = null;
+                try
+                {
+                    await _interceptor.StopAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error stopping the packet interceptor for a pause");
+                }
+                _stayPaused = SetStayPausedMarker(stayPaused);
+                _logger.LogInformation("Packet engine paused");
+                UnloadDriver();
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Error stopping the packet interceptor for a pause");
+                _changingDriver = false;
             }
-            _stayPaused = SetStayPausedMarker(stayPaused);
-            _logger.LogInformation("Packet engine paused");
-            UnloadDriver();
         }
         finally
         {
@@ -324,23 +355,46 @@ public class EngineWorker : BackgroundService
     }
 
     /// <summary>
+    /// Until the driver change finishes, status reads say it's unloading, or keep the reason they
+    /// had, and never recheck it. Call it holding the engine gate.
+    /// </summary>
+    private void MarkDriverChanging()
+    {
+        lock (_driverReasonLock)
+        {
+            _driverLoadedReason ??= UnloadingReason;
+            _driverReasonVersion++;
+        }
+        _changingDriver = true;
+    }
+
+    private void SetDriverReason(string? reason)
+    {
+        lock (_driverReasonLock)
+        {
+            _driverLoadedReason = reason;
+            _driverReasonVersion++;
+        }
+    }
+
+    /// <summary>
     /// Stops the driver and records why it's still loaded, if it is. Until it knows, a status
     /// read keeps the reason it had, or says the driver is unloading, never that it's unloaded.
     /// Call it holding the engine gate.
     /// </summary>
     private void UnloadDriver()
     {
-        _driverLoadedReason ??= UnloadingReason;
-        _changingDriver = true;
+        MarkDriverChanging();
         try
         {
             // Bounded by DriverUnloader.UnloadLimit. Only a service stop cuts it short, so a
             // client that hangs up mid-pause doesn't leave the reason unknown.
-            _driverLoadedReason = _driverUnloader.Unload(_shutdown.Token);
-            if (_driverLoadedReason is null)
+            var reason = _driverUnloader.Unload(_shutdown.Token);
+            SetDriverReason(reason);
+            if (reason is null)
                 _logger.LogInformation("The WinDivert driver is unloaded");
             else
-                _logger.LogWarning("The WinDivert driver is still loaded: {Reason}", _driverLoadedReason);
+                _logger.LogWarning("The WinDivert driver is still loaded: {Reason}", reason);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
@@ -367,16 +421,21 @@ public class EngineWorker : BackgroundService
                 return GetDiagnosticInfo();
 
             bool wasPaused = _paused;
-            if (wasPaused && _driverUnloader.WhyLoaded(out bool stopPending) is { } held && stopPending)
+            // One state query first; only a pending stop is worth listing the programs for.
+            if (wasPaused && _driverUnloader.IsStopPending() &&
+                _driverUnloader.WhyLoaded(out bool stopPending) is { } held && stopPending)
             {
                 // Opening now would wait out the preflight's pending limit, then fail with error 433.
-                _driverLoadedReason = held;
-                _engineError = $"It can't resume until the driver finishes unloading. {held}";
+                SetDriverReason(held);
+                var refusal = $"It can't resume until the driver finishes unloading. {held}";
+                _resumeRefusal = refusal;
+                _engineError = refusal;
                 _logger.LogWarning("Resume refused while the WinDivert driver is still unloading: {Reason}", held);
                 return GetDiagnosticInfo();
             }
 
             _engineError = null;
+            _resumeRefusal = null;
             _changingDriver = true;
             try
             {
@@ -394,7 +453,7 @@ public class EngineWorker : BackgroundService
                 if (await TryStartInterceptorAsync(_shutdown.Token))
                 {
                     _paused = false;
-                    _driverLoadedReason = null;
+                    SetDriverReason(null);
                     _stayPaused = SetStayPausedMarker(false);
                     if (_stayPaused)
                         _logger.LogError("The engine resumed, but {Path} couldn't be removed, so it comes up paused after a restart", _stayPausedPath);
@@ -408,7 +467,12 @@ public class EngineWorker : BackgroundService
                     // A paused engine stays paused, stay-paused choice and all, so the tray still
                     // offers Resume. The status says why it didn't start.
                     _paused = wasPaused;
-                    _driverLoadedReason = null;
+                    // A start that got as far as opening a handle loaded the driver, and closing
+                    // the handle doesn't unload it.
+                    if (wasPaused)
+                        UnloadDriver();
+                    else
+                        SetDriverReason(null);
                 }
             }
             finally
@@ -835,22 +899,25 @@ public class EngineWorker : BackgroundService
 
     internal DiagnosticInfo GetDiagnosticInfo()
     {
+        // Read first. A driver change marks itself before it touches the reason or the pause,
+        // so a read that sees no change in progress here rechecks the real driver state.
+        bool changingDriver = _changingDriver;
+        bool paused = _paused;
+        string? driverLoadedReason = paused && !changingDriver ? RecheckDriver() : _driverLoadedReason;
+
         var running = _interceptor.IsRunning;
         var engineError = _engineError;
-        bool paused = _paused;
         if (engineError is null && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
-
-        var driverLoadedReason = _driverLoadedReason;
-        if (paused && !_changingDriver)
-            driverLoadedReason = RecheckDriver(driverLoadedReason);
 
         return new DiagnosticInfo
         {
             Running = running,
             EngineError = engineError,
             Paused = paused,
-            StayPaused = paused && _stayPaused,
+            // Not only while paused: a resume that couldn't clear the marker comes up paused
+            // after the next restart, and the app says so.
+            StayPaused = _stayPaused,
             DriverLoadedReason = paused ? driverLoadedReason : null,
             ActiveFlows = _flowTracker.GetActiveConnections().Count,
             ActiveRules = _ruleEngine.GetAllRules().Count,
@@ -867,21 +934,44 @@ public class EngineWorker : BackgroundService
     /// program closes it) or load again (another program opened it), so a status read checks.
     /// Only a change lists the programs; otherwise it's one service-state query.
     /// </summary>
-    private string? RecheckDriver(string? known)
+    private string? RecheckDriver()
     {
+        string? known;
+        int version;
+        lock (_driverReasonLock)
+        {
+            known = _driverLoadedReason;
+            version = _driverReasonVersion;
+        }
+
+        string? now;
         if (known is not null)
         {
             if (!_driverUnloader.IsUnloaded())
                 return known;
-            Interlocked.CompareExchange(ref _driverLoadedReason, null, known);
-            return null;
+            now = null;
         }
-        if (_driverUnloader.IsUnloaded())
-            return null;
-        var why = _driverUnloader.WhyLoaded(out _);
-        if (why is not null)
-            Interlocked.CompareExchange(ref _driverLoadedReason, why, null);
-        return why;
+        else
+        {
+            if (_driverUnloader.IsUnloaded())
+                return null;
+            now = _driverUnloader.WhyLoaded(out _);
+            if (now is null)
+                return null;
+        }
+
+        lock (_driverReasonLock)
+        {
+            // A pause or resume wrote a newer reason while this one looked, and it knows better.
+            if (version != _driverReasonVersion)
+                return _driverLoadedReason;
+            _driverLoadedReason = now;
+            _driverReasonVersion++;
+        }
+        // A resume refused while the driver was unloading can go ahead now.
+        if (now is null && _resumeRefusal is { } refusal)
+            Interlocked.CompareExchange(ref _engineError, null, refusal);
+        return now;
     }
 
     private void RecordLastError(string message)
