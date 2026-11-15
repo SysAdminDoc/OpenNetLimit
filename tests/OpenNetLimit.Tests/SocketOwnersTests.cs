@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Sockets;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.RateLimiting;
+using OpenNetLimit.Engine.Rules;
 using Xunit;
 
 namespace OpenNetLimit.Tests;
@@ -16,12 +18,153 @@ public class SocketOwnersTests
     {
         public List<OpenSocket> Sockets { get; } = [];
         public List<uint> Identified { get; } = [];
+        public int Reads { get; private set; }
+        public long Now { get; set; }
 
-        public SocketOwners Create(FlowTracker tracker) => new(tracker, () => Sockets.ToList(), pid =>
+        public SocketOwners Create(FlowTracker tracker) => new(tracker, () =>
+        {
+            Reads++;
+            return Sockets.ToList();
+        }, pid =>
         {
             Identified.Add(pid);
             return new ProcessIdentity($"app{pid}", $@"C:\Apps\app{pid}.exe");
-        });
+        }, () => Now);
+    }
+
+    private const uint SystemPid = SocketOwners.SystemProcessId;
+    private static readonly FlowKey Https = new(TransportProtocol.Tcp, Local, 51000, Remote, 443);
+
+    [Fact]
+    public void SystemReport_IsCreditedToTheSocketsOwner()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, Local, 51000, 4242));
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+
+        Assert.True(owners.RegisterEstablished(Https, SystemPid, eventTimestamp: -1, out var processId, out var identity));
+
+        Assert.Equal(4242u, processId);
+        Assert.Equal("app4242", identity.Name);
+        var connection = tracker.LookupConnection(Https);
+        Assert.NotNull(connection);
+        Assert.Equal(4242u, connection.ProcessId);
+        Assert.Equal("app4242", connection.ProcessName);
+        Assert.Equal(@"C:\Apps\app4242.exe", connection.ProcessPath);
+    }
+
+    [Fact]
+    public void SystemReport_ForASocketNewerThanTheTables_ReadsThemAgain()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables { Now = 10 };
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, Local, 51000, 4242));
+        tables.Now = 30;
+
+        Assert.True(owners.RegisterEstablished(Https, SystemPid, eventTimestamp: 20, out var processId, out _));
+
+        Assert.Equal(4242u, processId);
+        Assert.Equal(2, tables.Reads);
+        Assert.Equal(4242u, tracker.LookupProcessId(Https));
+    }
+
+    [Fact]
+    public void SystemReport_DoesNotReadTablesNewerThanTheEventAgain()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables { Now = 30 };
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, Local, 51000, 4242));
+
+        Assert.True(owners.RegisterEstablished(Https, SystemPid, eventTimestamp: 20, out var processId, out _));
+
+        Assert.Equal(SystemPid, processId);
+        Assert.Equal(1, tables.Reads);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SystemReport_NeverReplacesTheRealOwner(bool realReportFirst)
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables();
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+
+        if (realReportFirst)
+        {
+            Assert.True(owners.RegisterEstablished(Https, 4242, eventTimestamp: -1, out _, out _));
+            Assert.False(owners.RegisterEstablished(Https, SystemPid, eventTimestamp: -1, out _, out _));
+        }
+        else
+        {
+            Assert.True(owners.RegisterEstablished(Https, SystemPid, eventTimestamp: -1, out _, out _));
+            Assert.True(owners.RegisterEstablished(Https, 4242, eventTimestamp: -1, out _, out _));
+        }
+
+        Assert.Equal(4242u, tracker.LookupProcessId(Https));
+        Assert.Equal("app4242", tracker.LookupConnection(Https)!.ProcessName);
+    }
+
+    [Fact]
+    public void SystemReport_OnTheOtherEndOfALoopbackFlow_IsNotMistakenForTheClient()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, IPAddress.Loopback, 47719, SystemPid));
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+        var client = new FlowKey(TransportProtocol.Tcp, IPAddress.Loopback, 52000, IPAddress.Loopback, 47719);
+        var server = new FlowKey(TransportProtocol.Tcp, IPAddress.Loopback, 47719, IPAddress.Loopback, 52000);
+
+        Assert.True(owners.RegisterEstablished(client, 900, eventTimestamp: -1, out _, out _));
+        Assert.True(owners.RegisterEstablished(server, SystemPid, eventTimestamp: -1, out var processId, out _));
+
+        Assert.Equal(SystemPid, processId);
+        Assert.Equal(900u, tracker.LookupProcessId(client));
+        Assert.Equal(SystemPid, tracker.LookupProcessId(server));
+    }
+
+    [Fact]
+    public void RealProcessReport_IsTakenAsReported()
+    {
+        var tracker = new FlowTracker();
+        var tables = new FakeTables();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, Local, 51000, 99));
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+
+        Assert.True(owners.RegisterEstablished(Https, 4242, eventTimestamp: 50, out var processId, out var identity));
+
+        Assert.Equal(4242u, processId);
+        Assert.Equal("app4242", identity.Name);
+        Assert.Equal(1, tables.Reads);
+    }
+
+    [Fact]
+    public void SystemReportForALimitedApp_GetsTheAppsLimit()
+    {
+        var tracker = new FlowTracker();
+        var rules = new RuleEngine();
+        var limiter = new ProcessRateLimiter();
+        var reconciler = new RuleReconciler(rules, limiter, tracker);
+        rules.OnRulesChanged += reconciler.Reconcile;
+        rules.AddRule(new BandwidthRule { ProcessName = "app4242", DownloadBytesPerSecond = 262_144 });
+        var tables = new FakeTables();
+        tables.Sockets.Add(new OpenSocket(TransportProtocol.Tcp, Local, 51000, 4242));
+        var owners = tables.Create(tracker);
+        owners.Refresh();
+
+        owners.RegisterEstablished(Https, SystemPid, eventTimestamp: -1, out _, out _);
+
+        Assert.True(limiter.HasLimit(4242));
+        Assert.False(limiter.HasLimit(SystemPid));
     }
 
     [Fact]

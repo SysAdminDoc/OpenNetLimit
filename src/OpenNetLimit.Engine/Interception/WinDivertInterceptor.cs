@@ -199,13 +199,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 if (addr.Event == WinDivert.Event.FlowEstablished)
                 {
-                    string processName = ResolveProcessName(flowData.ProcessId);
-                    string? processPath = ResolveProcessPath(flowData.ProcessId);
-                    _flowTracker.RegisterFlow(flowKey, flowData.ProcessId, processName, processPath);
+                    if (!_socketOwners.RegisterEstablished(flowKey, flowData.ProcessId, addr.Timestamp,
+                            out var processId, out var identity))
+                        continue;
                     _connectionLog.Log(new ConnectionLogEntry
                     {
-                        ProcessId = flowData.ProcessId,
-                        ProcessName = processName,
+                        ProcessId = processId,
+                        ProcessName = identity.Name,
                         Action = "Established",
                         Protocol = protocol.ToString(),
                         LocalEndpoint = $"{localAddr}:{flowData.LocalPort}",

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
@@ -16,6 +17,8 @@ internal readonly record struct ProcessIdentity(string Name, string? Path);
 /// </summary>
 internal sealed class SocketOwners
 {
+    internal const uint SystemProcessId = 4;
+
     private readonly record struct SocketKey(TransportProtocol Protocol, IPAddress Address, ushort Port);
 
     private readonly record struct Owner(uint ProcessId, ProcessIdentity Identity);
@@ -23,15 +26,20 @@ internal sealed class SocketOwners
     private readonly IFlowTracker _flowTracker;
     private readonly Func<IReadOnlyList<OpenSocket>> _readSockets;
     private readonly Func<uint, ProcessIdentity> _identify;
+    private readonly Func<long> _clock;
     private readonly ConcurrentDictionary<FlowKey, (SocketKey Socket, uint ProcessId)> _adopted = new();
     private readonly object _refreshLock = new();
     private volatile Dictionary<SocketKey, Owner> _owners = new();
+    private long _lastReadStarted = long.MinValue;
 
-    public SocketOwners(IFlowTracker flowTracker, Func<IReadOnlyList<OpenSocket>> readSockets, Func<uint, ProcessIdentity> identify)
+    /// <param name="clock">Timestamps on the clock WinDivert stamps events with (QueryPerformanceCounter).</param>
+    public SocketOwners(IFlowTracker flowTracker, Func<IReadOnlyList<OpenSocket>> readSockets, Func<uint, ProcessIdentity> identify,
+        Func<long>? clock = null)
     {
         _flowTracker = flowTracker;
         _readSockets = readSockets;
         _identify = identify;
+        _clock = clock ?? Stopwatch.GetTimestamp;
     }
 
     public int AdoptedFlowCount => _adopted.Count;
@@ -43,35 +51,95 @@ internal sealed class SocketOwners
     public void Refresh()
     {
         lock (_refreshLock)
+            RefreshLocked();
+    }
+
+    private void RefreshIfOlderThan(long timestamp)
+    {
+        if (Volatile.Read(ref _lastReadStarted) > timestamp)
+            return;
+        lock (_refreshLock)
         {
-            var previous = _owners;
-            var known = previous.Values
-                .GroupBy(owner => owner.ProcessId)
-                .ToDictionary(group => group.Key, group => group.First().Identity);
+            if (_lastReadStarted <= timestamp)
+                RefreshLocked();
+        }
+    }
 
-            var owners = new Dictionary<SocketKey, Owner>();
-            foreach (var socket in _readSockets())
+    private void RefreshLocked()
+    {
+        Volatile.Write(ref _lastReadStarted, _clock());
+        var previous = _owners;
+        var known = previous.Values
+            .GroupBy(owner => owner.ProcessId)
+            .ToDictionary(group => group.Key, group => group.First().Identity);
+
+        var owners = new Dictionary<SocketKey, Owner>();
+        foreach (var socket in _readSockets())
+        {
+            var key = new SocketKey(socket.Protocol, Normalize(socket.LocalAddress), socket.LocalPort);
+            if (owners.ContainsKey(key))
+                continue;
+            if (!known.TryGetValue(socket.ProcessId, out var identity))
             {
-                var key = new SocketKey(socket.Protocol, Normalize(socket.LocalAddress), socket.LocalPort);
-                if (owners.ContainsKey(key))
-                    continue;
-                if (!known.TryGetValue(socket.ProcessId, out var identity))
-                {
-                    identity = _identify(socket.ProcessId);
-                    known[socket.ProcessId] = identity;
-                }
-                owners[key] = new Owner(socket.ProcessId, identity);
+                identity = _identify(socket.ProcessId);
+                known[socket.ProcessId] = identity;
             }
-            _owners = owners;
+            owners[key] = new Owner(socket.ProcessId, identity);
+        }
+        _owners = owners;
 
-            foreach (var (flowKey, adopted) in _adopted)
+        foreach (var (flowKey, adopted) in _adopted)
+        {
+            if (owners.TryGetValue(adopted.Socket, out var owner) && owner.ProcessId == adopted.ProcessId)
+                continue;
+            _flowTracker.UnregisterFlow(flowKey);
+            _adopted.TryRemove(flowKey, out _);
+        }
+    }
+
+    /// <summary>
+    /// Registers a flow the flow layer reported as established and says who it went to.
+    /// The flow layer credits many flows to System (PID 4): every connection that was already
+    /// open when the handle opened, and plenty of new ones, apps' HTTPS included, sometimes next
+    /// to a second report with the real PID in either order. Those apps then never showed up and
+    /// never matched their rules. A System report is checked against the socket tables, read
+    /// again when they are older than the event, and one that still points nowhere never replaces
+    /// a real owner (the call returns false and registers nothing).
+    /// </summary>
+    public bool RegisterEstablished(in FlowKey flowKey, uint reportedProcessId, long eventTimestamp,
+        out uint processId, out ProcessIdentity identity)
+    {
+        processId = reportedProcessId;
+        if (reportedProcessId == SystemProcessId)
+        {
+            if (TryFindRealOwner(flowKey, eventTimestamp, out var owner))
             {
-                if (owners.TryGetValue(adopted.Socket, out var owner) && owner.ProcessId == adopted.ProcessId)
-                    continue;
-                _flowTracker.UnregisterFlow(flowKey);
-                _adopted.TryRemove(flowKey, out _);
+                processId = owner.ProcessId;
+                identity = owner.Identity;
+                _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path);
+                return true;
+            }
+            if (_flowTracker.LookupConnection(flowKey) is { IsActive: true } known && known.FlowKey == flowKey
+                && known.ProcessId is not (0 or SystemProcessId))
+            {
+                identity = default;
+                return false;
             }
         }
+        identity = _identify(processId);
+        _flowTracker.RegisterFlow(flowKey, processId, identity.Name, identity.Path);
+        return true;
+    }
+
+    private bool TryFindRealOwner(in FlowKey flowKey, long eventTimestamp, out Owner owner)
+    {
+        if (!TryFindOwner(flowKey.Protocol, flowKey.LocalAddress, flowKey.LocalPort, out _, out owner))
+        {
+            RefreshIfOlderThan(eventTimestamp);
+            if (!TryFindOwner(flowKey.Protocol, flowKey.LocalAddress, flowKey.LocalPort, out _, out owner))
+                return false;
+        }
+        return owner.ProcessId != SystemProcessId;
     }
 
     /// <summary>
