@@ -83,7 +83,7 @@
   <data name="Status_EngineFailed_Detail" xml:space="preserve"><value>The service is running but couldn't start packet filtering. Details are in C:\ProgramData\OpenNetLimit\last-error.txt.</value></data>
   <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Service disconnected</value></data>
   <data name="Status_ServiceNotInstalled" xml:space="preserve"><value>Service not installed</value></data>
-  <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Run Install-Service.ps1 from an administrator PowerShell in the OpenNetLimit folder.</value></data>
+  <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Install it with the OpenNetLimit setup. If you use the ZIP, run Install-Service.ps1 from an administrator PowerShell in that folder.</value></data>
   <data name="Status_ServiceNotRunning" xml:space="preserve"><value>Service not running</value></data>
   <data name="Status_ServiceNotRunning_Detail" xml:space="preserve"><value>The service is installed but stopped. Start it from an administrator PowerShell with: Start-Service OpenNetLimit</value></data>
   <data name="StatusBar_ActiveRules" xml:space="preserve"><value>Active Rules: {0}</value></data>

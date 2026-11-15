@@ -27,6 +27,7 @@
 - Fast downloads no longer stall, and short bursts of traffic no longer lose packets while the engine catches up. The driver's packet queue was left at its small default, and the driver dropped whatever didn't fit without reporting it
 - Packet engine errors show up in the service log and the Windows event log. They used to go where only a debugger could see them
 - Stopping the service takes a fraction of a second instead of up to 10 seconds, so uninstalling, updating and shutting down Windows don't wait on it
+- When the service isn't installed, the app points you to the setup first and to `Install-Service.ps1` only for the ZIP
 
 ## 1.0.2 (2026-09-12)
 
