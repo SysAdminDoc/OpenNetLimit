@@ -36,6 +36,7 @@ public static class Program
                 "connections" => await GetJson("/api/v1/connections"),
                 "alerts" => await GetJson("/api/v1/alerts/events"),
                 "health" => await GetJson("/health"),
+                "selftest" => await RunSelfTest(args[1..]),
                 "help" or "--help" or "-h" => PrintUsage(),
                 _ => PrintUsage()
             };
@@ -45,6 +46,50 @@ public static class Program
             Console.Error.WriteLine($"Error: {ex.Message}");
             Console.Error.WriteLine("Is the OpenNetLimit service running?");
             return 1;
+        }
+        catch (SelfTestException ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunSelfTest(string[] args)
+    {
+        var limit = GetArg(args, "--limit", "256");
+        if (!long.TryParse(limit, out var limitKb) || limitKb <= 0)
+        {
+            Console.Error.WriteLine($"Error: --limit value '{limit}' is not a positive number");
+            return 1;
+        }
+
+        // Ctrl+C cancels the test instead of killing the process, so the test rule still gets removed.
+        using var cancel = new CancellationTokenSource();
+        ConsoleCancelEventHandler onCancel = (_, e) =>
+        {
+            e.Cancel = true;
+            cancel.Cancel();
+        };
+        Console.CancelKeyPress += onCancel;
+        try
+        {
+            using var client = CreateClient();
+            using var self = System.Diagnostics.Process.GetCurrentProcess();
+            var test = new SelfTest(
+                new RestSelfTestService(client, BaseUrl),
+                new LoopbackProbe(warmup: TimeSpan.FromSeconds(2), window: TimeSpan.FromSeconds(3)),
+                Console.Out,
+                self.ProcessName);
+            return await test.RunAsync(limitKb * 1024, cancel.Token);
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Self test cancelled.");
+            return 1;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= onCancel;
         }
     }
 
@@ -257,6 +302,8 @@ public static class Program
               snapshot                        Current per-process traffic snapshot
               processes                       Tracked processes
               health                          Liveness check
+              selftest [--limit <KB/s>]       Limit this client, measure loopback traffic,
+                                              then remove the limit (default 256 KB/s)
 
               rules list                      List all bandwidth rules
               rules add --process <name>      Add a bandwidth rule
