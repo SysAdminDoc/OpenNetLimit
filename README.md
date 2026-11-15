@@ -42,7 +42,7 @@ Use it when a download is wrecking a call or when a background app is chewing th
 | Usage history | Hourly or daily charts backed by a local database, with quotas and threshold alerts |
 | Repeatable rules | Schedules, app groups, import and export, plus a scriptable command-line client |
 | Local automation | A loopback REST API with keyed mutations and an explicit opt-in for remote access |
-| Private defaults | Rules and history remain on the PC. VirusTotal, GeoIP, webhooks, and remote access stay off until configured |
+| Private defaults | Rules and history remain on the PC. VirusTotal, GeoIP, webhooks, and remote access stay off until configured. The once-a-day update check can be switched off |
 
 ## Screenshots
 
@@ -61,6 +61,8 @@ The release ZIP holds a self-contained Windows x64 build, so you don't need to i
 [Download OpenNetLimit 1.0.2](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
 
 Each release has a SHA-256 checksum file. Check the ZIP against it if you got the ZIP anywhere other than this repository.
+
+Once a day the app asks GitHub whether there's a newer release. When there is, a button in the status bar takes you to it. Nothing gets downloaded. The **Updates** button in the status bar turns the check off, and setting `OPENNETLIMIT_NO_UPDATE_CHECK=1` turns it off for every user on a managed PC.
 
 ## Quick start
 

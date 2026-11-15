@@ -94,6 +94,12 @@
   <data name="Theme_Dark" xml:space="preserve"><value>Dark</value></data>
   <data name="Theme_Light" xml:space="preserve"><value>Light</value></data>
   <data name="ThemeDisplay" xml:space="preserve"><value>Theme: {0}</value></data>
+  <data name="UpdatesDisplay" xml:space="preserve"><value>Updates: {0}</value></data>
+  <data name="Updates_On" xml:space="preserve"><value>On</value></data>
+  <data name="Updates_Off" xml:space="preserve"><value>Off</value></data>
+  <data name="Updates_Tooltip" xml:space="preserve"><value>Checks GitHub once a day for a new release. Nothing is downloaded.</value></data>
+  <data name="Update_Available" xml:space="preserve"><value>Version {0} is available</value></data>
+  <data name="Update_Available_Tooltip" xml:space="preserve"><value>Open the release page</value></data>
   <data name="TrafficSummary_Automation" xml:space="preserve"><value>Traffic summary</value></data>
   <data name="Tab_Realtime" xml:space="preserve"><value>Real-time</value></data>
   <data name="Tab_History" xml:space="preserve"><value>History</value></data>

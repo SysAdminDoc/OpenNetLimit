@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Security.Principal;
 using System.Text.Json;
@@ -13,6 +15,7 @@ using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Core.Updates;
 using OpenNetLimit.UI.Services;
 
 namespace OpenNetLimit.UI.ViewModels;
@@ -190,6 +193,25 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         "LanguageDisplay",
         LocalizationManager.CurrentCultureCode.ToUpperInvariant());
 
+    private static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly UpdateChecker? _updates;
+    private readonly DispatcherTimer? _updateTimer;
+    private readonly CancellationTokenSource _updateCts = new();
+    private UpdateInfo? _availableUpdate;
+
+    /// <summary>Hidden when OPENNETLIMIT_NO_UPDATE_CHECK turns checking off for the whole PC.</summary>
+    public bool CanToggleUpdates => _updates is { DisabledByPolicy: false };
+
+    public string UpdatesDisplay => LocalizationManager.Format(
+        "UpdatesDisplay",
+        LocalizationManager.Text(_updates?.Enabled == true ? "Updates_On" : "Updates_Off"));
+
+    public bool IsUpdateAvailable => _availableUpdate is not null;
+
+    public string UpdateAvailableDisplay => _availableUpdate is { } update
+        ? LocalizationManager.Format("Update_Available", update.Version.ToString(3))
+        : string.Empty;
+
     public HistoryViewModel HistoryViewModel { get; }
 
     public MainViewModel()
@@ -229,11 +251,78 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         LocalizationManager.CultureChanged += OnCultureChanged;
         ApplyChartTheme();
         DetectAdmin();
+        if (!MarketingCapture.IsEnabled)
+        {
+            _updates = new UpdateChecker(UpdateHttp, UiPaths.SettingsFile("update-check.json"), UpdateChecker.PolicyDisablesChecks);
+            if (!_updates.DisabledByPolicy)
+            {
+                // The checker asks GitHub at most once a day, so this only matters when the app stays open for days.
+                _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+                _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync();
+                _updateTimer.Start();
+            }
+        }
+
         RefreshLocalizedStrings();
         if (MarketingCapture.IsEnabled)
+        {
             ApplyMarketingFixture();
+        }
         else
+        {
             _ = TryConnectAsync();
+            _ = CheckForUpdateAsync();
+        }
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (_updates is null) return;
+        try
+        {
+            var current = typeof(MainViewModel).Assembly.GetName().Version ?? new Version(0, 0);
+            SetAvailableUpdate(await _updates.CheckAsync(current, _updateCts.Token));
+        }
+        catch (OperationCanceledException)
+        {
+            // The window closed while GitHub was answering.
+        }
+    }
+
+    private void SetAvailableUpdate(UpdateInfo? update)
+    {
+        if (Equals(_availableUpdate, update)) return;
+        _availableUpdate = update;
+        OnPropertyChanged(nameof(IsUpdateAvailable));
+        OnPropertyChanged(nameof(UpdateAvailableDisplay));
+    }
+
+    public void ToggleUpdates()
+    {
+        if (_updates is not { DisabledByPolicy: false }) return;
+        var enable = !_updates.Enabled;
+        _updates.SetEnabled(enable);
+        OnPropertyChanged(nameof(UpdatesDisplay));
+        if (enable)
+            _ = CheckForUpdateAsync();
+        else
+            SetAvailableUpdate(null);
+    }
+
+    public void OpenReleasePage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(UpdateChecker.ReleasesPage) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            System.Windows.MessageBox.Show(
+                $"{ex.Message}{Environment.NewLine}{Environment.NewLine}{UpdateChecker.ReleasesPage}",
+                LocalizationManager.Text("Main_WindowTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private void ApplyMarketingFixture()
@@ -599,6 +688,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(PermissionModeDisplay));
         OnPropertyChanged(nameof(ThemeDisplay));
         OnPropertyChanged(nameof(LanguageDisplay));
+        OnPropertyChanged(nameof(UpdatesDisplay));
+        OnPropertyChanged(nameof(UpdateAvailableDisplay));
     }
 
     private void ApplyChartTheme()
@@ -661,6 +752,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         LocalizationManager.CultureChanged -= OnCultureChanged;
         _pollTimer.Stop();
         _reconnectTimer.Stop();
+        _updateTimer?.Stop();
+        _updateCts.Cancel();
+        _updateCts.Dispose();
         HistoryViewModel.Dispose();
         _client.Dispose();
     }

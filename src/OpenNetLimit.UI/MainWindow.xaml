@@ -9,6 +9,9 @@
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
         KeyboardNavigation.TabNavigation="Cycle">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+    </Window.Resources>
     <Grid Background="{DynamicResource WindowBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -290,6 +293,16 @@
                     <TextBlock Text="{Binding PermissionModeDisplay}" Foreground="{DynamicResource MutedTextBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="{Binding UpdateAvailableDisplay}" Style="{StaticResource CompactButton}"
+                            Margin="0,0,8,0" Click="OnOpenReleasePage"
+                            Visibility="{Binding IsUpdateAvailable, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="{loc:Loc Update_Available_Tooltip}"
+                            AutomationProperties.Name="{Binding UpdateAvailableDisplay}"/>
+                    <Button Content="{Binding UpdatesDisplay}" Style="{StaticResource CompactButton}" MinWidth="98"
+                            Margin="0,0,8,0" Click="OnToggleUpdates"
+                            Visibility="{Binding CanToggleUpdates, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="{loc:Loc Updates_Tooltip}"
+                            AutomationProperties.Name="{Binding UpdatesDisplay}"/>
                     <Button Content="{Binding ThemeDisplay}" Style="{StaticResource CompactButton}" MinWidth="98"
                             Click="OnToggleTheme" AutomationProperties.Name="{Binding ThemeDisplay, StringFormat='Current {0}'}"/>
                     <Button Content="{Binding LanguageDisplay}" Style="{StaticResource CompactButton}" MinWidth="106"

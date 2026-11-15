@@ -5,6 +5,7 @@
 ### Added
 - `onl selftest` checks that limits work on your PC. It limits its own upload for a few seconds, measures loopback traffic against the limit, then removes the rule and checks the speed comes back
 - A Windows installer. It sets up the service to start with Windows, adds OpenNetLimit to the Start menu and Apps & Features, and takes over a service you installed from the ZIP. Uninstalling removes the service and keeps your rules and history
+- The app checks GitHub once a day for a newer release and shows it as a button in the status bar, which opens the release page. Nothing is downloaded or installed. Turn it off with the Updates button, or set `OPENNETLIMIT_NO_UPDATE_CHECK=1` to turn it off for everyone on a managed PC
 - A loopback benchmark in `tools/OpenNetLimit.Bench` measures throughput, round trips and UDP loss. Run it with the service stopped and again with it running to see what the engine costs on your PC
 
 ### Fixed

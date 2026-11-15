@@ -134,6 +134,16 @@ public partial class MainWindow : Window
         _viewModel.ToggleLanguage();
     }
 
+    private void OnToggleUpdates(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ToggleUpdates();
+    }
+
+    private void OnOpenReleasePage(object sender, RoutedEventArgs e)
+    {
+        _viewModel.OpenReleasePage();
+    }
+
     private async void OnTabChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.Source is System.Windows.Controls.TabControl && HistoryTab.IsSelected)

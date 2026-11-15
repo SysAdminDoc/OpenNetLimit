@@ -1,3 +1,4 @@
+using OpenNetLimit.Core.Updates;
 using OpenNetLimit.UI.Services;
 using Xunit;
 
@@ -15,7 +16,8 @@ public sealed class FirstRunTests : IDisposable
     private Dictionary<string, string> AppEnvironment => new()
     {
         [UiPaths.SettingsDirectoryVariable] = _settingsDir,
-        ["OPENNETLIMIT_UI_CULTURE"] = "en-US"
+        ["OPENNETLIMIT_UI_CULTURE"] = "en-US",
+        [UpdateChecker.DisableVariable] = "1"
     };
 
     private static bool IsWizard(string title) => title.Contains("First-Run", StringComparison.Ordinal);
