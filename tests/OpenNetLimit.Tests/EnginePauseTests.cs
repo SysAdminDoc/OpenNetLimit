@@ -277,6 +277,20 @@ public sealed class EnginePauseTests
         Assert.Equal("ab" + numberSign + " …", TrayNotice.Fit("ab" + numberSign + "  cdefgh", 6));
     }
 
+    [Theory]
+    [InlineData("aaaaaaaaaaa{0}\nbbbbbbbbbbbbbbbbb", 14, "aaaaaaaaaaa…")]
+    [InlineData("aaaaaaaaaaa{0}\tbbbbbbbbbbbbbbbbb", 14, "aaaaaaaaaaa…")]
+    [InlineData("abcd{0}\nefghij", 6, "abcd…")]
+    [InlineData("ab {0}\ncdefghij", 6, "ab…")]
+    public void Fit_ASignWithALineBreakAfterIt_NeverJoinsTheEllipsis(string text, int max, string expected)
+    {
+        // Before a line break or a tab, U+0600 is a character on its own. Left last, it joined
+        // the ellipsis that followed it.
+        var fitted = TrayNotice.Fit(string.Format(text, (char)0x0600), max);
+
+        Assert.Equal(expected, fitted);
+    }
+
     [Fact]
     public void Fit_BackAtAWordEnd_LeavesOutWhatCameAfterIt()
     {

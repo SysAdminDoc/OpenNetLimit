@@ -450,7 +450,16 @@ public sealed class RulesViewModel : INotifyPropertyChanged
             using var doc = JsonDocument.Parse(reply);
             if (doc.RootElement.ValueKind == JsonValueKind.Object &&
                 doc.RootElement.TryGetProperty("error", out var error))
-                return LocalizationManager.Format("Rules_ServiceError", error.GetString() ?? string.Empty);
+            {
+                // The service sends text. Anything else is shown as it came, not thrown.
+                var text = error.ValueKind switch
+                {
+                    JsonValueKind.String => error.GetString(),
+                    JsonValueKind.Null => null,
+                    _ => error.GetRawText()
+                };
+                return LocalizationManager.Format("Rules_ServiceError", text ?? string.Empty);
+            }
         }
         catch (JsonException)
         {

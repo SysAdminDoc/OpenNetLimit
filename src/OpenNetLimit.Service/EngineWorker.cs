@@ -501,8 +501,6 @@ public class EngineWorker : BackgroundService
             // Only a driver this start loads gets unloaded again if it fails. One another program
             // loaded while we were paused stays as it is.
             bool driverWasUnloaded = wasPaused && _driverUnloader.IsUnloaded();
-            // Before anything changes, so a status read that sees any of it isn't taken as settled.
-            Interlocked.Increment(ref _engineChangeVersion);
             lock (_driverReasonLock)
             {
                 // A paused engine reads as paused while it starts. One that failed keeps saying
@@ -513,6 +511,9 @@ public class EngineWorker : BackgroundService
                     _engineError = StoppedAfterErrors;
                 _resumeRefusal = null;
             }
+            // After the reason is stored, so a read the retry overlaps finds it there. A read
+            // before this gets the same answer from the pause flag or the reason a settled read adds.
+            Interlocked.Increment(ref _engineChangeVersion);
             // The program the reason names may have closed since the last poll. An unloaded
             // driver says nothing holds it, so the name goes.
             MarkDriverChanging(LoadingReason, nothingHoldsIt: driverWasUnloaded);
@@ -1187,6 +1188,10 @@ public class EngineWorker : BackgroundService
             if (paused)
                 driverLoadedReason = _driverLoadedReason;
             engineError = _engineError;
+            // A retry clears its reason only once the engine runs, so finding neither a pause
+            // nor a reason means it finished after the look at running.
+            if (!running && !paused && engineError is null)
+                running = _interceptor.IsRunning;
         }
         if (engineError is null && settled && _engineStarted && !running && !_stopping && !paused)
             engineError = StoppedAfterErrors;

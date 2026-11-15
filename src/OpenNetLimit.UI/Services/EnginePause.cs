@@ -65,13 +65,18 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
             cut = space;
         // Spaces before the ellipsis go, but only ones that are characters of their own.
         // TrimEnd also took the space a sign like U+0600 holds, and the sign joined the ellipsis.
+        // A sign left last with nothing to hold (a line break came after it) joins the ellipsis
+        // too, so it goes as well.
         var last = starts.Count - 1;
         while (last >= 0 && starts[last] >= cut)
             last--;
-        while (last >= 0 && blank[last])
+        while (last >= 0 && (blank[last] || !EllipsisStandsAlone(text[..cut])))
             cut = starts[last--];
         return text[..cut] + "…";
     }
+
+    private static bool EllipsisStandsAlone(string kept) =>
+        StringInfo.ParseCombiningCharacters(kept + "…")[^1] == kept.Length;
 }
 
 /// <summary>Builds the pause and resume requests and decides what the tray says about their answers.</summary>

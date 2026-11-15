@@ -1091,6 +1091,72 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task StatusRead_ThatARetryFinishesDuringItsSecondLook_SaysRunning()
+    {
+        // The second look read "not running", then the retry started the engine and cleared its
+        // reason before the look reached the pause flag and the reason: a failure with no reason.
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.IsRunning = false;
+        interceptor.WhenRunningRead = () =>
+        {
+            interceptor.StartFailure = new WinDivertOpenException(
+                WinDivert.Layer.Network, WinDivert.Flag.Sniff, 87, "The parameter is incorrect.");
+            Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+            interceptor.StartFailure = null;
+            interceptor.WhenRunningRead = () => interceptor.AfterRunningRead = () =>
+                Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+        };
+
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Running);
+        Assert.False(status.Paused);
+        Assert.Null(status.EngineError);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileARetryStoresItsReason_StillSaysWhy()
+    {
+        // The retry marked itself in progress before it stored the reason, so a read between
+        // the two had neither a settled state to add the reason to nor a reason to show.
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.IsRunning = false;
+        var reasonLock = typeof(EngineWorker)
+            .GetField("_driverReasonLock", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(worker)!;
+        using var pastItsCheck = new ManualResetEventSlim();
+        DiagnosticInfo during;
+        Task<DiagnosticInfo> retry;
+
+        Monitor.Enter(reasonLock);
+        try
+        {
+            interceptor.AfterRunningRead = pastItsCheck.Set;
+            retry = Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None));
+            Assert.True(pastItsCheck.Wait(Timeout));
+            // Long enough to reach the lock this test holds. It never gets past it.
+            Thread.Sleep(200);
+            during = _controlPlane.GetDiagnostics();
+        }
+        finally
+        {
+            Monitor.Exit(reasonLock);
+        }
+        var resumed = await retry.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.False(during.Running);
+        Assert.False(during.Paused);
+        Assert.Contains("stopped after repeated errors", during.EngineError);
+        Assert.True(resumed.Running);
+    }
+
+    [Fact]
     public async Task FailedResume_LeavesAnotherProgramsDriverLoaded()
     {
         var interceptor = new FakeInterceptor();

@@ -33,6 +33,16 @@ public sealed class RulesViewModelTests : IDisposable
 
     private IEnumerable<string> SentVerbs => _sent.Select(c => c.Split(' ', 2)[0]);
 
+    [Theory]
+    [InlineData("""{"error":5}""", "5")]
+    [InlineData("""{"error":{"message":"x"}}""", """{"message":"x"}""")]
+    [InlineData("""{"error":"no"}""", "no")]
+    public void ErrorOf_AnErrorThatIsNotText_IsShownAsItCame(string reply, string shown)
+    {
+        // Reading it as text threw, and the change it answered crashed the app.
+        Assert.Equal(LocalizationManager.Format("Rules_ServiceError", shown), RulesViewModel.ErrorOf(reply));
+    }
+
     [Fact]
     public async Task Refresh_ShowsRulesSortedWithTheirQuotaUse()
     {
