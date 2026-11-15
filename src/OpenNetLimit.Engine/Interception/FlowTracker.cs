@@ -24,18 +24,31 @@ public class FlowTracker : IFlowTracker
     /// </summary>
     private readonly record struct ForgetMark(DateTime Before, DateTime MadeAt, long MadeAtMs);
 
+    /// <summary>A moment by the clock and by the tick count, read together.</summary>
+    private readonly record struct Instant(DateTime Utc, long TickMs);
+
     /// <summary>How long a cutoff is kept, by the tick count. Names on their way in are microseconds old.</summary>
     private static readonly TimeSpan ForgottenKeptFor = TimeSpan.FromMinutes(1);
 
     public FlowTracker()
-        : this(() => DateTime.UtcNow)
+        : this(() => DateTime.UtcNow, () => Environment.TickCount64)
     {
     }
 
-    internal FlowTracker(Func<DateTime> utcNow, Func<long>? tickMs = null)
+    internal FlowTracker(Func<DateTime> utcNow, Func<long> tickMs)
     {
         _utcNow = utcNow;
-        _tickMs = tickMs ?? (() => Environment.TickCount64);
+        _tickMs = tickMs;
+    }
+
+    /// <summary>
+    /// The tick count, then the clock. A thread held up between the two reads makes the clock look
+    /// ahead, which no check minds. The other way round it would look like the clock set back.
+    /// </summary>
+    private Instant Now()
+    {
+        long tickMs = _tickMs();
+        return new Instant(_utcNow(), tickMs);
     }
 
     public event Action<uint, string, string?>? FlowRegistered;
@@ -45,9 +58,10 @@ public class FlowTracker : IFlowTracker
     public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath,
         DateTime? identifiedAt = null)
     {
-        var registeredAt = _utcNow();
+        var now = Now();
+        var registeredAt = now.Utc;
         var namedAt = identifiedAt ?? registeredAt;
-        if (Forgotten(processId, namedAt, registeredAt))
+        if (Forgotten(processId, namedAt, now))
             return;
         var connection = new ConnectionInfo
         {
@@ -78,8 +92,9 @@ public class FlowTracker : IFlowTracker
             updated.AddBytesReceived(existing.BytesReceived);
             return updated;
         });
-        // Forgotten while this went in, and missed by the forget's sweep of the flows.
-        if (Forgotten(processId, namedAt, registeredAt))
+        // Forgotten while this went in, and missed by the forget's sweep of the flows. The clock
+        // is read again, since a forget made while this thread was held up is newer than the first read.
+        if (Forgotten(processId, namedAt, Now()))
         {
             _flows.TryRemove(KeyValuePair.Create(flowKey, stored));
             return;
@@ -91,20 +106,31 @@ public class FlowTracker : IFlowTracker
     /// Whether a flow named at <paramref name="namedAt"/> was named for a process that's been
     /// forgotten since. A name stamped well past <paramref name="now"/> was made before the clock
     /// was set back, and the clock hasn't gone back since the forget, so it's older than that too.
+    /// A cutoff found void is dropped, so putting the clock right again can't bring it back to
+    /// turn away the names it let in meanwhile.
     /// </summary>
-    private bool Forgotten(uint processId, DateTime namedAt, DateTime now) =>
-        _forgottenBefore.TryGetValue(processId, out var mark) && StillHolds(mark, now)
-        && (namedAt < mark.Before || namedAt - now > HeldProcess.ClockSlack);
+    private bool Forgotten(uint processId, DateTime namedAt, Instant now)
+    {
+        if (!_forgottenBefore.TryGetValue(processId, out var mark))
+            return false;
+        if (!StillHolds(mark, now))
+        {
+            _forgottenBefore.TryRemove(KeyValuePair.Create(processId, mark));
+            return false;
+        }
+        return namedAt < mark.Before || namedAt - now.Utc > HeldProcess.ClockSlack;
+    }
 
     /// <summary>
-    /// Whether a cutoff still turns names away: it's under a minute old, and the clock hasn't been
-    /// set back since it was made. One made before the clock went back would turn away every
+    /// Whether a cutoff still turns names away: it's under a minute old by the tick count, and the
+    /// clock hasn't fallen back more than <see cref="HeldProcess.ClockSlack"/> against the tick
+    /// count since it was made. One made before the clock went back would turn away every
     /// process that got the ID until the clock caught up.
     /// </summary>
-    private bool StillHolds(ForgetMark mark, DateTime now)
+    private static bool StillHolds(ForgetMark mark, Instant now)
     {
-        var age = TimeSpan.FromMilliseconds(_tickMs() - mark.MadeAtMs);
-        return age < ForgottenKeptFor && now - mark.MadeAt >= age - HeldProcess.ClockSlack;
+        var age = TimeSpan.FromMilliseconds(now.TickMs - mark.MadeAtMs);
+        return age < ForgottenKeptFor && now.Utc - mark.MadeAt >= age - HeldProcess.ClockSlack;
     }
 
     public void UnregisterFlow(FlowKey flowKey)
@@ -133,26 +159,33 @@ public class FlowTracker : IFlowTracker
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
         if (identifiedBefore is { } cutoff)
-            MarkForgotten(processId, cutoff);
+            MarkForgotten(processId, cutoff, Now());
         ForgettingProcess?.Invoke(processId, identifiedBefore);
         Sweep(processId, identifiedBefore);
     }
 
     public void ForgetHeldProcess(uint processId)
     {
-        MarkForgotten(processId, _utcNow());
+        var now = Now();
+        MarkForgotten(processId, now.Utc, now);
         ForgettingProcess?.Invoke(processId, null);
         Sweep(processId, null);
     }
 
-    private void MarkForgotten(uint processId, DateTime before)
+    private void MarkForgotten(uint processId, DateTime before, Instant now)
     {
-        var mark = new ForgetMark(before, _utcNow(), _tickMs());
+        // A cutoff well past the clock was taken before the clock went back. Held to it, whatever
+        // gets the ID next would be turned away for the minute. Names from before the clock went
+        // back read as ahead of it and are turned away all the same.
+        if (before - now.Utc > HeldProcess.ClockSlack)
+            before = now.Utc;
+        var mark = new ForgetMark(before, now.Utc, now.TickMs);
         foreach (var (otherId, other) in _forgottenBefore)
-            if (!StillHolds(other, mark.MadeAt))
+            if (!StillHolds(other, now))
                 _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, other));
+        // Forgotten again, the later cutoff stays, kept for a minute from this forget.
         _forgottenBefore.AddOrUpdate(processId, mark,
-            (_, earlier) => StillHolds(earlier, mark.MadeAt) && earlier.Before > before ? earlier : mark);
+            (_, earlier) => StillHolds(earlier, now) && earlier.Before > before ? mark with { Before = earlier.Before } : mark);
     }
 
     private void Sweep(uint processId, DateTime? identifiedBefore)

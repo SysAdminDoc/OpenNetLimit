@@ -122,7 +122,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AProcessThatExits_TakesItsFlowsWithIt_SoALatePacketCantNameTheNextOneWithItsId()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
         flows.RegisterFlow(Flow(2), 200, "svchost", SvchostPath);
         flows.UnregisterFlow(Flow(2));
@@ -151,7 +151,7 @@ public class TrafficMonitorTests
     public void AProcessWhoseIdAlreadyWentToANewerOne_LeavesThatOnesFlowsAlone()
     {
         var clock = _now;
-        var flows = new FlowTracker(() => clock);
+        var flows = new FlowTracker(() => clock, () => 0);
         flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
         clock += TimeSpan.FromSeconds(1);
         // Chrome got the ID and connected before the next sample.
@@ -169,7 +169,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AnExitedProcessesSocket_CantAdoptALatePacketBackToIt_AndItsIdIsNamedAfresh()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         var names = new Dictionary<uint, string> { [200] = "svchost" };
         var local = Flow(1).LocalAddress;
         var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, local, 1, 200) };
@@ -201,7 +201,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AProcessThatStartedWhileTheSocketTablesWereRead_IsKept()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         var local = Flow(1).LocalAddress;
         var readAt = _now;
         // It started just after the read did, and its socket made it into the tables.
@@ -227,7 +227,7 @@ public class TrafficMonitorTests
     [Fact]
     public void ALatePacketNamedBeforeTheIdWentToAnotherProcess_GoesWithTheOldOne()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         var local = Flow(1).LocalAddress;
         var names = new Dictionary<uint, string> { [200] = "svchost" };
         var started = new Dictionary<uint, long?> { [200] = 1 };
@@ -271,7 +271,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AFlowNamedBeforeAHeldProcessExited_IsTurnedAwayWhenItArrivesLate()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         var svchost = new FakeProcess();
         _running[200] = svchost;
         using var monitor = Held(flows: flows);
@@ -296,7 +296,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AHeldProcessThatExitsAfterTheClockWentBack_StillTakesItsFlowsWithIt()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
         var svchost = new FakeProcess();
         _running[200] = svchost;
@@ -315,7 +315,7 @@ public class TrafficMonitorTests
     [Fact]
     public void AProcessGoneBeforeItCouldBeHeld_LeavesNoCutoffBehind()
     {
-        var flows = new FlowTracker(() => _now);
+        var flows = new FlowTracker(() => _now, () => 0);
         using var monitor = Held(flows: flows);
         var namedEarlier = _now;
         monitor.RecordBytes(300, "curl", 700, isUpload: true);

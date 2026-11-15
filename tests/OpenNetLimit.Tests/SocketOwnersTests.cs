@@ -333,7 +333,7 @@ public class SocketOwnersTests
     {
         var readAt = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
         var started = readAt + TimeSpan.FromMilliseconds(5);
-        var tracker = new FlowTracker(() => readAt + TimeSpan.FromSeconds(1));
+        var tracker = new FlowTracker(() => readAt + TimeSpan.FromSeconds(1), () => 0);
         var sockets = new List<OpenSocket>
         {
             new(TransportProtocol.Tcp, Local, 51000, 4242),
@@ -358,7 +358,7 @@ public class SocketOwnersTests
         var started = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
         // The clock went back an hour after the process started.
         var now = started - TimeSpan.FromHours(1);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, Local, 51000, 4242) };
         var owners = new SocketOwners(tracker, () => sockets.ToList(), _ => new ProcessIdentity("app", null),
             _ => started.ToFileTimeUtc(), utcNow: () => now);

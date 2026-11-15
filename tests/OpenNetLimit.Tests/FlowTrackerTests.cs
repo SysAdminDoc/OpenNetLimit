@@ -92,7 +92,7 @@ public class FlowTrackerTests
     public void ForgetProcess_AfterItsIdWentToANewerProcess_KeepsTheNewOnesFlows()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null);
         tracker.RegisterFlow(MakeFlowKey(2), 200, "svchost", null);
         now += TimeSpan.FromSeconds(1);
@@ -112,7 +112,7 @@ public class FlowTrackerTests
     public void ForgetProcess_GoesByWhenTheFlowWasNamed_NotWhenItWasRegistered()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         var tablesRead = now;
         now += TimeSpan.FromSeconds(1);
         var reusedAt = now;
@@ -131,7 +131,7 @@ public class FlowTrackerTests
     public void RegisterFlow_ForTheSameProcessAgain_KeepsWhenItWasEstablished()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         var established = now;
         tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null);
         tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null);
@@ -172,7 +172,7 @@ public class FlowTrackerTests
     public void AFlowNamedBeforeItsProcessWasForgotten_IsTurnedAwayWhenItArrivesLate()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         var namedEarlier = now;
         now += TimeSpan.FromSeconds(1);
         var idFree = now;
@@ -194,7 +194,7 @@ public class FlowTrackerTests
     public void AForgetWithNothingKnownAboutTheId_TurnsNoLaterFlowAway()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
-        var tracker = new FlowTracker(() => now);
+        var tracker = new FlowTracker(() => now, () => 0);
         var namedEarlier = now;
         now += TimeSpan.FromSeconds(1);
 
@@ -232,13 +232,128 @@ public class FlowTrackerTests
         var cutoff = now;
         tracker.ForgetProcess(200, cutoff);
 
-        // The clock went back an hour and nothing else exited while it caught up. A flow named
-        // in that hour belongs to whatever has the ID now.
-        tick += (long)(TimeSpan.FromHours(1) - TimeSpan.FromMilliseconds(500)).TotalMilliseconds;
-        now = cutoff - TimeSpan.FromMilliseconds(500);
+        // Ten seconds on, the clock goes back 30 seconds. By the time it's caught up to just short
+        // of the cutoff, still inside the minute, a flow named then belongs to whatever has the ID now.
+        tick += 10_000;
+        now = cutoff - TimeSpan.FromSeconds(20);
+        tick += 19_500;
+        now += TimeSpan.FromMilliseconds(19_500);
         tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, cutoff - TimeSpan.FromMilliseconds(600));
 
         Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
+    }
+
+    [Fact]
+    public void ACutoffLetGoAfterTheClockWentBack_StaysLetGo_WhenTheClockIsPutRight()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        long tick = 0;
+        var tracker = new FlowTracker(() => now, () => tick);
+        var cutoff = now;
+        tracker.ForgetProcess(200, cutoff);
+
+        // The clock goes back an hour, and the next process with the ID is named.
+        tick += 5_000;
+        now = cutoff - TimeSpan.FromHours(1) + TimeSpan.FromSeconds(5);
+        var namedWhileBack = now;
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, namedWhileBack);
+        // Five seconds later the clock is put right, and another of its flows comes in with the
+        // name from the same read of the socket tables.
+        tick += 5_000;
+        now = cutoff + TimeSpan.FromSeconds(10);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null, namedWhileBack);
+
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void ACutoff_HoldsWhenTheClockIsSetForward()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        long tick = 0;
+        var tracker = new FlowTracker(() => now, () => tick);
+        var namedEarlier = now - TimeSpan.FromSeconds(1);
+        tracker.ForgetProcess(200, now);
+
+        // A second on, the clock jumps two hours ahead, and a name read before the forget comes in late.
+        tick += 1_000;
+        now += TimeSpan.FromHours(2);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+    }
+
+    [Fact]
+    public void ACutoffTakenBeforeTheClockWentBack_TurnsNoLaterNameAway()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now, () => 0);
+        // The ID was found free just before the clock went back an hour, and the process let go after.
+        var idFree = now + TimeSpan.FromHours(1);
+        tracker.ForgetProcess(200, idFree);
+
+        // The next process with the ID is named, and a name of the old one from before the clock
+        // went back comes in late.
+        now += TimeSpan.FromSeconds(1);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "chrome", null, now);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "svchost", null, idFree - TimeSpan.FromSeconds(1));
+
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(2)));
+    }
+
+    [Fact]
+    public void AThreadHeldUpAfterReadingTheClock_KeepsEveryLiveCutoff()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        long tick = 0;
+        bool heldUp = false;
+        // While held up, the thread stops for 7 seconds right after each read of the clock.
+        var tracker = new FlowTracker(() =>
+        {
+            var read = now;
+            if (heldUp)
+            {
+                now += TimeSpan.FromSeconds(7);
+                tick += 7_000;
+            }
+            return read;
+        }, () => tick);
+        var namedEarlier = now - TimeSpan.FromSeconds(1);
+        tracker.ForgetProcess(300, now);
+
+        now += TimeSpan.FromSeconds(7);
+        tick += 7_000;
+        heldUp = true;
+        tracker.ForgetProcess(400, now);
+        heldUp = false;
+        tracker.RegisterFlow(MakeFlowKey(1), 300, "svchost", null, namedEarlier);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+    }
+
+    [Fact]
+    public void AnIdForgottenTwice_KeepsTheLaterCutoffForAMinuteFromTheSecond()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        long tick = 0;
+        var tracker = new FlowTracker(() => now, () => tick);
+        var cutoff = now;
+        // Named after the second forget's cutoff, so only the first one's turns it away.
+        var namedEarlier = cutoff - TimeSpan.FromMilliseconds(500);
+        tracker.ForgetProcess(200, cutoff);
+
+        // A second on, Windows Time steps the clock back 2 seconds, and the ID is forgotten again.
+        tick += 1_000;
+        now = cutoff - TimeSpan.FromSeconds(1);
+        tracker.ForgetProcess(200, now);
+        // Just under a minute after the second forget, a name read before the first comes in late.
+        tick += 59_500;
+        now += TimeSpan.FromMilliseconds(59_500);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
     }
 
     [Fact]
