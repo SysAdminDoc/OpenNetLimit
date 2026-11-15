@@ -98,7 +98,7 @@ internal sealed class TunnelAdapters
         long sinceRead = now - snapshot.ReadAtMs;
         if (sinceRead >= RefreshEveryMs
             || (sinceRead >= UnknownWaitMs && !snapshot.Known.Contains(interfaceIndex)
-                ))
+                && snapshot.ReadAtMs < _lookedFor.GetOrAdd(interfaceIndex, now)))
             StartRead();
         return _snapshot.Tunnels.Contains(interfaceIndex);
     }
