@@ -114,6 +114,12 @@ dotnet test OpenNetLimit.sln -c Release
 ./scripts/build-release.ps1
 ```
 
+To see what the engine costs on your PC, run the loopback benchmark once with the service stopped and once with it running.
+
+```powershell
+dotnet run --project tools/OpenNetLimit.Bench -c Release
+```
+
 The screenshot script works on separate Windows desktops and never switches away from the one you're using.
 
 ```powershell

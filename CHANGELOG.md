@@ -4,6 +4,7 @@
 
 ### Added
 - `onl selftest` checks that limits work on your PC. It limits its own upload for a few seconds, measures loopback traffic against the limit, then removes the rule and checks the speed comes back
+- A loopback benchmark in `tools/OpenNetLimit.Bench` measures throughput, round trips and UDP loss. Run it with the service stopped and again with it running to see what the engine costs on your PC
 
 ### Fixed
 - Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too
