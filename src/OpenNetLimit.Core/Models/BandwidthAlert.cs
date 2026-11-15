@@ -34,7 +34,9 @@ public class BandwidthAlertRule
         if (ProcessName is not null)
             return process.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase);
 
-        return true;
+        // An alert on a path alone says nothing about a process whose path can't be read
+        // (protected and system processes). One on neither watches every app.
+        return ProcessPath is null;
     }
 
     public long GetObservedBytesPerSecond(ProcessTrafficInfo process) =>

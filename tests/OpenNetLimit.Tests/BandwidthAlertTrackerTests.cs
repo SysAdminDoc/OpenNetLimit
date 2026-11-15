@@ -91,6 +91,23 @@ public class BandwidthAlertTrackerTests : IDisposable
         Assert.True(rule.Matches(process));
     }
 
+    [Theory]
+    // Only a path to go on: a process whose path can't be read isn't the program it names.
+    [InlineData(null, @"C:\Tools\curl.exe", false)]
+    [InlineData(null, @"*\curl.exe", false)]
+    // With a name as well, the name decides when there's no path.
+    [InlineData("curl", @"C:\Tools\curl.exe", true)]
+    [InlineData("wget", @"C:\Tools\wget.exe", false)]
+    // Neither: it watches every app.
+    [InlineData(null, null, true)]
+    public void Rule_ForAProcessWithNoPath_GoesByItsNameOnly(string? name, string? path, bool matches)
+    {
+        var rule = new BandwidthAlertRule { ProcessName = name, ProcessPath = path, ThresholdBytesPerSecond = 1000 };
+        var process = new ProcessTrafficInfo { ProcessName = "curl", CurrentDownloadBytesPerSecond = 2000 };
+
+        Assert.Equal(matches, rule.Matches(process));
+    }
+
     [Fact]
     public void RemovingAnAlertThatIsntThere_HasNothingToSave()
     {

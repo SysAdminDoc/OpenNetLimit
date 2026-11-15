@@ -63,6 +63,7 @@
 - Imported rules can spell out their action and direction as names (`"action": "Block"`). Import used to accept only numbers
 - The control pipe's `EXPORT_RULES` answers on one line like every other command. It sent indented JSON, so a client reading line by line got only `[`
 - Table cells in the app have padding and sit centered in their rows. The text used to hug the top left corner
+- A speed alert set on a program's full path no longer goes off for apps whose path Windows won't share, like protected system processes. It used to fire for every one of them
 
 ### Changed
 - OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK

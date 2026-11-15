@@ -138,6 +138,14 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void PathOnlyRule_LeavesAProcessWhosePathIsUnknownAlone()
+    {
+        Assert.False(new BandwidthRule { ProcessPath = @"C:\Tools\curl.exe" }.MatchesProcess("curl", null));
+        Assert.False(new BandwidthRule { ProcessPath = @"*\curl.exe" }.MatchesProcess("curl", null));
+        Assert.True(new BandwidthRule { ProcessName = "curl", ProcessPath = @"C:\Tools\curl.exe" }.MatchesProcess("curl", null));
+    }
+
+    [Fact]
     public void Schedule_TimeWindow_InsideIsActive()
     {
         var rule = new BandwidthRule
