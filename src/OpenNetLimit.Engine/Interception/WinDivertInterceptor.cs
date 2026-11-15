@@ -337,6 +337,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var parsed = ParsePacket(packet);
                 if (parsed is null)
                 {
+                    // ESP, GRE or IP in IP on a real adapter is a VPN's encrypted side, which
+                    // nothing here counts. What crosses its tunnel has to count there instead.
+                    if (TunnelAdapters.IsUncountedCarrier(packet.Span) && !_tunnelAdapters.IsTunnel(addr.Network.IfIdx))
+                        _tunnelAdapters.SawUncountedCarrier();
                     _networkHandle.SendEx(packet.Span, addrBuffer.Span);
                     continue;
                 }
@@ -401,7 +405,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 var fate = Charge(_rateLimiter, _scheduler, processId.Value, protection, flowKey.Protocol, remotePort,
                     payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback,
-                    _tunnelAdapters.IsTunnel(addr.Network.IfIdx), out var delay);
+                    _tunnelAdapters.CountedOnItsCarrier(addr.Network.IfIdx), out var delay);
                 if (fate == PacketFate.Drop)
                 {
                     _scheduler.RecordDrop();
@@ -443,10 +447,10 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// <summary>
     /// Which limits a packet waits for. <paramref name="pcLimitCounts"/> says the whole-PC limit
     /// covers its direction and remote end, <paramref name="hasAppLimit"/> that its app has a
-    /// limit of its own.
+    /// limit of its own. <paramref name="kernel"/> says the kernel (System) sent it or gets it.
     /// </summary>
     internal static PacketLimits LimitsFor(ProcessProtection protection, TransportProtocol protocol, int remotePort,
-        int payloadLength, bool closesFlow, bool pcLimitCounts, bool hasAppLimit)
+        int payloadLength, bool closesFlow, bool pcLimitCounts, bool hasAppLimit, bool kernel = false)
     {
         // A pure ACK or SYN carries no data, so it never waits behind the debt data ran up.
         // Holding an upload's ACKs behind a download cap's queue slowed the upload too. FIN and
@@ -455,15 +459,17 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             return default;
         // Windows' own processes carry Windows Update, BITS, Delivery Optimization and SMB file
         // copies when they share a process with networking services, so that counts toward the
-        // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard, OpenVPN's DCO, IKEv2),
-        // which go out as System's or a svchost's UDP: the tunnel's own side doesn't count. DNS,
-        // DHCP and NTP never count, DNS that falls back to TCP for a big answer included. A
-        // svchost running only networking services (DNS over HTTPS included) counts for
-        // nothing, and no app limit applies to any of them.
+        // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard, OpenVPN's DCO), which go
+        // out as System's UDP: the tunnel's own side doesn't count. DNS, DHCP and NTP don't
+        // count, DNS that falls back to TCP for a big answer included. The services that send
+        // those run in svchost, never in the kernel, so a kernel VPN on port 53 or 123 still
+        // counts. A svchost running only networking services (DNS over HTTPS included, and
+        // IKEEXT, which carries Windows' own IKEv2 VPN) counts for nothing, and no app limit
+        // applies to any of them.
         bool counts = protection switch
         {
             ProcessProtection.None => true,
-            ProcessProtection.Windows => remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547),
+            ProcessProtection.Windows => kernel || remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547),
             _ => false
         };
         return new PacketLimits(
@@ -504,8 +510,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// or is dropped. Every packet is charged, the delayed ones too, so a burst queues behind its
     /// own debt and leaves at the limit. A packet with nowhere to wait is dropped.
     /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
-    /// <paramref name="viaTunnel"/> says it crossed a VPN tunnel, so the whole-PC limit counts
-    /// it when it leaves again encrypted, on the real adapter, and not here as well.
+    /// <paramref name="viaTunnel"/> says it crossed a VPN tunnel whose encrypted side the
+    /// whole-PC limit counts, on the real adapter, so it isn't counted here as well.
     /// </summary>
     internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
         ProcessProtection protection, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
@@ -514,7 +520,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         delay = TimeSpan.Zero;
         var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow,
             !viaTunnel && PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
-            limiter.HasLimit(processId));
+            limiter.HasLimit(processId), kernel: processId == SocketOwners.SystemProcessId);
         if (!limits.Any)
             return PacketFate.Send;
         if (!scheduler.HasRoom(processId))

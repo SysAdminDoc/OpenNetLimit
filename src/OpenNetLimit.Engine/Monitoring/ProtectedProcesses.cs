@@ -10,8 +10,9 @@ public enum ProcessProtection
     None,
 
     /// <summary>
-    /// Windows' own, so no rule blocks or slows it. Its TCP still counts toward the whole-PC
-    /// limit, since it can carry Windows Update, BITS, Delivery Optimization or file copies.
+    /// Windows' own, so no rule blocks or slows it. Its traffic still counts toward the whole-PC
+    /// limit, since it can carry Windows Update, BITS, Delivery Optimization, file copies or a
+    /// kernel VPN. Its DNS, DHCP and NTP don't.
     /// </summary>
     Windows,
 

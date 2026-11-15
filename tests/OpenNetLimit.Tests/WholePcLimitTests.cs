@@ -237,7 +237,7 @@ public sealed class WholePcLimitTests
     // Windows Update, BITS, Delivery Optimization and SMB copies run in svchost or System over TCP.
     [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 443, true)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 445, true)]
-    // Kernel VPN tunnels leave as System's UDP: WireGuard, OpenVPN's DCO, IKEv2 behind NAT.
+    // Kernel VPN tunnels leave as System's UDP: WireGuard, OpenVPN's DCO, IPsec behind NAT.
     [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 51820, true)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 1194, true)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 4500, true)]
@@ -263,6 +263,23 @@ public sealed class WholePcLimitTests
 
         Assert.Equal(counts, limits.WholePc);
         Assert.False(limits.App);
+    }
+
+    [Theory]
+    // A WireGuard server on port 53 or 123 gets past firewalls that only let DNS or NTP out.
+    [InlineData(TransportProtocol.Udp, 53)]
+    [InlineData(TransportProtocol.Udp, 123)]
+    [InlineData(TransportProtocol.Udp, 67)]
+    [InlineData(TransportProtocol.Tcp, 53)]
+    public void TheKernel_SendsNoDnsDhcpOrNtp_SoItsTrafficOnThosePortsCounts(TransportProtocol protocol, int remotePort)
+    {
+        var kernel = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength: 1400,
+            closesFlow: false, pcLimitCounts: true, hasAppLimit: false, kernel: true);
+        var service = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength: 1400,
+            closesFlow: false, pcLimitCounts: true, hasAppLimit: false, kernel: false);
+
+        Assert.True(kernel.WholePc);
+        Assert.False(service.WholePc);
     }
 
     [Fact]
@@ -320,7 +337,8 @@ public sealed class WholePcLimitTests
     // The packet loop's own step, from a packet's facts to whether it goes, waits or is dropped.
     // The parts above were tested, but how the loop joined them wasn't: dropping WinDivert's
     // loopback flag or charging the wrong bucket there failed no test.
-    private const uint ServicePid = 4;
+    private const uint ServicePid = 1_204;
+    private const uint KernelPid = SocketOwners.SystemProcessId;
     private const uint AppPid = 1;
 
     private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, ProcessProtection protection,
@@ -351,13 +369,27 @@ public sealed class WholePcLimitTests
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9"));
         // A kernel VPN tunnel's carrier is System's UDP.
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
-            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 51820,
+            ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "203.0.113.9", remotePort: 51820,
                 protocol: TransportProtocol.Udp));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
             ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 123,
                 protocol: TransportProtocol.Udp));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
             ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 53));
+    }
+
+    [Fact]
+    public void Charge_AKernelVpnOnTheNtpOrDnsPort_StillWaitsForTheWholePcLimit()
+    {
+        // Its tunnel side doesn't count, so letting this through would count it nowhere.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "203.0.113.9", remotePort: 123,
+                protocol: TransportProtocol.Udp));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "203.0.113.9", remotePort: 53,
+                protocol: TransportProtocol.Udp));
     }
 
     [Fact]
@@ -370,7 +402,7 @@ public sealed class WholePcLimitTests
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
             ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
-            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "198.51.100.7", remotePort: 51820,
+            ChargeDownload(limiter, KernelPid, ProcessProtection.Windows, "198.51.100.7", remotePort: 51820,
                 protocol: TransportProtocol.Udp));
     }
 
@@ -378,12 +410,16 @@ public sealed class WholePcLimitTests
     public void Charge_AnAppWithItsOwnLimit_IsHeldToItOnAVpnTunnelToo()
     {
         var limiter = NewLimiter();
+        limiter.SetPcLimit(Down(10_000));
         limiter.SetLimit(AppPid, downloadBytesPerSecond: 1_000, uploadBytesPerSecond: 0);
         // A new bucket starts full at 64 KB.
         Assert.True(limiter.TryReserve(AppPid, 65_536, isUpload: false, wholePc: false, MaxDelay, out _));
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
             ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
+        // The whole-PC limit still has all 64 KB: the packet counts there on its way out encrypted.
+        Assert.True(limiter.TryReserveWholePc(65_536, isUpload: false, MaxDelay, out var pcDelay));
+        Assert.Equal(TimeSpan.Zero, pcDelay);
     }
 
     [Fact]
