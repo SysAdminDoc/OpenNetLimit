@@ -237,17 +237,25 @@ public sealed class WholePcLimitTests
     // Windows Update, BITS, Delivery Optimization and SMB copies run in svchost or System over TCP.
     [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 443, true)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 445, true)]
+    // Kernel VPN tunnels leave as System's UDP: WireGuard, OpenVPN's DCO, IKEv2 behind NAT.
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 51820, true)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 1194, true)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 4500, true)]
     // DNS, DHCP and NTP stay free, DNS that falls back to TCP for a big answer too.
     [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 53, false)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 123, false)]
     [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 53, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 67, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 68, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 546, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 547, false)]
     [InlineData(ProcessProtection.None, TransportProtocol.Tcp, 443, true)]
     [InlineData(ProcessProtection.None, TransportProtocol.Tcp, 53, true)]
     [InlineData(ProcessProtection.None, TransportProtocol.Udp, 443, true)]
     // A svchost with only networking in it counts for nothing: its DNS over HTTPS used to.
     [InlineData(ProcessProtection.Networking, TransportProtocol.Tcp, 443, false)]
     [InlineData(ProcessProtection.Networking, TransportProtocol.Udp, 53, false)]
-    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(ProcessProtection protection, TransportProtocol protocol,
+    public void WindowsServices_CountTowardTheWholePcLimit_ButNotDnsDhcpOrNtp(ProcessProtection protection, TransportProtocol protocol,
         int remotePort, bool counts)
     {
         var limits = WinDivertInterceptor.LimitsFor(protection, protocol, remotePort, payloadLength: 1400,
@@ -316,10 +324,11 @@ public sealed class WholePcLimitTests
     private const uint AppPid = 1;
 
     private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, ProcessProtection protection,
-        string remote, bool loopback = false, int remotePort = 443, TransportProtocol protocol = TransportProtocol.Tcp)
+        string remote, bool loopback = false, int remotePort = 443, TransportProtocol protocol = TransportProtocol.Tcp,
+        bool viaTunnel = false)
     {
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), processId, protection, protocol,
-            remotePort, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback,
+            remotePort, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback, viaTunnel,
             out var delay);
         Assert.Equal(fate == WinDivertInterceptor.PacketFate.Delay, delay > TimeSpan.Zero);
         return fate;
@@ -340,10 +349,41 @@ public sealed class WholePcLimitTests
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9"));
+        // A kernel VPN tunnel's carrier is System's UDP.
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 51820,
+                protocol: TransportProtocol.Udp));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", protocol: TransportProtocol.Udp));
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 123,
+                protocol: TransportProtocol.Udp));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
             ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 53));
+    }
+
+    [Fact]
+    public void Charge_APacketOnAVpnTunnel_CountsOnlyWhenItLeavesEncrypted()
+    {
+        // An app's download crosses WinDivert twice with a VPN up: on the tunnel adapter as the
+        // app's, and on the real one as the VPN's encrypted UDP. Only the second one counts.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "198.51.100.7", remotePort: 51820,
+                protocol: TransportProtocol.Udp));
+    }
+
+    [Fact]
+    public void Charge_AnAppWithItsOwnLimit_IsHeldToItOnAVpnTunnelToo()
+    {
+        var limiter = NewLimiter();
+        limiter.SetLimit(AppPid, downloadBytesPerSecond: 1_000, uploadBytesPerSecond: 0);
+        // A new bucket starts full at 64 KB.
+        Assert.True(limiter.TryReserve(AppPid, 65_536, isUpload: false, wholePc: false, MaxDelay, out _));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9", viaTunnel: true));
     }
 
     [Fact]
@@ -388,7 +428,7 @@ public sealed class WholePcLimitTests
 
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 1000, closesFlow: false, isOutbound: true,
-            IPAddress.Parse("203.0.113.9"), loopback: false, out var delay);
+            IPAddress.Parse("203.0.113.9"), loopback: false, viaTunnel: false, out var delay);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Send, fate);
         Assert.Equal(TimeSpan.Zero, delay);
@@ -415,10 +455,10 @@ public sealed class WholePcLimitTests
 
         var full = WinDivertInterceptor.Charge(limiter, scheduler, AppPid, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
-            loopback: false, out var noDelay);
+            loopback: false, viaTunnel: false, out var noDelay);
         var other = WinDivertInterceptor.Charge(limiter, scheduler, AppPid + 1, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
-            loopback: false, out var otherDelay);
+            loopback: false, viaTunnel: false, out var otherDelay);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Drop, full);
         Assert.Equal(TimeSpan.Zero, noDelay);
@@ -434,7 +474,7 @@ public sealed class WholePcLimitTests
 
         var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 60_000, closesFlow: false, isOutbound: false,
-            IPAddress.Parse("203.0.113.9"), loopback: false, out _);
+            IPAddress.Parse("203.0.113.9"), loopback: false, viaTunnel: false, out _);
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Drop, fate);
     }

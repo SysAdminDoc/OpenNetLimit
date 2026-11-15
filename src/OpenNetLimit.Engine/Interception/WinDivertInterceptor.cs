@@ -18,6 +18,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly PacketScheduler _scheduler = new();
     private readonly ConnectionLogger _connectionLog = new();
     private readonly DnsDomainCache _dnsCache = new();
+    private readonly TunnelAdapters _tunnelAdapters = new();
     private readonly SocketOwners _socketOwners;
     private readonly IServiceHosts _serviceHosts;
     private Timer? _socketRefreshTimer;
@@ -397,7 +398,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
                 var fate = Charge(_rateLimiter, _scheduler, processId.Value, protection, flowKey.Protocol, remotePort,
-                    payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback, out var delay);
+                    payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback,
+                    _tunnelAdapters.IsTunnel(addr.Network.IfIdx), out var delay);
                 if (fate == PacketFate.Drop)
                 {
                     _scheduler.RecordDrop();
@@ -450,14 +452,16 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         if (payloadLength == 0 && !closesFlow)
             return default;
         // Windows' own processes carry Windows Update, BITS, Delivery Optimization and SMB file
-        // copies over TCP when they share a process with networking services, so that counts
-        // toward the whole-PC limit. Their UDP (DNS, DHCP, NTP) doesn't, nor does DNS that falls
-        // back to TCP for a big answer. A svchost running only networking services (DNS over
-        // HTTPS included) counts for nothing, and no app limit applies to any of them.
+        // copies when they share a process with networking services, so that counts toward the
+        // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard, OpenVPN's DCO, IKEv2),
+        // which go out as System's or a svchost's UDP: the tunnel's own side doesn't count. DNS,
+        // DHCP and NTP never count, DNS that falls back to TCP for a big answer included. A
+        // svchost running only networking services (DNS over HTTPS included) counts for
+        // nothing, and no app limit applies to any of them.
         bool counts = protection switch
         {
             ProcessProtection.None => true,
-            ProcessProtection.Windows => protocol == TransportProtocol.Tcp && remotePort != DnsPort,
+            ProcessProtection.Windows => remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547),
             _ => false
         };
         return new PacketLimits(
@@ -498,14 +502,16 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// or is dropped. Every packet is charged, the delayed ones too, so a burst queues behind its
     /// own debt and leaves at the limit. A packet with nowhere to wait is dropped.
     /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
+    /// <paramref name="viaTunnel"/> says it crossed a VPN tunnel, so the whole-PC limit counts
+    /// it when it leaves again encrypted, on the real adapter, and not here as well.
     /// </summary>
     internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
         ProcessProtection protection, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
-        bool isOutbound, IPAddress remote, bool loopback, out TimeSpan delay)
+        bool isOutbound, IPAddress remote, bool loopback, bool viaTunnel, out TimeSpan delay)
     {
         delay = TimeSpan.Zero;
         var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow,
-            PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
+            !viaTunnel && PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
             limiter.HasLimit(processId));
         if (!limits.Any)
             return PacketFate.Send;
