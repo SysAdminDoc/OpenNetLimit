@@ -155,6 +155,20 @@ public sealed class ServiceRuleUiTests
     }
 
     [Fact]
+    public void RulesFor_LeavesAllowRulesInPlace()
+    {
+        // Deleting one would let the folder rule it exempts steam from slow steam down.
+        var folder = new BandwidthRule { ProcessPath = @"C:\Games\*", DownloadBytesPerSecond = 1024 };
+        var steamAllowed = new BandwidthRule { ProcessName = "steam", Action = RuleAction.Allow };
+        var bitsAllowed = new BandwidthRule { ServiceName = "BITS", Action = RuleAction.Allow };
+        var bitsLimit = new BandwidthRule { ServiceName = "BITS", DownloadBytesPerSecond = 1024 };
+        BandwidthRule[] rules = [folder, steamAllowed, bitsAllowed, bitsLimit];
+
+        Assert.Empty(LimitMenu.RulesFor(rules, "steam.exe", null));
+        Assert.Equal(new[] { bitsLimit }, LimitMenu.RulesFor(rules, "svchost", ["BITS"]));
+    }
+
+    [Fact]
     public void RulesFor_AProgram_AreItsOwnRulesByName()
     {
         Assert.Equal(new[] { AppNamedBits }, LimitMenu.RulesFor(Rules, "bits.exe", null));

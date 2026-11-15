@@ -45,15 +45,17 @@ public static class LimitMenu
     };
 
     /// <summary>
-    /// The rules Remove limit deletes for a row: those on the program by name, and those on any
-    /// service running in it, which is the only way a rule reaches a svchost.
+    /// The rules Remove limit deletes for a row: limits and blocks on the program by name, and on
+    /// any service running in it, which is the only way a rule reaches a svchost. An Allow rule
+    /// limits nothing. It keeps a wider rule, like one on the program's folder, off this program,
+    /// so deleting it could only add a limit.
     /// </summary>
     public static IEnumerable<BandwidthRule> RulesFor(IEnumerable<BandwidthRule> rules, string processName,
         IReadOnlyList<string>? services)
     {
         var program = ProcessNames.Normalize(processName);
-        return rules.Where(r => r.ServiceName is { } service
+        return rules.Where(r => r.Action != RuleAction.Allow && (r.ServiceName is { } service
             ? services?.Contains(service, StringComparer.OrdinalIgnoreCase) == true
-            : string.Equals(r.ProcessName, program, StringComparison.OrdinalIgnoreCase));
+            : string.Equals(r.ProcessName, program, StringComparison.OrdinalIgnoreCase)));
     }
 }
