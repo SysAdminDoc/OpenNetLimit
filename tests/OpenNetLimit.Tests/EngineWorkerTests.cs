@@ -408,6 +408,8 @@ public sealed class EngineWorkerTests : IDisposable
         Directory.CreateDirectory(_dataDir);
         File.WriteAllText(StayPausedPath, "");
         using var markerInUse = new FileStream(StayPausedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // Loaded, so an unload the boot start shouldn't do would show up as a stop request.
+        _driver.Then(DriverServiceState.Running);
         var interceptor = new FakeInterceptor();
         using var worker = CreateWorker(interceptor, isAdmin: true);
 
@@ -499,6 +501,68 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.True(duringStop.Paused);
         Assert.Equal(EngineWorker.UnloadingReason, duringStop.DriverLoadedReason);
         Assert.Null(paused.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task StatusRead_ThatAPauseOvertakes_IsNotAnEngineError()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        // The read has seen "not paused" already. The whole pause runs before it reads "not running".
+        interceptor.WhenRunningRead = () =>
+            Task.Run(() => _controlPlane.PauseHandler!(false, CancellationToken.None)).GetAwaiter().GetResult();
+
+        var status = _controlPlane.GetDiagnostics();
+        var after = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.False(status.Running);
+        Assert.Null(status.EngineError);
+        Assert.True(after.Paused);
+    }
+
+    [Fact]
+    public async Task StatusRead_WhileAResumeLoadsTheDriver_NeverSaysItIsUnloaded()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        DiagnosticInfo? duringStart = null;
+        interceptor.WhenStarting = () => duringStart ??= _controlPlane.GetDiagnostics();
+
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(duringStart);
+        Assert.True(duringStart.Paused);
+        Assert.Equal(EngineWorker.LoadingReason, duringStart.DriverLoadedReason);
+        Assert.Null(duringStart.EngineError);
+        Assert.True(resumed.Running);
+    }
+
+    [Fact]
+    public async Task FailedResume_LeavesAnotherProgramsDriverLoaded()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        int stopsAfterPause = _driver.StopRequests;
+
+        // Another program loaded the driver while we were paused, then our start failed.
+        _driver.Then(DriverServiceState.Running);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        interceptor.StartFailure = new WinDivertOpenException(
+            WinDivert.Layer.Network, WinDivert.Flag.Sniff, 87, "The parameter is incorrect.");
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(resumed.Paused);
+        Assert.Equal(stopsAfterPause, _driver.StopRequests);
+        Assert.Contains("wireguard.exe", resumed.DriverLoadedReason);
+        Assert.NotNull(resumed.EngineError);
     }
 
     [Fact]
@@ -627,7 +691,23 @@ public sealed class EngineWorkerTests : IDisposable
 
         /// <summary>Runs as a stop begins, while the handles are still open.</summary>
         public Action? WhenStopping { get; set; }
-        public bool IsRunning { get; set; }
+
+        /// <summary>Runs once, on the next read of IsRunning, before it answers.</summary>
+        public Action? WhenRunningRead { get; set; }
+
+        private bool _isRunning;
+
+        public bool IsRunning
+        {
+            get
+            {
+                var hook = WhenRunningRead;
+                WhenRunningRead = null;
+                hook?.Invoke();
+                return _isRunning;
+            }
+            set => _isRunning = value;
+        }
         public long TotalBlocked => 0;
         public long TotalDelayed => 0;
         public long TotalDropped => 0;

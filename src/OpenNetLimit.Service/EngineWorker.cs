@@ -43,10 +43,18 @@ public class EngineWorker : BackgroundService
     /// <summary>Set while a pause unloads the driver or a resume reopens it, so status reads don't recheck it mid-change.</summary>
     private volatile bool _changingDriver;
 
-    /// <summary>The engine error a refused resume left. It goes once the driver unloads.</summary>
+    /// <summary>The engine error a refused resume left. It goes once the driver unloads. Written under <see cref="_driverReasonLock"/>.</summary>
     private volatile string? _resumeRefusal;
 
+    /// <summary>
+    /// Odd while a pause or resume changes the paused flag and the interceptor, so a status read
+    /// that overlapped one can tell. Two reads of separate fields can otherwise pair a stale
+    /// "not paused" with a stopped engine and report a crash that didn't happen.
+    /// </summary>
+    private int _engineChangeVersion;
+
     internal const string UnloadingReason = "The WinDivert driver is unloading.";
+    internal const string LoadingReason = "OpenNetLimit is loading the WinDivert driver to resume.";
 
     /// <summary>Tests hold the boot start here so a pause or resume can get in first.</summary>
     internal Task? BootStartHold { get; set; }
@@ -326,6 +334,7 @@ public class EngineWorker : BackgroundService
             // Before it counts as paused: a status read while our own handles close mustn't
             // look for the program holding the driver and blame another one.
             MarkDriverChanging();
+            Interlocked.Increment(ref _engineChangeVersion);
             try
             {
                 _paused = true;
@@ -344,6 +353,7 @@ public class EngineWorker : BackgroundService
             }
             finally
             {
+                Interlocked.Increment(ref _engineChangeVersion);
                 _changingDriver = false;
             }
         }
@@ -355,14 +365,16 @@ public class EngineWorker : BackgroundService
     }
 
     /// <summary>
-    /// Until the driver change finishes, status reads say it's unloading, or keep the reason they
-    /// had, and never recheck it. Call it holding the engine gate.
+    /// Until the driver change finishes, status reads say it's unloading (or loading, for a
+    /// resume), or keep the reason they had, and never recheck it. Bumping the version also
+    /// stops a read that was already rechecking from writing back what it saw before the change.
+    /// Call it holding the engine gate.
     /// </summary>
-    private void MarkDriverChanging()
+    private void MarkDriverChanging(string placeholder = UnloadingReason)
     {
         lock (_driverReasonLock)
         {
-            _driverLoadedReason ??= UnloadingReason;
+            _driverLoadedReason ??= placeholder;
             _driverReasonVersion++;
         }
         _changingDriver = true;
@@ -426,17 +438,30 @@ public class EngineWorker : BackgroundService
                 _driverUnloader.WhyLoaded(out bool stopPending) is { } held && stopPending)
             {
                 // Opening now would wait out the preflight's pending limit, then fail with error 433.
-                SetDriverReason(held);
                 var refusal = $"It can't resume until the driver finishes unloading. {held}";
-                _resumeRefusal = refusal;
-                _engineError = refusal;
+                lock (_driverReasonLock)
+                {
+                    // All three at once, so a status read that sees the driver unload clears this
+                    // refusal and can't miss it because it wasn't written yet.
+                    _resumeRefusal = refusal;
+                    _engineError = refusal;
+                    _driverLoadedReason = held;
+                    _driverReasonVersion++;
+                }
                 _logger.LogWarning("Resume refused while the WinDivert driver is still unloading: {Reason}", held);
                 return GetDiagnosticInfo();
             }
 
-            _engineError = null;
-            _resumeRefusal = null;
-            _changingDriver = true;
+            // Only a driver this start loads gets unloaded again if it fails. One another program
+            // loaded while we were paused stays as it is.
+            bool driverWasUnloaded = wasPaused && _driverUnloader.IsUnloaded();
+            lock (_driverReasonLock)
+            {
+                _engineError = null;
+                _resumeRefusal = null;
+            }
+            MarkDriverChanging(LoadingReason);
+            Interlocked.Increment(ref _engineChangeVersion);
             try
             {
                 try
@@ -468,15 +493,17 @@ public class EngineWorker : BackgroundService
                     // offers Resume. The status says why it didn't start.
                     _paused = wasPaused;
                     // A start that got as far as opening a handle loaded the driver, and closing
-                    // the handle doesn't unload it.
-                    if (wasPaused)
+                    // the handle doesn't unload it. A start the service stop cut short isn't worth
+                    // an unload that the same stop would cancel.
+                    if (driverWasUnloaded && !_shutdown.IsCancellationRequested)
                         UnloadDriver();
                     else
-                        SetDriverReason(null);
+                        SetDriverReason(wasPaused ? _driverUnloader.WhyLoaded(out _) : null);
                 }
             }
             finally
             {
+                Interlocked.Increment(ref _engineChangeVersion);
                 _changingDriver = false;
             }
         }
@@ -899,6 +926,7 @@ public class EngineWorker : BackgroundService
 
     internal DiagnosticInfo GetDiagnosticInfo()
     {
+        int changeVersion = Volatile.Read(ref _engineChangeVersion);
         // Read first. A driver change marks itself before it touches the reason or the pause,
         // so a read that sees no change in progress here rechecks the real driver state.
         bool changingDriver = _changingDriver;
@@ -907,7 +935,11 @@ public class EngineWorker : BackgroundService
 
         var running = _interceptor.IsRunning;
         var engineError = _engineError;
-        if (engineError is null && _engineStarted && !running && !_stopping && !paused)
+        // A pause stops the engine after it sets the flag and a resume clears the flag after the
+        // engine starts, so either one finishing between the two reads above can pair "not
+        // paused" with "not running". Only a read no pause or resume overlapped can call that a crash.
+        bool settled = (changeVersion & 1) == 0 && changeVersion == Volatile.Read(ref _engineChangeVersion);
+        if (engineError is null && settled && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
 
         return new DiagnosticInfo
@@ -967,10 +999,15 @@ public class EngineWorker : BackgroundService
                 return _driverLoadedReason;
             _driverLoadedReason = now;
             _driverReasonVersion++;
+            // A resume refused while the driver was unloading can go ahead now. Under the lock a
+            // refusal writes under, so it's either already here to clear or comes after this.
+            if (now is null && _resumeRefusal is { } refusal)
+            {
+                if (ReferenceEquals(_engineError, refusal))
+                    _engineError = null;
+                _resumeRefusal = null;
+            }
         }
-        // A resume refused while the driver was unloading can go ahead now.
-        if (now is null && _resumeRefusal is { } refusal)
-            Interlocked.CompareExchange(ref _engineError, null, refusal);
         return now;
     }
 

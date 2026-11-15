@@ -75,12 +75,9 @@ public sealed class ServiceStatusTracker
     {
         if (diagnostics is { Paused: true })
         {
-            // A resume that failed or was refused says why; otherwise whatever still holds the driver.
-            var detail = !string.IsNullOrWhiteSpace(diagnostics.EngineError) ? diagnostics.EngineError
-                : !string.IsNullOrWhiteSpace(diagnostics.DriverLoadedReason) ? diagnostics.DriverLoadedReason
-                : null;
+            // Why a resume failed or was refused, and whatever still holds the driver.
             Set(new ServiceStatusView(ConnectionState.Connected, "Status_Paused",
-                DetailKey: "Status_Paused_Detail", Detail: detail, Paused: true));
+                DetailKey: "Status_Paused_Detail", Detail: EnginePause.PausedDetail(diagnostics), Paused: true));
             return;
         }
 

@@ -57,15 +57,15 @@
   <data name="Pause_Failed_Title" xml:space="preserve"><value>Couldn't pause</value></data>
   <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>Paused, but the driver is still loaded</value></data>
   <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Nothing from OpenNetLimit is loaded now, so you can start your game.</value></data>
-  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>The choice to stay paused couldn't be saved, so the pause ends when the service restarts.</value></data>
-  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>An earlier choice to stay paused couldn't be cleared, so it stays paused after a restart until you resume.</value></data>
+  <data name="Pause_StayNotSaved_Body" xml:space="preserve"><value>The choice to stay paused couldn't be saved, so restarting Windows or the service ends the pause and loads the driver again.</value></data>
+  <data name="Pause_StayNotCleared_Body" xml:space="preserve"><value>An earlier choice to stay paused couldn't be cleared, so OpenNetLimit stays paused after a restart until you choose Resume.</value></data>
   <data name="Pause_CanResume_Body" xml:space="preserve"><value>The WinDivert driver is unloaded, so you can resume now.</value></data>
   <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Driver unloaded</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Process traffic list</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>
   <data name="Resume_Done_Body" xml:space="preserve"><value>Your limits and blocks apply again.</value></data>
   <data name="Resume_Done_Title" xml:space="preserve"><value>Resumed</value></data>
-  <data name="Resume_StayNotCleared_Body" xml:space="preserve"><value>The choice to stay paused couldn't be cleared, so it comes up paused again after a restart.</value></data>
+  <data name="Resume_StayNotCleared_Body" xml:space="preserve"><value>The choice to stay paused couldn't be cleared, so OpenNetLimit comes up paused again after a restart.</value></data>
   <data name="Resume_Failed_Title" xml:space="preserve"><value>Couldn't resume</value></data>
   <data name="ServiceStatus_Automation" xml:space="preserve"><value>Service status</value></data>
   <data name="SetLimit_DownloadAutomation" xml:space="preserve"><value>Download limit in KB/s</value></data>

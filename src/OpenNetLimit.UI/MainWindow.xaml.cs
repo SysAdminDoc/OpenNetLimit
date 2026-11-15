@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         _trayIcon?.ShowBalloonTip(
             5000,
             LocalizationManager.Text("Alert_BalloonTitle"),
-            alert.Message,
+            TrayNotice.Fit(alert.Message, TrayNotice.MaxBodyLength),
             Forms.ToolTipIcon.Warning);
     }
 

@@ -170,4 +170,89 @@ public sealed class EnginePauseTests
         Assert.Null(EnginePause.AfterPoll(null, Unloaded));
         Assert.Null(EnginePause.AfterPoll(Running, Unloaded));
     }
+
+    [Fact]
+    public void Poll_DriverUnloadsButTheStartErrorStays_DoesNotSayResumeWorks()
+    {
+        const string startError = "WinDivert couldn't open the network layer (error 87).";
+        var failed = new DiagnosticInfo { Paused = true, DriverLoadedReason = "wireguard.exe has it open.", EngineError = startError };
+        var unloaded = new DiagnosticInfo { Paused = true, EngineError = startError };
+
+        Assert.Equal(new TrayNotice("Pause_Unloaded_Title", BodyKey: "Pause_Unloaded_Body"),
+            EnginePause.AfterPoll(failed, unloaded));
+    }
+
+    [Theory]
+    [InlineData(null, null, null)]
+    [InlineData(null, "wireguard.exe has it open.", "wireguard.exe has it open.")]
+    [InlineData("Error 87.", null, "Error 87.")]
+    [InlineData("Error 87.", "wireguard.exe has it open.", "Error 87. wireguard.exe has it open.")]
+    [InlineData("It can't resume yet. wireguard.exe has it open.", "wireguard.exe has it open.",
+        "It can't resume yet. wireguard.exe has it open.")]
+    [InlineData(" ", "", null)]
+    public void PausedDetail_SaysTheErrorAndTheHolderOnce(string? error, string? reason, string? expected)
+    {
+        var status = new DiagnosticInfo { Paused = true, EngineError = error, DriverLoadedReason = reason };
+
+        Assert.Equal(expected, EnginePause.PausedDetail(status));
+    }
+
+    [Fact]
+    public void Resume_FailedWhileAnotherProgramHoldsTheDriver_ShowsBoth()
+    {
+        var status = new DiagnosticInfo { Paused = true, EngineError = "Error 87.", DriverLoadedReason = "wireguard.exe has it open." };
+
+        var notice = EnginePause.AfterResume("{}", status);
+
+        Assert.Equal("Error 87. wireguard.exe has it open.", notice.Body);
+    }
+
+    [Theory]
+    [InlineData("short", 10, "short")]
+    [InlineData("exactly10!", 10, "exactly10!")]
+    [InlineData("one two three", 9, "one two…")]
+    public void Fit_CutsLongTextWithAnEllipsis(string text, int max, string expected)
+    {
+        var fitted = TrayNotice.Fit(text, max);
+
+        Assert.Equal(expected, fitted);
+        Assert.True(fitted.Length <= max);
+    }
+}
+
+/// <summary>These resolve text, so they can't run while another test switches the language.</summary>
+[Collection(CultureSwitchingCollection.Name)]
+public sealed class TrayNoticeTextTests
+{
+    private static readonly string LongReason = string.Join(" ", Enumerable.Repeat("wireguard.exe has it open.", 20));
+
+    [Fact]
+    public void LongServiceWording_FitsTheBalloon()
+    {
+        var body = new TrayNotice("Pause_StillLoaded_Title", Body: LongReason).ResolveBody();
+
+        Assert.Equal(TrayNotice.MaxBodyLength, body.Length);
+        Assert.EndsWith("…", body);
+    }
+
+    [Fact]
+    public void LongServiceWording_GivesWayToTheAddedSentence()
+    {
+        var notice = new TrayNotice("Pause_StillLoaded_Title", Body: LongReason, ExtraKey: "Pause_StayNotSaved_Body");
+
+        var body = notice.ResolveBody();
+        var extra = LocalizationManager.Text("Pause_StayNotSaved_Body");
+
+        Assert.True(body.Length <= TrayNotice.MaxBodyLength, $"{body.Length} characters");
+        Assert.EndsWith("… " + extra, body);
+        Assert.StartsWith("wireguard.exe has it open.", body);
+    }
+
+    [Fact]
+    public void ShortWording_IsLeftAlone()
+    {
+        var notice = new TrayNotice("Pause_StillLoaded_Title", Body: "wireguard.exe has it open.", ExtraKey: "Pause_StayNotSaved_Body");
+
+        Assert.Equal("wireguard.exe has it open. " + LocalizationManager.Text("Pause_StayNotSaved_Body"), notice.ResolveBody());
+    }
 }
