@@ -166,6 +166,14 @@ public class QuotaTracker
     }
 
     /// <summary>
+    /// The quota periods that started after <paramref name="lastCheck"/>, up to and including
+    /// <paramref name="now"/>, so a check that comes late (the PC slept through a Monday or the
+    /// 1st) still ends the week or month. None when the clock went back.
+    /// </summary>
+    public static IReadOnlyList<QuotaPeriod> PeriodsStartedSince(DateTime lastCheck, DateTime now) =>
+        [.. Enum.GetValues<QuotaPeriod>().Where(period => PeriodStartOf(period, now) > PeriodStartOf(period, lastCheck))];
+
+    /// <summary>
     /// Runs <see cref="Update"/> when it's due: every second while a Block or Throttle quota has
     /// traffic left, so a fast download can't run far past it, and every 30 seconds otherwise.
     /// Returns whether it ran.

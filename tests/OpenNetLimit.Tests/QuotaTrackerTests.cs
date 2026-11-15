@@ -1245,6 +1245,25 @@ public class QuotaTrackerTests
         Assert.Equal(new DateOnly(2026, 11, 9), saved.PeriodStart);
     }
 
+    [Theory]
+    [InlineData("2026-11-15", "2026-11-15", "")]
+    [InlineData("2026-11-14", "2026-11-15", "Daily")]
+    [InlineData("2026-11-15", "2026-11-16", "Daily,Weekly")]
+    [InlineData("2026-11-14", "2026-11-17", "Daily,Weekly")]
+    [InlineData("2026-11-17", "2026-11-22", "Daily")]
+    [InlineData("2026-10-31", "2026-11-01", "Daily,Monthly")]
+    [InlineData("2026-10-29", "2026-11-03", "Daily,Weekly,Monthly")]
+    [InlineData("2025-11-20", "2026-11-20", "Daily,Weekly,Monthly")]
+    [InlineData("2026-11-16", "2026-11-15", "")]
+    [InlineData("2026-12-01", "2026-11-30", "")]
+    public void PeriodsStartedSince_EndsEveryPeriodThatStartedSinceTheLastCheck(string lastCheck, string now, string expected)
+    {
+        var started = QuotaTracker.PeriodsStartedSince(
+            DateTime.Parse(lastCheck, CultureInfo.InvariantCulture), DateTime.Parse(now, CultureInfo.InvariantCulture));
+
+        Assert.Equal(expected, string.Join(',', started));
+    }
+
     [Fact]
     public void ResetPeriod_SavesTheNewPeriodsStart()
     {

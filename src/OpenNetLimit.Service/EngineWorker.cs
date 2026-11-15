@@ -1191,19 +1191,12 @@ public class EngineWorker : BackgroundService
             if (today <= lastCheck)
                 return;
 
-            _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Daily);
-            _logger.LogInformation("Daily quota period reset");
-
-            if (today.DayOfWeek == DayOfWeek.Monday)
+            // Every period that started since the last check, so a week or month the PC slept
+            // into ends too, not only one whose first day the check ran on.
+            foreach (var period in QuotaTracker.PeriodsStartedSince(lastCheck, today))
             {
-                _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Weekly);
-                _logger.LogInformation("Weekly quota period reset");
-            }
-
-            if (today.Day == 1)
-            {
-                _quotaTracker?.ResetPeriod(OpenNetLimit.Core.Models.QuotaPeriod.Monthly);
-                _logger.LogInformation("Monthly quota period reset");
+                _quotaTracker?.ResetPeriod(period);
+                _logger.LogInformation("{Period} quota period reset", period);
             }
 
             // Revert any quota-imposed rate limits by reconciling with base rules
