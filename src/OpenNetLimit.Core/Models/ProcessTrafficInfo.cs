@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OpenNetLimit.Core.Models;
 
 public class ProcessTrafficInfo
@@ -59,5 +61,35 @@ public class ProcessTrafficInfo
     public int ActiveConnectionCount { get; set; }
 
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
+
+    private long _namedSinceTicks = long.MaxValue;
+
+    /// <summary>
+    /// When the oldest name behind its bytes was read, null until bytes come with one. The ID
+    /// may have been another process's then, so the one that has it now must have started first.
+    /// </summary>
+    [JsonIgnore]
+    public DateTime? NamedSince
+    {
+        get
+        {
+            long ticks = Volatile.Read(ref _namedSinceTicks);
+            return ticks == long.MaxValue ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
+    /// <summary>Notes bytes that came with a name read at <paramref name="namedAt"/>.</summary>
+    public void NamedBy(DateTime namedAt)
+    {
+        long ticks = namedAt.Ticks;
+        long seen = Volatile.Read(ref _namedSinceTicks);
+        while (ticks < seen)
+        {
+            long prior = Interlocked.CompareExchange(ref _namedSinceTicks, ticks, seen);
+            if (prior == seen)
+                return;
+            seen = prior;
+        }
+    }
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
 }

@@ -679,8 +679,9 @@ public class RuleReconcilerTests
     {
         private readonly TrafficMonitor _stats = new();
         public bool Failing { get; set; } = true;
-        public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null) =>
-            _stats.RecordBytes(processId, processName, byteCount, isUpload, processPath);
+        public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null,
+            DateTime? namedAt = null) =>
+            _stats.RecordBytes(processId, processName, byteCount, isUpload, processPath, namedAt);
         public ProcessTrafficInfo? GetProcessInfo(uint processId) => _stats.GetProcessInfo(processId);
         public IReadOnlyList<ProcessTrafficInfo> GetAllProcesses() =>
             Failing ? throw new InvalidOperationException("stats unavailable") : _stats.GetAllProcesses();

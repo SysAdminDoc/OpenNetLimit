@@ -21,16 +21,17 @@ public interface IFlowTracker
     void PurgeStale(TimeSpan maxAge);
 
     /// <summary>
-    /// Raised first thing in <see cref="ForgetProcess"/>, so whatever else could hand a late
-    /// packet back to the process forgets it before its flows go.
+    /// Raised first thing in <see cref="ForgetProcess"/>, with its arguments, so whatever else
+    /// could hand a late packet back to the process forgets it before its flows go.
     /// </summary>
-    event Action<uint>? ForgettingProcess;
+    event Action<uint, DateTime?>? ForgettingProcess;
 
     /// <summary>
     /// Drops the flows, open or closed, of a process that exited. Windows can give its ID to
     /// another process once it's let go, and a late packet on one of its flows would be
     /// credited to that process under the old one's name. When the ID may have gone to another
-    /// process from <paramref name="identifiedBefore"/> on, only flows named before then go.
+    /// process from <paramref name="identifiedBefore"/> on, only flows named before then go, and
+    /// a flow named before then that's registered afterwards is turned away.
     /// </summary>
     void ForgetProcess(uint processId, DateTime? identifiedBefore = null);
 }

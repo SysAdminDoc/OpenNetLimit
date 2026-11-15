@@ -373,7 +373,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     Interlocked.Increment(ref _totalBlocked);
                     // Dropped bytes never reached the app, so they don't count as its traffic or
                     // fill its quota. Recording zero still lists the app.
-                    _trafficMonitor.RecordBytes(processId.Value, processName, 0, isOutbound, connection?.ProcessPath);
+                    _trafficMonitor.RecordBytes(processId.Value, processName, 0, isOutbound, connection?.ProcessPath,
+                        connection?.IdentifiedAt);
                     _connectionLog.Log(new ConnectionLogEntry
                     {
                         ProcessId = processId.Value,
@@ -395,7 +396,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                         connection.AddBytesReceived(payloadLength);
                 }
 
-                _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
+                _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath,
+                    connection?.IdentifiedAt);
 
                 var fate = Charge(_rateLimiter, _scheduler, processId.Value, protection, flowKey.Protocol, remotePort,
                     payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback,

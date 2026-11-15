@@ -4,7 +4,12 @@ namespace OpenNetLimit.Core.Interfaces;
 
 public interface ITrafficMonitor
 {
-    void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null);
+    /// <param name="namedAt">
+    /// When <paramref name="processName"/> was read for the ID, when that was before now (a name
+    /// read with the socket tables, say). The process may have exited since and left the ID to another.
+    /// </param>
+    void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null,
+        DateTime? namedAt = null);
     ProcessTrafficInfo? GetProcessInfo(uint processId);
     IReadOnlyList<ProcessTrafficInfo> GetAllProcesses();
 

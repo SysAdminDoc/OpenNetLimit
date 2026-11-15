@@ -122,17 +122,21 @@ internal sealed class SocketOwners
     /// Drops the sockets of a process that exited. The last read can be 30 seconds old, and a
     /// late packet on one of them would adopt a flow for the process again, under its name, for
     /// whatever process Windows gives the ID to next. The next read names that process afresh
-    /// instead of reusing the name it had.
+    /// instead of reusing the name it had. Sockets a read found after <paramref name="identifiedBefore"/>
+    /// are the next process's, and stay.
     /// </summary>
-    public void Forget(uint processId)
+    public void Forget(uint processId, DateTime? identifiedBefore = null)
     {
         lock (_refreshLock)
         {
             var owners = _owners;
-            if (owners.Values.Any(owner => owner.ProcessId == processId))
-                _owners = owners.Where(socket => socket.Value.ProcessId != processId).ToDictionary();
+            if (owners.Values.Any(owner => Stale(owner, processId, identifiedBefore)))
+                _owners = owners.Where(socket => !Stale(socket.Value, processId, identifiedBefore)).ToDictionary();
         }
     }
+
+    private static bool Stale(Owner owner, uint processId, DateTime? identifiedBefore) =>
+        owner.ProcessId == processId && (identifiedBefore is null || owner.IdentifiedAt < identifiedBefore);
 
     /// <summary>
     /// Registers a flow the flow layer reported as established and says who it went to.

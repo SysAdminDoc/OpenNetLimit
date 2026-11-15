@@ -191,7 +191,8 @@ public class QuotaTrackerTests
         /// <summary>Runs once, inside the next <see cref="GetAllProcesses"/> call.</summary>
         public Action? OnNextList;
 
-        public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null) =>
+        public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null,
+            DateTime? namedAt = null) =>
             throw new NotSupportedException();
         public ProcessTrafficInfo? GetProcessInfo(uint processId) => null;
         public IReadOnlyList<ProcessTrafficInfo> GetAllProcesses()

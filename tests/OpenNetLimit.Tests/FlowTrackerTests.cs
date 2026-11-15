@@ -150,18 +150,59 @@ public class FlowTrackerTests
         var tracker = new FlowTracker();
         tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null);
         uint? forgotten = null;
+        DateTime? cutoff = DateTime.MaxValue;
         bool flowStillThere = false;
-        tracker.ForgettingProcess += processId =>
+        tracker.ForgettingProcess += (processId, identifiedBefore) =>
         {
             forgotten = processId;
+            cutoff = identifiedBefore;
             flowStillThere = tracker.LookupConnection(MakeFlowKey(1)) is not null;
         };
 
         tracker.ForgetProcess(200);
 
         Assert.Equal(200u, forgotten);
+        Assert.Null(cutoff);
         Assert.True(flowStillThere);
         Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+    }
+
+    [Fact]
+    public void AFlowNamedBeforeItsProcessWasForgotten_IsTurnedAwayWhenItArrivesLate()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var namedEarlier = now;
+        now += TimeSpan.FromSeconds(1);
+        var idFree = now;
+        var registered = new List<string>();
+        tracker.FlowRegistered += (_, name, _) => registered.Add(name);
+
+        tracker.ForgetProcess(200, idFree);
+        // A socket owner looked up just before the forget, registering just after it.
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
+        // The next process with the ID, named after it was free.
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null, idFree);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(2))?.ProcessName);
+        Assert.Equal(["chrome"], registered);
+    }
+
+    [Fact]
+    public void AForgottenIdsCutoff_IsLetGoOnceItsLongPast()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var namedEarlier = now - TimeSpan.FromSeconds(1);
+        tracker.ForgetProcess(200, now);
+
+        // Another process's exit, minutes later, sweeps the old cutoff away.
+        now += TimeSpan.FromMinutes(5);
+        tracker.ForgetProcess(300, now);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
+
+        Assert.Equal("svchost", tracker.LookupConnection(MakeFlowKey(1))?.ProcessName);
     }
 
     [Fact]

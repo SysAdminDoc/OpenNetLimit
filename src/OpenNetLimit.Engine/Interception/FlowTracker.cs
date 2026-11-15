@@ -9,6 +9,15 @@ public class FlowTracker : IFlowTracker
     private readonly ConcurrentDictionary<FlowKey, ConnectionInfo> _flows = new();
     private readonly Func<DateTime> _utcNow;
 
+    /// <summary>
+    /// The cutoff each exited process was forgotten with. A name read before it can still be on
+    /// its way in (a socket owner looked up just before the forget), and must not bring it back.
+    /// </summary>
+    private readonly ConcurrentDictionary<uint, DateTime> _forgottenBefore = new();
+
+    /// <summary>How long a cutoff is kept. Names on their way in are microseconds old.</summary>
+    private static readonly TimeSpan ForgottenKeptFor = TimeSpan.FromMinutes(1);
+
     public FlowTracker()
         : this(() => DateTime.UtcNow)
     {
@@ -18,12 +27,15 @@ public class FlowTracker : IFlowTracker
 
     public event Action<uint, string, string?>? FlowRegistered;
 
-    public event Action<uint>? ForgettingProcess;
+    public event Action<uint, DateTime?>? ForgettingProcess;
 
     public void RegisterFlow(FlowKey flowKey, uint processId, string processName, string? processPath,
         DateTime? identifiedAt = null)
     {
         var registeredAt = _utcNow();
+        var namedAt = identifiedAt ?? registeredAt;
+        if (Forgotten(processId, namedAt))
+            return;
         var connection = new ConnectionInfo
         {
             FlowKey = flowKey,
@@ -33,7 +45,7 @@ public class FlowTracker : IFlowTracker
             EstablishedAt = registeredAt,
             IdentifiedAt = identifiedAt ?? registeredAt
         };
-        _flows.AddOrUpdate(flowKey, connection, (_, existing) =>
+        var stored = _flows.AddOrUpdate(flowKey, connection, (_, existing) =>
         {
             // Create a new ConnectionInfo to avoid mutating the shared object
             // that NetworkLoop may be concurrently reading.
@@ -53,8 +65,17 @@ public class FlowTracker : IFlowTracker
             updated.AddBytesReceived(existing.BytesReceived);
             return updated;
         });
+        // Forgotten while this went in, and missed by the forget's sweep of the flows.
+        if (Forgotten(processId, namedAt))
+        {
+            _flows.TryRemove(KeyValuePair.Create(flowKey, stored));
+            return;
+        }
         FlowRegistered?.Invoke(processId, processName, processPath);
     }
+
+    private bool Forgotten(uint processId, DateTime namedAt) =>
+        _forgottenBefore.TryGetValue(processId, out var cutoff) && namedAt < cutoff;
 
     public void UnregisterFlow(FlowKey flowKey)
     {
@@ -81,7 +102,15 @@ public class FlowTracker : IFlowTracker
 
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
-        ForgettingProcess?.Invoke(processId);
+        if (identifiedBefore is { } cutoff)
+        {
+            var stale = _utcNow() - ForgottenKeptFor;
+            foreach (var (otherId, otherCutoff) in _forgottenBefore)
+                if (otherCutoff < stale)
+                    _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
+            _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
+        }
+        ForgettingProcess?.Invoke(processId, identifiedBefore);
         foreach (var (flowKey, connection) in _flows)
         {
             // Only the exact entry seen: a flow registered again meanwhile is someone else's.

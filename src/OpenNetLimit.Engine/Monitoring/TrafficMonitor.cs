@@ -84,7 +84,8 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             : new Timer(OnSnapshotTick, null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null)
+    public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null,
+        DateTime? namedAt = null)
     {
         var counter = _counters.GetOrAdd(processId, _ => new TrafficCounter());
         if (isUpload)
@@ -99,11 +100,17 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
                 ProcessId = processId,
                 ProcessName = processName,
                 ProcessPath = processPath,
+                FirstSeenAt = _utcNow(),
                 LastActivityAt = DateTime.UtcNow
             };
+            // Before the entry is out: the next sample holds the process against it.
+            if (namedAt is { } at)
+                p.NamedBy(at);
             EnrichProcessInfo(p);
             return p;
         });
+        if (namedAt is { } named)
+            info.NamedBy(named);
 
         // Always use atomic AddBytes to prevent first-packet race —
         // two threads can both call GetOrAdd's factory, the loser's
@@ -235,7 +242,10 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         {
             held?.Process.Dispose();
             _held.Remove(processId);
-            var process = _holdProcess(processId, info.FirstSeenAt);
+            // Bytes named before the first packet (a socket read's name, say) can be from a
+            // process that exited unseen. The one that has the ID must have started before them.
+            var since = info.NamedSince is { } named && named < info.FirstSeenAt ? named : info.FirstSeenAt;
+            var process = _holdProcess(processId, since);
             if (process is null)
                 return true;
             _held[processId] = held = new Held(info, process);
