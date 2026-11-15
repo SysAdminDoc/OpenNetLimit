@@ -26,6 +26,16 @@ public class WinDivertInterceptorTests
         Assert.False(WinDivertInterceptor.NetworkLayerFlags.HasFlag(WinDivert.Flag.RecvOnly));
     }
 
+    [Fact]
+    public void NetworkLayer_QueuesAsManyPacketsAsTheDriverAllows()
+    {
+        // With the default 4096-packet, 4 MB queue the driver dropped packets whenever a burst
+        // arrived faster than the packet loop drained it: about half of a 12,000-datagram
+        // loopback burst was lost and fast downloads stalled. At the maximum none were lost.
+        Assert.Equal(WinDivert.QueueLengthMax, WinDivertInterceptor.NetworkQueueLength);
+        Assert.Equal(WinDivert.QueueSizeMax, WinDivertInterceptor.NetworkQueueBytes);
+    }
+
     [Theory]
     [InlineData("::ffff:192.168.1.27", "192.168.1.27")]
     [InlineData("::ffff:127.0.0.1", "127.0.0.1")]

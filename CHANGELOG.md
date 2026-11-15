@@ -22,6 +22,7 @@
 - `onl rules add` works. The service only took rule actions as numbers while the CLI sends names (#1)
 - The control pipe stays up when the service isn't elevated or the engine fails to start, so the app and CLI can still report the problem
 - DNS answers are cached from responses again, which gives domain rules something to match
+- Fast downloads no longer stall, and short bursts of traffic no longer lose packets while the engine catches up. The driver's packet queue was left at its small default, and the driver dropped whatever didn't fit without reporting it
 
 ## 1.0.2 (2026-09-12)
 

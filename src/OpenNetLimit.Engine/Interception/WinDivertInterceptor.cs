@@ -43,6 +43,16 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// </summary>
     internal const WinDivert.Flag NetworkLayerFlags = 0;
 
+    /// <summary>
+    /// The driver drops packets once more are waiting than its queue holds. The defaults are
+    /// 4096 packets and 4 MB, which a fast download fills in a few milliseconds (with receive
+    /// coalescing a 4 MB queue holds only about 64 packets of 64 KB). Those drops are silent, so
+    /// TCP stalls on retransmits while the packet loop catches up. These are the largest values
+    /// WinDivert allows; at the maximum a 12,000-datagram loopback burst arrives whole.
+    /// </summary>
+    internal const ulong NetworkQueueLength = WinDivert.QueueLengthMax;
+    internal const ulong NetworkQueueBytes = WinDivert.QueueSizeMax;
+
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
     private CancellationTokenSource? _cts;
@@ -90,6 +100,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             _flowHandle = OpenHandle(WinDivert.Layer.Flow, FlowLayerFlags);
             _networkHandle = OpenHandle(WinDivert.Layer.Network, NetworkLayerFlags);
+            _networkHandle.QueueLength = NetworkQueueLength;
+            _networkHandle.QueueSize = NetworkQueueBytes;
         }
         catch
         {
