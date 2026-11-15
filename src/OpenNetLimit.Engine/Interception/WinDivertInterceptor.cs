@@ -18,7 +18,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly PacketScheduler _scheduler = new();
     private readonly ConnectionLogger _connectionLog = new();
     private readonly DnsDomainCache _dnsCache = new();
+    private readonly SocketOwners _socketOwners;
+    private Timer? _socketRefreshTimer;
     private long _totalBlocked;
+
+    /// <summary>How often adopted flows are checked against the OS socket tables.</summary>
+    private static readonly TimeSpan SocketRefreshInterval = TimeSpan.FromSeconds(30);
 
     private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -67,6 +72,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _rateLimiter = rateLimiter;
         _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
+        _socketOwners = new SocketOwners(flowTracker, OsSocketTable.Read,
+            processId => new ProcessIdentity(ResolveProcessName(processId), ResolveProcessPath(processId)));
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -108,7 +115,23 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
+        // The first read happens right away, after the flow handle is open, so every connection
+        // is either reported by the flow layer or found in the tables.
+        _socketRefreshTimer = new Timer(_ => RefreshSocketOwners(), null, TimeSpan.Zero, SocketRefreshInterval);
+
         return Task.CompletedTask;
+    }
+
+    private void RefreshSocketOwners()
+    {
+        try
+        {
+            _socketOwners.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Reading the socket tables failed: {ex.Message}");
+        }
     }
 
     private static WinDivert OpenHandle(WinDivert.Layer layer, WinDivert.Flag flags)
@@ -128,6 +151,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         if (!IsRunning) return;
 
         _cts?.Cancel();
+        _socketRefreshTimer?.Dispose();
+        _socketRefreshTimer = null;
 
         try
         {
@@ -241,6 +266,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 TryCacheDnsResponse(_dnsCache, flowKey, isOutbound, payloadData.Span);
 
                 var processId = _flowTracker.LookupProcessId(flowKey);
+                if (processId is null && _socketOwners.TryAdopt(flowKey, isOutbound))
+                    processId = _flowTracker.LookupProcessId(flowKey);
                 if (processId is null)
                 {
                     _networkHandle.SendEx(packet.Span, addrBuffer.Span);
@@ -445,6 +472,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         var task = StopAsync();
         if (!task.IsCompleted)
             task.ConfigureAwait(false).GetAwaiter().GetResult();
+        // StopAsync returns early when the loops already stopped on their own.
+        _socketRefreshTimer?.Dispose();
         _cts?.Dispose();
     }
 }
