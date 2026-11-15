@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
 using Forms = System.Windows.Forms;
@@ -24,7 +25,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
         if (MarketingCapture.IsEnabled && MarketingCapture.View == "history")
-            MainTabs.SelectedIndex = 1;
+            HistoryTab.IsSelected = true;
+        else if (MarketingCapture.IsEnabled && MarketingCapture.View == "rules")
+            RulesTab.IsSelected = true;
         _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
         _viewModel.TrayNoticeRaised += OnTrayNotice;
         _viewModel.EngineStateChanged += UpdateTrayPauseState;
@@ -193,10 +196,108 @@ public partial class MainWindow : Window
 
     private async void OnTabChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (e.Source is System.Windows.Controls.TabControl && HistoryTab.IsSelected)
-        {
+        // Selection changes in the grids and combo boxes inside the tabs bubble up here too.
+        if (e.Source is not System.Windows.Controls.TabControl)
+            return;
+        if (HistoryTab.IsSelected)
             await _viewModel.HistoryViewModel.LoadDataAsync();
-        }
+        else if (RulesTab.IsSelected && !MarketingCapture.IsEnabled)
+            await _viewModel.RulesViewModel.RefreshAsync();
+    }
+
+    private RulesViewModel Rules => _viewModel.RulesViewModel;
+
+    private void OnAddRule(object sender, RoutedEventArgs e) => OpenRuleEditor(null);
+
+    private void OnEditRule(object sender, RoutedEventArgs e)
+    {
+        if (Rules.CanChangeSelectedRule && Rules.SelectedRule is { } row)
+            OpenRuleEditor(row.Rule);
+    }
+
+    private void OnRuleDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        // Only a double-click on a row edits it, not one on a header or the empty space below.
+        if (e.OriginalSource is DependencyObject source && RulesGrid.ContainerFromElement(source) is DataGridRow)
+            OnEditRule(sender, e);
+    }
+
+    private void OpenRuleEditor(OpenNetLimit.Core.Models.BandwidthRule? rule)
+    {
+        if (!Rules.CanEdit)
+            return;
+        new RuleEditorDialog(rule, edited => Rules.SaveRuleAsync(edited, isNew: rule is null)) { Owner = this }.ShowDialog();
+    }
+
+    private async void OnToggleRule(object sender, RoutedEventArgs e)
+    {
+        if (Rules.CanChangeSelectedRule && Rules.SelectedRule is { } row)
+            await Rules.SetEnabledAsync(row, !row.Rule.Enabled);
+    }
+
+    private async void OnDeleteRule(object sender, RoutedEventArgs e)
+    {
+        if (Rules.CanChangeSelectedRule && Rules.SelectedRule is { } row)
+            await Rules.DeleteRuleAsync(row);
+    }
+
+    private async void OnUndoRules(object sender, RoutedEventArgs e) => await Rules.UndoAsync();
+
+    private async void OnRefreshRules(object sender, RoutedEventArgs e) => await Rules.RefreshAsync();
+
+    private async void OnImportRules(object sender, RoutedEventArgs e)
+    {
+        if (!Rules.CanEdit)
+            return;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = LocalizationManager.Text("Rules_ImportTitle"),
+            Filter = LocalizationManager.Text("Rules_FileFilter"),
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) == true)
+            await Rules.ImportFromAsync(dialog.FileName);
+    }
+
+    private async void OnExportRules(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = LocalizationManager.Text("Rules_ExportTitle"),
+            Filter = LocalizationManager.Text("Rules_FileFilter"),
+            FileName = "opennetlimit-rules.json",
+            DefaultExt = ".json",
+            AddExtension = true
+        };
+        if (dialog.ShowDialog(this) == true)
+            await Rules.ExportToAsync(dialog.FileName);
+    }
+
+    private void OnAddAlert(object sender, RoutedEventArgs e) => OpenAlertEditor(null);
+
+    private void OnEditAlert(object sender, RoutedEventArgs e)
+    {
+        if (Rules.CanChangeSelectedAlert && Rules.SelectedAlert is { } row)
+            OpenAlertEditor(row.Alert);
+    }
+
+    private void OnAlertDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source && AlertsGrid.ContainerFromElement(source) is DataGridRow)
+            OnEditAlert(sender, e);
+    }
+
+    private void OpenAlertEditor(OpenNetLimit.Core.Models.BandwidthAlertRule? alert)
+    {
+        if (!Rules.CanEdit)
+            return;
+        new AlertEditorDialog(alert, edited => Rules.SaveAlertAsync(edited, isNew: alert is null)) { Owner = this }.ShowDialog();
+    }
+
+    private async void OnDeleteAlert(object sender, RoutedEventArgs e)
+    {
+        if (Rules.CanChangeSelectedAlert && Rules.SelectedAlert is { } row)
+            await Rules.DeleteAlertAsync(row);
     }
 
     private async void OnHistoryRefresh(object sender, RoutedEventArgs e)

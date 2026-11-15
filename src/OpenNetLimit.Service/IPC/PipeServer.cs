@@ -4,6 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using OpenNetLimit.Core;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
@@ -232,7 +233,7 @@ public class PipeServer
             "PROCESSES" => Task.FromResult(JsonSerializer.Serialize(_trafficMonitor.GetAllProcesses(), JsonOptions)),
             "STATUS" => Task.FromResult(GetStatusResponse()),
             "CONNECTION_LOG" => Task.FromResult(GetConnectionLog()),
-            "EXPORT_RULES" => Task.FromResult(_ruleEngine.ExportRules()),
+            "EXPORT_RULES" => Task.FromResult(ExportRules()),
             "STATS_HOURLY" => Task.FromResult(GetStatsHourly(payload)),
             "STATS_DAILY" => Task.FromResult(GetStatsDaily(payload)),
             "STATS_TOP" => Task.FromResult(GetStatsTop()),
@@ -359,6 +360,11 @@ public class PipeServer
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
         }
+        catch (ArgumentException ex)
+        {
+            // A rule with no program. Uncaught, it dropped the client's connection.
+            return ErrorResponse(ex.Message);
+        }
     }
 
     private string RemoveRule(string payload)
@@ -384,7 +390,18 @@ public class PipeServer
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
         }
+        catch (ArgumentException ex)
+        {
+            return ErrorResponse(ex.Message);
+        }
     }
+
+    /// <summary>
+    /// The export on one line. The engine writes it indented, and a client reads one line per
+    /// reply, so it only ever got the opening bracket.
+    /// </summary>
+    private string ExportRules() =>
+        JsonNode.Parse(_ruleEngine.ExportRules())?.ToJsonString() ?? "[]";
 
     private string ImportRules(string payload)
     {
@@ -396,6 +413,10 @@ public class PipeServer
         catch (JsonException ex)
         {
             return ErrorResponse($"invalid JSON: {ex.Message}");
+        }
+        catch (ArgumentException ex)
+        {
+            return ErrorResponse(ex.Message);
         }
     }
 

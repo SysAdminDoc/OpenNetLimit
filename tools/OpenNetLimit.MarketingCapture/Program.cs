@@ -23,7 +23,8 @@ internal static class Program
         ("live", "02-live-traffic.png"),
         ("history", "03-bandwidth-history.png"),
         ("limit", "04-set-limit.png"),
-        ("live-light", "05-light-theme.png")
+        ("live-light", "05-light-theme.png"),
+        ("rules", "06-rules.png")
     ];
 
     [STAThread]

@@ -1,0 +1,108 @@
+<Window x:Class="OpenNetLimit.UI.AlertEditorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:OpenNetLimit.UI.Services"
+        Icon="Assets/OpenNetLimit.ico"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        WindowStyle="SingleBorderWindow">
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="22,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Image Source="Assets/OpenNetLimit.png" Width="40" Height="40" Margin="0,0,12,0"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderTitle" FontSize="19" FontWeight="SemiBold"/>
+                    <TextBlock Text="{loc:Loc AlertEditor_Subtitle}" Style="{StaticResource SectionSubtitle}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="22,18" Padding="18">
+            <Grid>
+                <Grid.Resources>
+                    <Style x:Key="FieldLabel" TargetType="TextBlock">
+                        <Setter Property="VerticalAlignment" Value="Center"/>
+                        <Setter Property="Margin" Value="0,0,0,8"/>
+                        <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}"/>
+                    </Style>
+                    <Style x:Key="FieldHint" TargetType="TextBlock" BasedOn="{StaticResource SectionSubtitle}">
+                        <Setter Property="Margin" Value="0,-3,0,12"/>
+                        <Setter Property="TextWrapping" Value="Wrap"/>
+                    </Style>
+                </Grid.Resources>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="130"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Text="{loc:Loc RuleEditor_ProgramLabel}" Style="{StaticResource FieldLabel}"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ProgramBox" Margin="0,0,0,8"
+                         AutomationProperties.Name="{loc:Loc RuleEditor_ProgramLabel}"/>
+
+                <TextBlock Grid.Row="1" Text="{loc:Loc RuleEditor_PathLabel}" Style="{StaticResource FieldLabel}"/>
+                <TextBox Grid.Row="1" Grid.Column="1" x:Name="PathBox" Margin="0,0,8,8"
+                         AutomationProperties.Name="{loc:Loc RuleEditor_PathLabel}"/>
+                <Button Grid.Row="1" Grid.Column="2" Content="{loc:Loc RuleEditor_Browse}" Margin="0,0,0,8"
+                        MinWidth="86" Click="OnBrowse"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc AlertEditor_ProgramHint}"
+                           Style="{StaticResource FieldHint}"/>
+
+                <TextBlock Grid.Row="3" Text="{loc:Loc RuleEditor_NameLabel}" Style="{StaticResource FieldLabel}"/>
+                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="NameBox" Margin="0,0,0,8"
+                         AutomationProperties.Name="{loc:Loc RuleEditor_NameLabel}"/>
+
+                <TextBlock Grid.Row="4" Text="{loc:Loc AlertEditor_DirectionLabel}" Style="{StaticResource FieldLabel}"/>
+                <ComboBox Grid.Row="4" Grid.Column="1" x:Name="DirectionCombo" Margin="0,0,8,8" MinWidth="200"
+                          HorizontalAlignment="Left" AutomationProperties.Name="{loc:Loc AlertEditor_DirectionLabel}"/>
+
+                <TextBlock Grid.Row="5" Text="{loc:Loc AlertEditor_ThresholdLabel}" Style="{StaticResource FieldLabel}"/>
+                <TextBox Grid.Row="5" Grid.Column="1" x:Name="ThresholdBox" Margin="0,0,8,8"
+                         AutomationProperties.Name="{loc:Loc AlertEditor_ThresholdLabel}"/>
+                <TextBlock Grid.Row="5" Grid.Column="2" Text="{loc:Loc RateUnit_Kbps}" Style="{StaticResource FieldLabel}"/>
+
+                <TextBlock Grid.Row="6" Text="{loc:Loc AlertEditor_CooldownLabel}" Style="{StaticResource FieldLabel}"/>
+                <TextBox Grid.Row="6" Grid.Column="1" x:Name="CooldownBox" Margin="0,0,8,8"
+                         AutomationProperties.Name="{loc:Loc AlertEditor_CooldownLabel}"/>
+                <TextBlock Grid.Row="6" Grid.Column="2" Text="{loc:Loc AlertEditor_Minutes}" Style="{StaticResource FieldLabel}"/>
+
+                <CheckBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EnabledCheck" Margin="0,4,0,4"
+                          Content="{loc:Loc RuleEditor_Enabled}"/>
+
+                <TextBlock Grid.Row="8" Grid.ColumnSpan="3" x:Name="ErrorText" TextWrapping="Wrap"
+                           Foreground="{DynamicResource DangerBrush}" Margin="0,10,0,0"
+                           Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="22,13">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="{loc:Loc Action_Cancel}" Width="90" Margin="0,0,8,0" IsCancel="True"/>
+                <Button x:Name="SaveButton" Content="{loc:Loc Action_Save}" Style="{StaticResource PrimaryButton}"
+                        Width="96" IsDefault="True" Click="OnSave"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

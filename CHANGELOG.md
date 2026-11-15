@@ -10,6 +10,8 @@
 - New issues on GitHub open a bug report form that asks for the version, how you installed it, `last-error.txt` and the self test output. Feature requests have their own form
 - Pause for games. The tray menu, `onl pause` and `POST /api/v1/engine/pause` stop filtering and unload the WinDivert driver, for games like Valorant and Call of Duty whose anti-cheat won't run next to a packet driver. If another program still has the driver open, the tray and `onl pause` (exit code 2) name it, and the app tells you once the driver finally unloads. Resume brings everything back. If it can't start, for example because another program is still letting go of the driver, it stays paused, says why in the window and tells you when you can try again. The status also notices when another program loads the driver while you're paused. The app shows Paused instead of an engine error while it's off
 - Stay paused after restart, in the tray menu or as `onl pause --stay-paused`, keeps the engine off through reboots until you resume. Without it, a pause ends when the service restarts. If that choice can't be saved or cleared, the tray, `onl pause` and `onl resume` warn you
+- A Rules tab in the app. It lists every rule with its limit, schedule, group and how much of its data cap is used, and you can add, edit, turn off or delete rules from it. Undo brings back a rule you deleted. One form covers hours and days, and a daily, weekly or monthly data cap that blocks or slows the app once it's used up. Speed alerts get their own list and form on the same tab
+- Export and Import on the Rules tab save your rules to a file and load them back, on the same PC or another one. Import also reads the service's own `rules.json`, and a rule with the same ID replaces the one you have
 
 ### Fixed
 - Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too
@@ -45,6 +47,10 @@
 - The engine starts when another WinDivert program has left its driver registered to a folder it since deleted. OpenNetLimit removes that leftover registration and loads its own driver. Before, it refused to start with an error that didn't name the cause
 - When antivirus quarantines `WinDivert64.sys`, the startup error says so and names the folder the file belongs in
 - If another program is still loading the WinDivert driver when the service starts, the service waits for it to finish (up to 10 seconds) before opening the driver. Opening it partway through its load can crash Windows
+- Adding, changing or importing a rule with no program name or path closed the client's pipe connection, and the REST API answered 500. Both now answer with the reason, and REST returns 400
+- Imported rules can spell out their action and direction as names (`"action": "Block"`). Import used to accept only numbers
+- The control pipe's `EXPORT_RULES` answers on one line like every other command. It sent indented JSON, so a client reading line by line got only `[`
+- Table cells in the app have padding and sit centered in their rows. The text used to hug the top left corner
 
 ### Changed
 - OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK

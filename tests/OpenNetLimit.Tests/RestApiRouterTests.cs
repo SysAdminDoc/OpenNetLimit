@@ -162,6 +162,21 @@ public class RestApiRouterTests
         Assert.Equal("chrome", rules.GetAllRules()[0].ProcessName);
     }
 
+    [Theory]
+    [InlineData("POST", "/api/v1/rules", """{"downloadBytesPerSecond":1024}""")]
+    [InlineData("PUT", "/api/v1/rules/8c0f8b0e-4a39-4f4e-9d55-4f7f6c7a0c11", """{"processPath":""}""")]
+    [InlineData("POST", "/api/v1/rules/import", """[{"action":1}]""")]
+    public async Task RuleWithoutAProgram_IsABadRequest(string method, string path, string body)
+    {
+        var (_, rules, router) = CreateRouter("secret");
+
+        var response = await router.HandleAsync(new RestApiRequest(method, path, string.Empty, body, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ProcessName or ProcessPath", response.Body);
+        Assert.Empty(rules.GetAllRules());
+    }
+
     [Fact]
     public async Task AddRule_NamedWithExe_MatchesTheApp()
     {

@@ -145,8 +145,19 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set
         {
             if (SetField(ref _isAdmin, value))
+            {
                 OnLimitMenuChanged();
+                UpdateRulesAccess();
+            }
         }
+    }
+
+    public RulesViewModel RulesViewModel { get; }
+
+    private void UpdateRulesAccess()
+    {
+        RulesViewModel.CanEdit = IsAdmin;
+        RulesViewModel.EditHint = IsAdmin ? null : LocalizationManager.Text("Menu_AdminRequired");
     }
 
     private ProcessViewModel? _selectedProcess;
@@ -305,6 +316,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _reconnectTimer.Tick += async (_, _) => await TryConnectAsync();
 
         HistoryViewModel = new HistoryViewModel(_client);
+        RulesViewModel = new RulesViewModel(command => _client.SendCommandAsync(command));
 
         _statusTracker.Changed += ApplyStatus;
         ThemeManager.ThemeChanged += OnThemeChanged;
@@ -465,6 +477,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         });
 
         HistoryViewModel.ApplyMarketingFixture();
+        RulesViewModel.ApplyMarketingFixture();
     }
 
     private void DetectAdmin()
@@ -736,6 +749,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         ApplyStatus(_statusTracker.Current);
         OnLimitMenuChanged();
+        UpdateRulesAccess();
+        RulesViewModel.Relocalize();
         PermissionDisplay = IsAdmin
             ? LocalizationManager.Text("Mode_Administrator")
             : LocalizationManager.Text("Mode_ReadOnly");

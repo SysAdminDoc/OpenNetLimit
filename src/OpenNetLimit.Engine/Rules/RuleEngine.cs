@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using OpenNetLimit.Core;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 
@@ -14,10 +15,13 @@ public class RuleEngine : IRuleEngine
 
     public event Action? OnRulesChanged;
 
+    // The converter lets an imported or hand-edited file name its enums ("action": "Block")
+    // like the pipe and REST requests can. It still writes numbers, so the file format is unchanged.
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new EnumNameOrNumberConverter() }
     };
 
     public void AddRule(BandwidthRule rule)

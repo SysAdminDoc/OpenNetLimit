@@ -220,6 +220,182 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="{loc:Loc Tab_Rules}" x:Name="RulesTab">
+                <Grid Margin="0,12,0,0" DataContext="{Binding RulesViewModel}">
+                    <Grid.Resources>
+                        <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Setter Property="MinWidth" Value="74"/>
+                            <Setter Property="Margin" Value="0,0,8,0"/>
+                            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+                        </Style>
+                        <Style x:Key="EmptyListText" TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}"/>
+                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="TextWrapping" Value="Wrap"/>
+                            <Setter Property="TextAlignment" Value="Center"/>
+                            <Setter Property="Margin" Value="24,38,24,0"/>
+                            <Setter Property="IsHitTestVisible" Value="False"/>
+                        </Style>
+                        <!-- A long path or schedule ends in "..." and shows in full on hover. -->
+                        <Style x:Key="TrimmedCell" TargetType="TextBlock">
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            <Setter Property="ToolTip" Value="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </Style>
+                    </Grid.Resources>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="200"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource CardBorder}" Padding="0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="16,12,8,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock Text="{loc:Loc Rules_Title}" Style="{StaticResource SectionTitle}"/>
+                                    <TextBlock Text="{loc:Loc Rules_Subtitle}" Style="{StaticResource SectionSubtitle}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="{loc:Loc Rules_Add}" Style="{StaticResource PrimaryButton}" Click="OnAddRule"
+                                            MinWidth="96" Margin="0,0,8,0" ToolTipService.ShowOnDisabled="True"
+                                            IsEnabled="{Binding CanEdit}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{loc:Loc Rules_Edit}" Style="{StaticResource ToolbarButton}" Click="OnEditRule"
+                                            IsEnabled="{Binding CanChangeSelectedRule}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{Binding ToggleLabel}" Style="{StaticResource ToolbarButton}" Click="OnToggleRule"
+                                            IsEnabled="{Binding CanChangeSelectedRule}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{loc:Loc Rules_Delete}" Style="{StaticResource ToolbarButton}" Click="OnDeleteRule"
+                                            IsEnabled="{Binding CanChangeSelectedRule}" ToolTip="{Binding EditHint}"/>
+                                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="4,6,12,6"/>
+                                    <Button Content="{loc:Loc Rules_Import}" Style="{StaticResource ToolbarButton}" Click="OnImportRules"
+                                            IsEnabled="{Binding CanEdit}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{loc:Loc Rules_Export}" Style="{StaticResource ToolbarButton}" Click="OnExportRules"/>
+                                    <Button Content="{loc:Loc Rules_Refresh}" Style="{StaticResource ToolbarButton}" Click="OnRefreshRules"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <DataGrid Grid.Row="1" x:Name="RulesGrid" ItemsSource="{Binding Rules}"
+                                      SelectedItem="{Binding SelectedRule, Mode=TwoWay}"
+                                      loc:DataGridRightClick.SelectRowOnRightClick="True"
+                                      MouseDoubleClick="OnRuleDoubleClick"
+                                      Style="{StaticResource DataGridStyle}"
+                                      AutomationProperties.Name="{loc:Loc Rules_GridAutomation}">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{loc:Loc Rules_Edit}" Click="OnEditRule"
+                                                  IsEnabled="{Binding CanChangeSelectedRule}"
+                                                  ToolTipService.ShowOnDisabled="True" ToolTip="{Binding EditHint}"/>
+                                        <MenuItem Header="{Binding ToggleLabel}" Click="OnToggleRule"
+                                                  IsEnabled="{Binding CanChangeSelectedRule}"
+                                                  ToolTipService.ShowOnDisabled="True" ToolTip="{Binding EditHint}"/>
+                                        <MenuItem Header="{loc:Loc Rules_Delete}" Click="OnDeleteRule"
+                                                  IsEnabled="{Binding CanChangeSelectedRule}"
+                                                  ToolTipService.ShowOnDisabled="True" ToolTip="{Binding EditHint}"/>
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Program}" Binding="{Binding Target}" Width="1.5*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Name}" Binding="{Binding Name}" Width="1.1*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Action}" Binding="{Binding ActionDisplay}" Width="0.7*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Limit}" Binding="{Binding LimitDisplay}" Width="1.3*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Schedule}" Binding="{Binding ScheduleDisplay}" Width="1.3*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Group}" Binding="{Binding GroupDisplay}" Width="0.8*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Quota}" Binding="{Binding QuotaDisplay}" Width="1.3*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_State}" Binding="{Binding StateDisplay}" Width="Auto" MinWidth="70"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock Grid.Row="1" Text="{loc:Loc Rules_Empty}" Style="{StaticResource EmptyListText}"
+                                       Visibility="{Binding HasNoRules, Converter={StaticResource BoolToVisibility}}"/>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" MinHeight="40" Margin="4,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="900"
+                                       AutomationProperties.LiveSetting="Polite">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding MessageIsError}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <Button Content="{loc:Loc Rules_Undo}" Style="{StaticResource CompactButton}" Click="OnUndoRules"
+                                    Margin="12,0,0,0" Visibility="{Binding CanUndo, Converter={StaticResource BoolToVisibility}}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="16,12,8,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock Text="{loc:Loc Alerts_Title}" Style="{StaticResource SectionTitle}"/>
+                                    <TextBlock Text="{loc:Loc Alerts_Subtitle}" Style="{StaticResource SectionSubtitle}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="{loc:Loc Alerts_Add}" Style="{StaticResource ToolbarButton}" Click="OnAddAlert"
+                                            MinWidth="96" IsEnabled="{Binding CanEdit}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{loc:Loc Rules_Edit}" Style="{StaticResource ToolbarButton}" Click="OnEditAlert"
+                                            IsEnabled="{Binding CanChangeSelectedAlert}" ToolTip="{Binding EditHint}"/>
+                                    <Button Content="{loc:Loc Rules_Delete}" Style="{StaticResource ToolbarButton}" Click="OnDeleteAlert"
+                                            IsEnabled="{Binding CanChangeSelectedAlert}" ToolTip="{Binding EditHint}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <DataGrid Grid.Row="1" x:Name="AlertsGrid" ItemsSource="{Binding Alerts}"
+                                      SelectedItem="{Binding SelectedAlert, Mode=TwoWay}"
+                                      loc:DataGridRightClick.SelectRowOnRightClick="True"
+                                      MouseDoubleClick="OnAlertDoubleClick"
+                                      Style="{StaticResource DataGridStyle}"
+                                      AutomationProperties.Name="{loc:Loc Alerts_GridAutomation}">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{loc:Loc Rules_Edit}" Click="OnEditAlert"
+                                                  IsEnabled="{Binding CanChangeSelectedAlert}"
+                                                  ToolTipService.ShowOnDisabled="True" ToolTip="{Binding EditHint}"/>
+                                        <MenuItem Header="{loc:Loc Rules_Delete}" Click="OnDeleteAlert"
+                                                  IsEnabled="{Binding CanChangeSelectedAlert}"
+                                                  ToolTipService.ShowOnDisabled="True" ToolTip="{Binding EditHint}"/>
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Name}" Binding="{Binding Name}" Width="1.2*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Program}" Binding="{Binding Target}" Width="1.5*" ElementStyle="{StaticResource TrimmedCell}"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Direction}" Binding="{Binding DirectionDisplay}" Width="1*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Threshold}" Binding="{Binding ThresholdDisplay}" Width="0.9*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Cooldown}" Binding="{Binding CooldownDisplay}" Width="0.9*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_State}" Binding="{Binding StateDisplay}" Width="Auto" MinWidth="70"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock Grid.Row="1" Text="{loc:Loc Alerts_Empty}" Style="{StaticResource EmptyListText}"
+                                       Visibility="{Binding HasNoAlerts, Converter={StaticResource BoolToVisibility}}"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
             <TabItem Header="{loc:Loc Tab_History}" x:Name="HistoryTab">
                 <Grid Margin="0,12,0,0" DataContext="{Binding HistoryViewModel}">
                     <Grid.RowDefinitions>

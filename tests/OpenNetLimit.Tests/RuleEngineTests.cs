@@ -196,6 +196,19 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void ImportRules_ReadsEnumNamesAndStillSavesNumbers()
+    {
+        var engine = new RuleEngine();
+
+        engine.ImportRules("""[{"processName":"game","action":"Block","quota":{"limitBytes":1024,"period":"Weekly"}}]""");
+
+        var rule = Assert.Single(engine.GetAllRules());
+        Assert.Equal(RuleAction.Block, rule.Action);
+        Assert.Equal(QuotaPeriod.Weekly, rule.Quota!.Period);
+        Assert.Contains("\"action\": 1", engine.ExportRules());
+    }
+
+    [Fact]
     public void ImportRules_Merge_AddsToExisting()
     {
         var engine = new RuleEngine();

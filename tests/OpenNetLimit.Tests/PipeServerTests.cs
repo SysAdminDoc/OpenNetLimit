@@ -115,6 +115,39 @@ public class PipeServerTests
         Assert.Contains("engine control unavailable", reply);
     }
 
+    [Fact]
+    public async Task ExportRules_FitsOnTheOneLineAClientReads()
+    {
+        var rules = new RuleEngine();
+        rules.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 1024 });
+        rules.AddRule(new BandwidthRule { ProcessName = "steam", Action = RuleAction.Block });
+        var server = CreateServer(rules, new RecordingLogger(), "unused");
+
+        var reply = await server.ProcessCommandAsync("EXPORT_RULES", string.Empty, CancellationToken.None);
+
+        Assert.DoesNotContain('\n', reply);
+        var other = new RuleEngine();
+        other.ImportRules(reply);
+        Assert.Equal(new[] { "chrome", "steam" }, other.GetAllRules().Select(r => r.ProcessName).Order());
+    }
+
+    // An uncaught refusal from the rule engine used to drop the client's connection.
+    [Theory]
+    [InlineData("ADD_RULE", """{"downloadBytesPerSecond":1024}""")]
+    [InlineData("UPDATE_RULE", """{"id":"8c0f8b0e-4a39-4f4e-9d55-4f7f6c7a0c11","processName":" "}""")]
+    [InlineData("IMPORT_RULES", """[{"processName":"chrome"},{"action":1}]""")]
+    public async Task RuleWithoutAProgram_IsRefusedWithAReason(string command, string payload)
+    {
+        var rules = new RuleEngine();
+        var server = CreateServer(rules, new RecordingLogger(), "unused");
+
+        var reply = await server.ProcessCommandAsync(command, payload, CancellationToken.None);
+
+        Assert.Contains("\"error\"", reply);
+        Assert.Contains("ProcessName or ProcessPath", reply);
+        Assert.Empty(rules.GetAllRules());
+    }
+
     private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
         ControlPlaneState? controlPlane = null)
     {

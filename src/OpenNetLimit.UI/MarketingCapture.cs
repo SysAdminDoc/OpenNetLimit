@@ -14,7 +14,7 @@ internal static class MarketingCapture
         get
         {
             var requested = Environment.GetEnvironmentVariable(ViewVariable)?.Trim().ToLowerInvariant();
-            return requested is "setup" or "live" or "live-light" or "history" or "limit"
+            return requested is "setup" or "live" or "live-light" or "history" or "rules" or "limit"
                 ? requested
                 : "live";
         }

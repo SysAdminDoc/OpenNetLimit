@@ -156,4 +156,116 @@
   <data name="Setup_LocalNote" xml:space="preserve"><value>Rules and traffic history stay on this Windows PC.</value></data>
   <data name="Setup_WelcomeCardTitle" xml:space="preserve"><value>See what is using your connection</value></data>
   <data name="SetLimit_Subtitle" xml:space="preserve"><value>Set an independent ceiling for this application.</value></data>
+  <data name="Tab_Rules" xml:space="preserve"><value>Rules</value></data>
+  <data name="Rules_Title" xml:space="preserve"><value>Rules</value></data>
+  <data name="Rules_Subtitle" xml:space="preserve"><value>Every limit, block and schedule the service applies.</value></data>
+  <data name="Rules_Add" xml:space="preserve"><value>Add rule</value></data>
+  <data name="Rules_Edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="Rules_TurnOn" xml:space="preserve"><value>Turn on</value></data>
+  <data name="Rules_TurnOff" xml:space="preserve"><value>Turn off</value></data>
+  <data name="Rules_Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Rules_Undo" xml:space="preserve"><value>Undo</value></data>
+  <data name="Rules_Import" xml:space="preserve"><value>Import</value></data>
+  <data name="Rules_Export" xml:space="preserve"><value>Export</value></data>
+  <data name="Rules_Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Rules_Empty" xml:space="preserve"><value>No rules yet. Add one here, or right-click an app on the Real-time tab.</value></data>
+  <data name="Rules_GridAutomation" xml:space="preserve"><value>Rule list</value></data>
+  <data name="Column_Program" xml:space="preserve"><value>Program</value></data>
+  <data name="Column_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Column_Action" xml:space="preserve"><value>Action</value></data>
+  <data name="Column_Schedule" xml:space="preserve"><value>Schedule</value></data>
+  <data name="Column_Group" xml:space="preserve"><value>Group</value></data>
+  <data name="Column_Quota" xml:space="preserve"><value>Data cap</value></data>
+  <data name="Column_State" xml:space="preserve"><value>State</value></data>
+  <data name="Column_Direction" xml:space="preserve"><value>Watches</value></data>
+  <data name="Column_Threshold" xml:space="preserve"><value>Over</value></data>
+  <data name="Column_Cooldown" xml:space="preserve"><value>Repeats after</value></data>
+  <data name="Rules_ActionLimit" xml:space="preserve"><value>Limit</value></data>
+  <data name="Rules_ActionBlock" xml:space="preserve"><value>Block</value></data>
+  <data name="Rules_ActionAllow" xml:space="preserve"><value>Allow</value></data>
+  <data name="Rules_Always" xml:space="preserve"><value>Always</value></data>
+  <data name="Rules_TimeRange" xml:space="preserve"><value>{0} to {1}</value></data>
+  <data name="Rules_QuotaDaily" xml:space="preserve"><value>{0} of {1} today</value></data>
+  <data name="Rules_QuotaWeekly" xml:space="preserve"><value>{0} of {1} this week</value></data>
+  <data name="Rules_QuotaMonthly" xml:space="preserve"><value>{0} of {1} this month</value></data>
+  <data name="Rules_QuotaUsedUp" xml:space="preserve"><value>(used up)</value></data>
+  <data name="Rules_On" xml:space="preserve"><value>On</value></data>
+  <data name="Rules_Off" xml:space="preserve"><value>Off</value></data>
+  <data name="Rules_NoService" xml:space="preserve"><value>Couldn't reach the OpenNetLimit service. Check that it's running.</value></data>
+  <data name="Rules_ServiceError" xml:space="preserve"><value>The service turned that down: {0}</value></data>
+  <data name="Rules_Added" xml:space="preserve"><value>Added a rule for {0}.</value></data>
+  <data name="Rules_Saved" xml:space="preserve"><value>Saved the rule for {0}.</value></data>
+  <data name="Rules_TurnedOn" xml:space="preserve"><value>Turned on the rule for {0}.</value></data>
+  <data name="Rules_TurnedOff" xml:space="preserve"><value>Turned off the rule for {0}.</value></data>
+  <data name="Rules_Deleted" xml:space="preserve"><value>Deleted the rule for {0}.</value></data>
+  <data name="Rules_Restored" xml:space="preserve"><value>Put back the rule for {0}.</value></data>
+  <data name="Rules_Exported" xml:space="preserve"><value>Saved the rules to {1} ({0} in all).</value></data>
+  <data name="Rules_Imported" xml:space="preserve"><value>Added the rules from {1} ({0} in all).</value></data>
+  <data name="Rules_FileError" xml:space="preserve"><value>Couldn't use that file: {0}</value></data>
+  <data name="Rules_ImportNotList" xml:space="preserve"><value>That file isn't a list of rules. Export from OpenNetLimit to see the format.</value></data>
+  <data name="Rules_ImportTooBig" xml:space="preserve"><value>That file is too big to import in one go. Split it into smaller files.</value></data>
+  <data name="Rules_FileFilter" xml:space="preserve"><value>Rule files (*.json)|*.json|All files (*.*)|*.*</value></data>
+  <data name="Rules_ImportTitle" xml:space="preserve"><value>Import rules</value></data>
+  <data name="Rules_ExportTitle" xml:space="preserve"><value>Export rules</value></data>
+  <data name="Alerts_Title" xml:space="preserve"><value>Alerts</value></data>
+  <data name="Alerts_Subtitle" xml:space="preserve"><value>A notification when an app goes over a speed.</value></data>
+  <data name="Alerts_Add" xml:space="preserve"><value>Add alert</value></data>
+  <data name="Alerts_Empty" xml:space="preserve"><value>No alerts yet.</value></data>
+  <data name="Alerts_GridAutomation" xml:space="preserve"><value>Alert list</value></data>
+  <data name="Alerts_EveryApp" xml:space="preserve"><value>Every app</value></data>
+  <data name="Alerts_Download" xml:space="preserve"><value>Download</value></data>
+  <data name="Alerts_Upload" xml:space="preserve"><value>Upload</value></data>
+  <data name="Alerts_Both" xml:space="preserve"><value>Download + upload</value></data>
+  <data name="Alerts_CooldownMinutes" xml:space="preserve"><value>{0} min</value></data>
+  <data name="Alerts_Added" xml:space="preserve"><value>Added the alert {0}.</value></data>
+  <data name="Alerts_Saved" xml:space="preserve"><value>Saved the alert {0}.</value></data>
+  <data name="Alerts_Deleted" xml:space="preserve"><value>Deleted the alert {0}.</value></data>
+  <data name="Alerts_Restored" xml:space="preserve"><value>Put back the alert {0}.</value></data>
+  <data name="Action_Save" xml:space="preserve"><value>Save</value></data>
+  <data name="RateUnit_MB" xml:space="preserve"><value>MB</value></data>
+  <data name="RuleEditor_AddTitle" xml:space="preserve"><value>Add a rule</value></data>
+  <data name="RuleEditor_EditTitle" xml:space="preserve"><value>Edit rule</value></data>
+  <data name="RuleEditor_Subtitle" xml:space="preserve"><value>Pick the app, then what the rule does and when.</value></data>
+  <data name="RuleEditor_ProgramLabel" xml:space="preserve"><value>Program</value></data>
+  <data name="RuleEditor_ProgramHint" xml:space="preserve"><value>A file name like chrome.exe, a full path, or both.</value></data>
+  <data name="RuleEditor_PathLabel" xml:space="preserve"><value>Full path</value></data>
+  <data name="RuleEditor_Browse" xml:space="preserve"><value>Browse</value></data>
+  <data name="RuleEditor_BrowseFilter" xml:space="preserve"><value>Programs (*.exe)|*.exe</value></data>
+  <data name="RuleEditor_NameLabel" xml:space="preserve"><value>Name (optional)</value></data>
+  <data name="RuleEditor_ActionLabel" xml:space="preserve"><value>Action</value></data>
+  <data name="RuleEditor_DownloadLabel" xml:space="preserve"><value>Download</value></data>
+  <data name="RuleEditor_UploadLabel" xml:space="preserve"><value>Upload</value></data>
+  <data name="RuleEditor_ZeroHint" xml:space="preserve"><value>0 leaves that direction unlimited.</value></data>
+  <data name="RuleEditor_HoursLabel" xml:space="preserve"><value>Hours</value></data>
+  <data name="RuleEditor_To" xml:space="preserve"><value>to</value></data>
+  <data name="RuleEditor_SpeedLabel" xml:space="preserve"><value>Speed</value></data>
+  <data name="RuleEditor_ScheduleHint" xml:space="preserve"><value>24-hour times like 09:00. With no hours it applies all day, and with no days checked it applies every day.</value></data>
+  <data name="RuleEditor_DaysLabel" xml:space="preserve"><value>Days</value></data>
+  <data name="RuleEditor_GroupLabel" xml:space="preserve"><value>Group</value></data>
+  <data name="RuleEditor_Enabled" xml:space="preserve"><value>Turned on</value></data>
+  <data name="RuleEditor_QuotaCheck" xml:space="preserve"><value>Data cap</value></data>
+  <data name="RuleEditor_QuotaLabel" xml:space="preserve"><value>Up to</value></data>
+  <data name="RuleEditor_PeriodDaily" xml:space="preserve"><value>per day</value></data>
+  <data name="RuleEditor_PeriodWeekly" xml:space="preserve"><value>per week</value></data>
+  <data name="RuleEditor_PeriodMonthly" xml:space="preserve"><value>per month</value></data>
+  <data name="RuleEditor_WhenUsedUp" xml:space="preserve"><value>When it's used up</value></data>
+  <data name="RuleEditor_QuotaThrottle" xml:space="preserve"><value>Slow it down</value></data>
+  <data name="RuleEditor_QuotaBlock" xml:space="preserve"><value>Block it</value></data>
+  <data name="RuleEditor_QuotaWarn" xml:space="preserve"><value>Just warn me</value></data>
+  <data name="RuleEditor_SlowTo" xml:space="preserve"><value>Slow to</value></data>
+  <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Enter a program name or a full path.</value></data>
+  <data name="RuleEditor_BadNumber" xml:space="preserve"><value>Use whole numbers, like 512.</value></data>
+  <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Set a download or upload limit above 0, or pick another action.</value></data>
+  <data name="RuleEditor_BadTime" xml:space="preserve"><value>Enter both times as hours and minutes, like 09:00 and 17:30.</value></data>
+  <data name="RuleEditor_NeedQuota" xml:space="preserve"><value>Enter a data cap above 0 MB.</value></data>
+  <data name="RuleEditor_NeedThrottle" xml:space="preserve"><value>Enter the speed to slow it to, above 0 KB/s.</value></data>
+  <data name="AlertEditor_AddTitle" xml:space="preserve"><value>Add an alert</value></data>
+  <data name="AlertEditor_EditTitle" xml:space="preserve"><value>Edit alert</value></data>
+  <data name="AlertEditor_Subtitle" xml:space="preserve"><value>Get a notification when an app goes over a speed.</value></data>
+  <data name="AlertEditor_ProgramHint" xml:space="preserve"><value>Leave both empty to watch every app.</value></data>
+  <data name="AlertEditor_DirectionLabel" xml:space="preserve"><value>Watch</value></data>
+  <data name="AlertEditor_ThresholdLabel" xml:space="preserve"><value>Over</value></data>
+  <data name="AlertEditor_CooldownLabel" xml:space="preserve"><value>Repeat after</value></data>
+  <data name="AlertEditor_Minutes" xml:space="preserve"><value>minutes</value></data>
+  <data name="AlertEditor_NeedThreshold" xml:space="preserve"><value>Enter a speed above 0 KB/s.</value></data>
 </root>

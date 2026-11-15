@@ -177,6 +177,11 @@ public sealed class RestApiRouter
         {
             return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
         }
+        catch (ArgumentException ex)
+        {
+            // A rule with no program is the caller's mistake, not a server error.
+            return RestApiResponse.Error(400, ex.Message, JsonOptions);
+        }
     }
 
     private RestApiResponse AddAlertRule(string body)
@@ -212,6 +217,10 @@ public sealed class RestApiRouter
         {
             return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
         }
+        catch (ArgumentException ex)
+        {
+            return RestApiResponse.Error(400, ex.Message, JsonOptions);
+        }
     }
 
     private RestApiResponse DeleteRule(Guid id)
@@ -230,6 +239,10 @@ public sealed class RestApiRouter
         catch (JsonException ex)
         {
             return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
+        }
+        catch (ArgumentException ex)
+        {
+            return RestApiResponse.Error(400, ex.Message, JsonOptions);
         }
     }
 
