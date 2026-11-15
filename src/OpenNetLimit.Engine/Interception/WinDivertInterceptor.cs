@@ -56,6 +56,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private WinDivert? _networkHandle;
     private WinDivert? _flowHandle;
     private CancellationTokenSource? _cts;
+    private readonly DriverPreflight _preflight;
     private Task? _networkTask;
     private Task? _flowTask;
 
@@ -76,12 +77,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         IFlowTracker flowTracker,
         IRateLimiter rateLimiter,
         IRuleEngine ruleEngine,
-        ITrafficMonitor trafficMonitor)
+        ITrafficMonitor trafficMonitor,
+        IDriverService driverService)
     {
         _flowTracker = flowTracker;
         _rateLimiter = rateLimiter;
         _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
+        _preflight = new DriverPreflight(driverService);
         _socketOwners = new SocketOwners(flowTracker, OsSocketTable.Read,
             processId => new ProcessIdentity(ResolveProcessName(processId), ResolveProcessPath(processId)));
     }
@@ -98,7 +101,9 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
         try
         {
-            _flowHandle = OpenHandle(WinDivert.Layer.Flow, FlowLayerFlags);
+            if (_preflight.WaitWhileDriverIsChanging(_cts.Token) is { } waited)
+                Trace.TraceInformation(waited);
+            _flowHandle = _preflight.OpenLoadingDriver(() => OpenHandle(WinDivert.Layer.Flow, FlowLayerFlags), DriverFolder);
             _networkHandle = OpenHandle(WinDivert.Layer.Network, NetworkLayerFlags);
             _networkHandle.QueueLength = NetworkQueueLength;
             _networkHandle.QueueSize = NetworkQueueBytes;
@@ -156,6 +161,37 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             throw new WinDivertOpenException(layer, flags, ex);
         }
+    }
+
+    /// <summary>
+    /// The folder of the WinDivert.dll this process loaded. The DLL installs the driver from the
+    /// WinDivert64.sys next to it, which in a framework-dependent build is under runtimes\.
+    /// </summary>
+    internal static string DriverFolder(IEnumerable<string> modulePaths) =>
+        modulePaths
+            .Where(path => Path.GetFileName(path).Equals("WinDivert.dll", StringComparison.OrdinalIgnoreCase))
+            .Select(path => Path.GetDirectoryName(path))
+            .FirstOrDefault(folder => !string.IsNullOrEmpty(folder))
+        ?? AppContext.BaseDirectory;
+
+    private static string DriverFolder()
+    {
+        var paths = new List<string>();
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            foreach (ProcessModule module in process.Modules)
+            {
+                using (module)
+                    paths.Add(module.FileName);
+            }
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            // The open's own error matters more than this lookup, so it carries on with the app folder.
+            Trace.TraceWarning($"Listing the loaded modules failed, so the driver is looked for in the app folder: {ex.Message}");
+        }
+        return DriverFolder(paths);
     }
 
     public async Task StopAsync()

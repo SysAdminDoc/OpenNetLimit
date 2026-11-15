@@ -216,6 +216,12 @@ public class EngineWorker : BackgroundService
             CheckWinDivertDriverSignature();
             return true;
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Stopped while the start waited on another program's driver load. Not a failure.
+            _logger.LogInformation("The service stopped before the packet engine finished starting");
+            return false;
+        }
         catch (Exception ex)
         {
             _engineError = DescribeStartFailure(ex);

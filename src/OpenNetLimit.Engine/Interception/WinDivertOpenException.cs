@@ -13,21 +13,34 @@ public sealed class WinDivertOpenException : Exception
     public WinDivert.Flag Flags { get; }
     public int NativeErrorCode { get; }
 
-    /// <summary>Plain-language cause for <see cref="NativeErrorCode"/>.</summary>
-    public string Reason => DescribeError(NativeErrorCode);
+    /// <summary>The system's own text for <see cref="NativeErrorCode"/>.</summary>
+    public string NativeMessage { get; }
+
+    /// <summary>What a look at the PC found to be the cause, when it's known.</summary>
+    public string? Detail { get; }
+
+    /// <summary>Plain-language cause: <see cref="Detail"/>, else what <see cref="NativeErrorCode"/> usually means.</summary>
+    public string Reason => Detail ?? DescribeError(NativeErrorCode);
 
     public WinDivertOpenException(WinDivert.Layer layer, WinDivert.Flag flags, WinDivertException inner)
         : this(layer, flags, inner.NativeErrorCode, inner.Message, inner)
     {
     }
 
-    internal WinDivertOpenException(WinDivert.Layer layer, WinDivert.Flag flags, int nativeErrorCode, string nativeMessage, Exception? inner = null)
-        : base($"WinDivert could not open the {layer} layer (flags: {flags}): {nativeMessage} (Windows error {nativeErrorCode}). {DescribeError(nativeErrorCode)}", inner)
+    internal WinDivertOpenException(WinDivert.Layer layer, WinDivert.Flag flags, int nativeErrorCode, string nativeMessage,
+        Exception? inner = null, string? detail = null)
+        : base($"WinDivert could not open the {layer} layer (flags: {flags}): {nativeMessage} (Windows error {nativeErrorCode}). {detail ?? DescribeError(nativeErrorCode)}", inner)
     {
         Layer = layer;
         Flags = flags;
         NativeErrorCode = nativeErrorCode;
+        NativeMessage = nativeMessage;
+        Detail = detail;
     }
+
+    /// <summary>The same failure, with the cause that was found.</summary>
+    internal WinDivertOpenException WithDetail(string detail) =>
+        new(Layer, Flags, NativeErrorCode, NativeMessage, InnerException, detail);
 
     /// <summary>
     /// Maps the WinDivertOpen error codes listed in the WinDivert 2.2 documentation to a
@@ -35,7 +48,7 @@ public sealed class WinDivertOpenException : Exception
     /// </summary>
     public static string DescribeError(int nativeErrorCode) => nativeErrorCode switch
     {
-        2 => "The WinDivert driver files (WinDivert.dll, WinDivert64.sys) are missing from the install folder.",
+        2 or 3 => "Windows couldn't find a WinDivert driver file. Antivirus may have quarantined WinDivert64.sys, or another program's WinDivert driver registration points at a folder that no longer exists.",
         5 => "The service isn't running with administrator rights.",
         87 => "WinDivert rejected the layer and flag combination.",
         577 => "Windows rejected the WinDivert driver signature. Secure Boot policy or Memory Integrity (HVCI) can cause this.",

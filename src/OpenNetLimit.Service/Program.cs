@@ -36,6 +36,7 @@ builder.Services.AddSingleton<IFlowTracker, FlowTracker>();
 builder.Services.AddSingleton<IRateLimiter, ProcessRateLimiter>();
 builder.Services.AddSingleton<ITrafficMonitor, TrafficMonitor>();
 builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
+builder.Services.AddSingleton<IDriverService, WindowsDriverService>();
 builder.Services.AddSingleton<IPacketInterceptor, WinDivertInterceptor>();
 builder.Services.AddSingleton<BandwidthAlertTracker>();
 builder.Services.AddSingleton(RestApiOptions.FromEnvironment());

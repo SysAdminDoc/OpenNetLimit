@@ -40,6 +40,9 @@
 - Traffic that a Block rule or a used-up quota drops no longer counts as the app's usage, so a blocked app shows 0 B/s and its quota stops filling
 - Importing the same rules file twice no longer leaves two copies of every rule. A rule that arrives with an id already in use gets its own, so each one can be edited or deleted separately
 - Quota alerts sent to plugins report the usage they fired at. A quota period reset right after could make a plugin see 0 bytes used
+- The engine starts when another WinDivert program has left its driver registered to a folder it since deleted. OpenNetLimit removes that leftover registration and loads its own driver. Before, it refused to start and blamed missing install files
+- When antivirus quarantines `WinDivert64.sys`, the startup error says so and names the folder the file belongs in
+- If another program is still loading the WinDivert driver when the service starts, the service waits for it to finish (up to 10 seconds) before opening the driver. Opening it partway through its load can crash Windows
 
 ### Changed
 - OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK

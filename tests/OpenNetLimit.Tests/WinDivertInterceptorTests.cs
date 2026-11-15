@@ -121,6 +121,8 @@ public class WinDivertInterceptorTests
     }
 
     [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
     [InlineData(5)]
     [InlineData(87)]
     [InlineData(577)]
@@ -139,6 +141,46 @@ public class WinDivertInterceptorTests
         Assert.Contains("Sniff", ex.Message);
         Assert.Contains("87", ex.Message);
         Assert.Equal(87, ex.NativeErrorCode);
+    }
+
+    [Fact]
+    public void OpenFailureWithAFoundCause_GivesThatCauseInsteadOfTheGeneralOne()
+    {
+        const string found = "The shared WinDivert driver service points at C:\\Old\\WinDivert64.sys, which no longer exists.";
+        var inner = new InvalidOperationException("from the driver");
+        var ex = new WinDivertOpenException(WinDivert.Layer.Flow, WinDivert.Flag.Sniff | WinDivert.Flag.RecvOnly, 2,
+            "The system cannot find the file specified.", inner);
+
+        var detailed = ex.WithDetail(found);
+
+        Assert.Equal(found, detailed.Reason);
+        Assert.Contains(found, detailed.Message);
+        Assert.DoesNotContain(WinDivertOpenException.DescribeError(2), detailed.Message);
+        Assert.Equal(2, detailed.NativeErrorCode);
+        Assert.Equal(WinDivert.Layer.Flow, detailed.Layer);
+        Assert.Equal(WinDivert.Flag.Sniff | WinDivert.Flag.RecvOnly, detailed.Flags);
+        Assert.Equal("The system cannot find the file specified.", detailed.NativeMessage);
+        Assert.Same(inner, detailed.InnerException);
+    }
+
+    [Fact]
+    public void DriverFolder_IsWhereTheLoadedWinDivertDllIs()
+    {
+        const string native = @"C:\Program Files\OpenNetLimit\runtimes\win-x64\native";
+        string[] modules =
+        [
+            @"C:\Program Files\OpenNetLimit\OpenNetLimit.Service.exe",
+            @"C:\Windows\System32\ntdll.dll",
+            native + @"\WINDIVERT.DLL"
+        ];
+
+        Assert.Equal(native, WinDivertInterceptor.DriverFolder(modules));
+    }
+
+    [Fact]
+    public void DriverFolder_WithoutWinDivertLoaded_IsTheAppFolder()
+    {
+        Assert.Equal(AppContext.BaseDirectory, WinDivertInterceptor.DriverFolder([@"C:\Windows\System32\ntdll.dll"]));
     }
 
     [Fact]

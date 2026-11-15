@@ -75,7 +75,7 @@ The service starts with Windows after installation. Run `./Uninstall-Service.ps1
 
 ### Driver trust note
 
-OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires administrator rights for the service. Some security products flag WinDivert because it is a dual-use network driver. Review the [driver trust and enterprise deployment notes](docs/enterprise-driver-deployment.md) before approving it on a managed PC.
+OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires administrator rights for the service. Some security products flag WinDivert because it is a dual-use network driver. Review the [driver trust and enterprise deployment notes](docs/enterprise-driver-deployment.md) before approving it on a managed PC. If antivirus quarantines `WinDivert64.sys`, the service won't start and its error names the folder the file belongs in. Restore it from quarantine, allow it, and restart the service.
 
 ## Everyday use
 
