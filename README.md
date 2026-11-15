@@ -5,7 +5,7 @@
 <p align="center"><strong>See which apps use your connection. Set the limits that matter.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-27C7F3?style=flat-square"></a>
+  <a href="https://github.com/SysAdminDoc/OpenNetLimit/releases/latest"><img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-27C7F3?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4BE5A2?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0A84FF?style=flat-square">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-6D4AFF?style=flat-square">
@@ -57,22 +57,23 @@ Use it when a download is wrecking a call or when a background app is chewing th
 
 ## Download
 
-The release ZIP holds a self-contained Windows x64 build, so you don't need to install .NET.
+Most people want the installer, `OpenNetLimit-v1.1.0-setup-win-x64.exe`. It sets up the service and a Start menu entry. The ZIP holds the same build for running from a folder you pick. Both are self-contained Windows x64 builds, so you don't need to install .NET.
 
-[Download OpenNetLimit 1.0.2](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
+[Download OpenNetLimit 1.1.0](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
 
-Each release has a SHA-256 checksum file. Check the ZIP against it if you got the ZIP anywhere other than this repository.
+Every download has a SHA-256 checksum file beside it. Check the file against it if you got it anywhere other than this repository.
 
 Once a day the app asks GitHub whether there's a newer release. When there is, a button in the status bar takes you to it. Nothing gets downloaded. The **Updates** button in the status bar turns the check off, and setting `OPENNETLIMIT_NO_UPDATE_CHECK=1` turns it off for every user on a managed PC.
 
 ## Quick start
 
-1. Download the latest Windows x64 ZIP and extract it to a permanent folder.
-2. Open an Administrator PowerShell window in that folder and run `./Install-Service.ps1`.
-3. Launch `OpenNetLimit.UI.exe`.
-4. Right-click an application in the traffic list to set or remove its limit.
+1. Run the setup exe and accept the administrator prompt.
+2. Open OpenNetLimit from the Start menu, or leave the box at the end of setup ticked.
+3. Right-click an application in the traffic list to set or remove its limit.
 
-The service starts with Windows after installation. Run `./Uninstall-Service.ps1` from an Administrator PowerShell window to remove it. Your rules and traffic history in `%ProgramData%\OpenNetLimit` stay where they are.
+The service starts with Windows. Uninstall it from Settings > Apps like any other program. Your rules and traffic history in `%ProgramData%\OpenNetLimit` stay where they are.
+
+From the ZIP instead: extract it to a permanent folder, run `./Install-Service.ps1` from an Administrator PowerShell window in that folder, then launch `OpenNetLimit.UI.exe`. `./Uninstall-Service.ps1` removes the service.
 
 ### Driver trust note
 

@@ -12,12 +12,23 @@ The release ZIP includes `onl.exe`.
 ./onl.exe processes
 ./onl.exe rules list
 ./onl.exe rules add --process steam.exe --download 8192 --upload 1024
+./onl.exe rules add --service DoSvc --download 1024
 ./onl.exe rules remove <rule-id>
 ./onl.exe stats hourly --process steam.exe --hours 24
 ./onl.exe stats top --days 7 --limit 20
+./onl.exe pc-limit
+./onl.exe pc-limit set --download 1024 --upload 256 --include-lan
+./onl.exe pc-limit off
+./onl.exe selftest
 ```
 
-Limits passed to `--download` and `--upload` use KB/s. Rule actions accept `Limit`, `Block`, or `Allow`.
+Limits passed to `--download` and `--upload` use KB/s. Rule actions accept `Limit`, `Block`, or `Allow`. A process name works with or without `.exe`, so `steam` and `steam.exe` are the same rule.
+
+`--service` takes a Windows service's short name (the one `sc query` and Task Manager's Services tab show, like `BITS`, `DoSvc` or `wuauserv`) in place of `--process`. Give one of them, never both. The rule follows the service into whichever `svchost.exe` Windows runs it in. When the svchost holding it also runs a service Windows needs to stay online (DNS, DHCP, RPC, the firewall and the like), the rule is kept but nothing in that svchost is limited. A rule on `svchost` by name, or on one of those networking services, is refused with the reason.
+
+`./onl.exe pc-limit set` caps every app's traffic added together. A direction you leave out isn't capped, and it counts only internet traffic unless you add `--include-lan`. Traffic that never leaves the PC isn't counted either way. `pc-limit off` turns it off, and plain `pc-limit` shows what's set. Like `rules add`, it needs `OPENNETLIMIT_API_KEY`.
+
+`./onl.exe selftest` checks that limits work on this PC. It puts a 256 KB/s upload limit on itself (pick another rate with `--limit <KB/s>`), sends data to itself over loopback, and removes the rule when it's done. It prints PASS and exits 0 when the rate held at the limit and came back after the rule was removed. It needs `OPENNETLIMIT_API_KEY` because it adds a rule.
 
 The client reads these environment variables:
 
@@ -29,6 +40,16 @@ The client reads these environment variables:
 ## Local API behavior
 
 Local read endpoints do not require a key. Mutating requests require `OPENNETLIMIT_API_KEY`, sent through either `X-OpenNetLimit-Key` or `Authorization: Bearer <key>`.
+
+Each caller gets a burst of 100 requests, then 50 a second. Every program on the PC counts as one caller (all of 127.0.0.0/8 and `::1`), and an IPv6 address counts by its /64. A request past that waits its turn instead of failing, so a script can add rules one at a time as fast as it likes. Only when 100 of its requests are already waiting does the next one get `429`. Wrong keys have a budget of their own, 10 tries that come back one every 6 seconds. A wrong key uses its try the moment it arrives, so sending guesses all at once gets no more of them through. Once the tries are gone, every request from that caller that carries a key gets `429` until one comes back. Reads without a key still work meanwhile. Every `429` has a `Retry-After` header with the seconds to wait.
+
+A service that couldn't load its rules (it isn't running as administrator) answers changes to `/api/v1/rules`, `/api/v1/alerts/rules` and `/api/v1/pc-limit` with `503` and the reason in `error`. Reads still work.
+
+`PUT /api/v1/pc-limit` takes `{"downloadBytesPerSecond": 1048576, "uploadBytesPerSecond": 0, "includeLan": false}` and answers with the limit now in effect. Rates are bytes per second, and 0 leaves that direction uncapped. Field names can be in any case. A negative rate, a field it doesn't know, a field given twice (in any mix of cases), a body with no rate in it (`{}` included) or one that isn't a limit at all gets `400` with the reason in `error`, and the limit already set stays.
+
+`PATCH /api/v1/pc-limit` changes only the fields you send and keeps the rest as they are at that moment, so `{"uploadBytesPerSecond": 262144}` caps uploads without touching a download cap someone else just set. Any one field is enough. An empty body (`{}`), a field set to `null` or a negative rate gets `400`. `DELETE` is the same as a `PATCH` of both rates to 0: the limit goes off and `includeLan` stays for the next time it's set.
+
+A rule sent to `POST /api/v1/rules` or `PUT /api/v1/rules/{id}` names its target with `processName`, `processPath` or `serviceName`. A `serviceName` rule leaves the other two out. The same mistakes `rules add` turns away (a service beside a program, a networking service, a new rule on `svchost` by name) get `400` with the reason in `error`. An older rule on `svchost` by name can still be updated, so it can be turned off. In `GET /api/v1/snapshot`, each svchost carries `services` (the short names Windows runs in it, or `null` before they're known), `isProtected`, and `networkingServices` (the ones that keep it from being limited).
 
 ```powershell
 $headers = @{ 'X-OpenNetLimit-Key' = $env:OPENNETLIMIT_API_KEY }
@@ -68,6 +89,12 @@ Remote administration fails closed. OpenNetLimit ignores non-loopback listener p
 | `PUT /api/v1/rules/{id}` | Key required | Update a rule |
 | `DELETE /api/v1/rules/{id}` | Key required | Remove a rule |
 | `POST /api/v1/rules/import?replace=true` | Key required | Import rule JSON |
+| `GET /api/v1/pc-limit` | Local read or keyed remote | Read the whole-PC limit |
+| `PUT /api/v1/pc-limit` | Key required | Set the whole-PC limit |
+| `PATCH /api/v1/pc-limit` | Key required | Change part of the whole-PC limit |
+| `DELETE /api/v1/pc-limit` | Key required | Turn the whole-PC limit off |
+| `POST /api/v1/engine/pause?stay=true` | Key required | Pause filtering and unload the driver. `stay=true` keeps it paused after a restart |
+| `POST /api/v1/engine/resume` | Key required | Resume filtering |
 | `GET /api/v1/stats/hourly` | Local read or keyed remote | Hourly history |
 | `GET /api/v1/stats/daily` | Local read or keyed remote | Daily history |
 | `GET /api/v1/stats/top` | Local read or keyed remote | Largest traffic users |

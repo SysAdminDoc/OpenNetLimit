@@ -6,7 +6,7 @@ body:
     id: version
     attributes:
       label: OpenNetLimit version
-      description: The release you installed, like 1.0.2.
+      description: The release you installed, like 1.1.0.
     validations:
       required: true
   - type: input
@@ -51,7 +51,7 @@ body:
     id: selftest
     attributes:
       label: Output of onl selftest
-      description: On versions after 1.0.2, open an Administrator terminal in the install folder, run `.\onl.exe selftest` and paste what it prints. It checks whether limits work on your PC.
+      description: On 1.1.0 or later, open an Administrator terminal in the install folder, run `.\onl.exe selftest` and paste what it prints. It checks whether limits work on your PC.
       render: text
   - type: textarea
     id: event-log
