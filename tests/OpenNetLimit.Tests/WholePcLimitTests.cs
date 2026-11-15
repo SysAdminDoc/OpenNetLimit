@@ -182,6 +182,7 @@ public sealed class WholePcLimitTests
     [Theory]
     [InlineData("8.8.8.8", true)]
     [InlineData("100.64.0.1", true)]
+    [InlineData("172.15.255.255", true)]
     [InlineData("172.32.0.1", true)]
     [InlineData("2001:4860:4860::8888", true)]
     [InlineData("::ffff:8.8.8.8", true)]
@@ -201,7 +202,9 @@ public sealed class WholePcLimitTests
     [InlineData("fc00::1", false)]
     [InlineData("fd12:3456::1", false)]
     [InlineData("fe80::1", false)]
+    [InlineData("febf:ffff::1", false)]
     [InlineData("fec0::1", false)]
+    [InlineData("feff::1", false)]
     [InlineData("ff02::fb", false)]
     public void InternetOnly_CountsTrafficThatLeavesTheLocalNetwork(string remote, bool counts)
     {
@@ -270,6 +273,9 @@ public sealed class WholePcLimitTests
     [InlineData(TransportProtocol.Udp, 53)]
     [InlineData(TransportProtocol.Udp, 123)]
     [InlineData(TransportProtocol.Udp, 67)]
+    // OpenVPN's DCO runs over TCP as well.
+    [InlineData(TransportProtocol.Tcp, 53)]
+    [InlineData(TransportProtocol.Tcp, 123)]
     public void TheKernel_FullPacketsOnTheDnsDhcpOrNtpPorts_Count(TransportProtocol protocol, int remotePort)
     {
         var kernel = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, protocol, remotePort, payloadLength: 1400,
@@ -290,8 +296,8 @@ public sealed class WholePcLimitTests
     [InlineData(TransportProtocol.Udp, 123, 48, false)]
     [InlineData(TransportProtocol.Udp, 67, 300, false)]
     [InlineData(TransportProtocol.Tcp, 53, 512, false)]
-    // A big answer over TCP comes in full segments, and kernel VPNs are UDP.
-    [InlineData(TransportProtocol.Tcp, 53, 1400, false)]
+    [InlineData(TransportProtocol.Tcp, 53, 1232, false)]
+    [InlineData(TransportProtocol.Tcp, 53, 1233, true)]
     // Its other ports count at any size.
     [InlineData(TransportProtocol.Tcp, 443, 60, true)]
     [InlineData(TransportProtocol.Udp, 51820, 60, true)]
@@ -484,13 +490,18 @@ public sealed class WholePcLimitTests
     [Theory]
     [InlineData("10.1.2.3", true)]
     [InlineData("172.16.0.1", true)]
+    [InlineData("172.31.255.255", true)]
+    [InlineData("172.15.255.255", true)]
     [InlineData("192.168.1.1", true)]
     [InlineData("fd00::1", true)]
     [InlineData("fec0::1", true)]
+    [InlineData("feff::1", true)]
     [InlineData("::ffff:10.1.2.3", true)]
     [InlineData("8.8.8.8", true)]
     [InlineData("169.254.1.1", false)]
+    [InlineData("::ffff:169.254.1.1", false)]
     [InlineData("fe80::1", false)]
+    [InlineData("febf:ffff::1", false)]
     [InlineData("224.0.0.251", false)]
     [InlineData("255.255.255.255", false)]
     [InlineData("ff02::1", false)]

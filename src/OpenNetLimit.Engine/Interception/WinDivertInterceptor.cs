@@ -458,13 +458,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             return default;
         // Windows' own processes carry Windows Update, BITS, Delivery Optimization and SMB file
         // copies when they share a process with networking services, so that counts toward the
-        // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard, OpenVPN's DCO), which go
-        // out as System's UDP: the tunnel's own side doesn't count. DNS, DHCP and NTP don't
-        // count, DNS that falls back to TCP for a big answer included. Those come from svchost,
-        // but the flow layer pins plenty of short-lived flows on System when the socket tables
-        // miss them, and DNS opens a socket per lookup. So System keeps the pass for TCP and for
-        // UDP packets a lookup's size. Kernel VPNs are UDP, so their full packets on port 53 or
-        // 123 still count.
+        // whole-PC limit. So do VPN tunnels the kernel sends (WireGuard over UDP, OpenVPN's DCO
+        // over UDP or TCP), which go out as System's: the tunnel's own side doesn't count. DNS,
+        // DHCP and NTP don't count, DNS that falls back to TCP for a big answer included. Those
+        // come from svchost, but the flow layer pins plenty of short-lived flows on System when
+        // the socket tables miss them, and DNS opens a socket per lookup. So System keeps the
+        // pass on those ports for packets a lookup's size, and its full packets there count:
+        // a VPN server on port 53 or 123 gets past firewalls that only let lookups out. A big DNS
+        // answer over TCP that lands on System counts too, which costs it a short wait at most.
         // A svchost running only networking services (DNS over HTTPS included, and IKEEXT,
         // which carries Windows' own IKEv2 VPN) counts for nothing, and no app limit applies to
         // any of them.
@@ -472,7 +473,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         {
             ProcessProtection.None => true,
             ProcessProtection.Windows => remotePort is not (DnsPort or 67 or 68 or 123 or 546 or 547)
-                || (kernel && protocol == TransportProtocol.Udp && payloadLength > LookupPayloadMax),
+                || (kernel && payloadLength > LookupPayloadMax),
             _ => false
         };
         return new PacketLimits(

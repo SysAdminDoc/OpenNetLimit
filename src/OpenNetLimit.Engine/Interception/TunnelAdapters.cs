@@ -30,8 +30,10 @@ internal sealed class TunnelAdapters
         CountedOnItsCarrier,
 
         /// <summary>
-        /// A tunnel whose encrypted side can't be counted right now. It counts here, and the local
-        /// network only when the limit includes it, as on an ordinary adapter.
+        /// A tunnel counted on its own side. Every tunnel is, while an encrypted side the limit
+        /// can't count (ESP, GRE, IP in IP) has left a real adapter in the last 10 seconds, since
+        /// which tunnel that one carried isn't known. The local network counts only when the
+        /// limit includes it, as on an ordinary adapter.
         /// </summary>
         CountsHere,
 
