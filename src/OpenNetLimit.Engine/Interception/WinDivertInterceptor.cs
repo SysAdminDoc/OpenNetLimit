@@ -62,6 +62,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
     private volatile bool _isRunning;
     public bool IsRunning => _isRunning;
+
+    /// <summary>
+    /// From a start until the stop that closes the handles. The packet loops clear
+    /// <see cref="_isRunning"/> when they give up after repeated errors, but the handles stay
+    /// open, and the driver loaded, until a stop closes them.
+    /// </summary>
+    private volatile bool _opened;
     public PacketScheduler Scheduler => _scheduler;
 
     public long TotalBlocked => Volatile.Read(ref _totalBlocked);
@@ -91,12 +98,15 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (IsRunning) return Task.CompletedTask;
+        if (_opened) return Task.CompletedTask;
 
-        // Set _isRunning before launching tasks to prevent a racing StopAsync
-        // from seeing IsRunning == false and returning early while tasks are starting
+        // Set before launching tasks to prevent a racing StopAsync from returning early
+        // while tasks are starting
+        _opened = true;
         _isRunning = true;
 
+        // The last stop awaited both loops, so nothing still uses the previous source.
+        _cts?.Dispose();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
@@ -111,6 +121,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         catch
         {
             _isRunning = false;
+            _opened = false;
             _flowHandle?.Dispose();
             _flowHandle = null;
             _networkHandle?.Dispose();
@@ -196,7 +207,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
     public async Task StopAsync()
     {
-        if (!IsRunning) return;
+        if (!_opened) return;
 
         _cts?.Cancel();
         _socketRefreshTimer?.Dispose();
@@ -222,13 +233,15 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         }
         catch (OperationCanceledException) { }
 
-        _scheduler.Dispose();
+        // Detached, not disposed, so a later start can attach the new handle.
+        _scheduler.Detach();
         _networkHandle?.Dispose();
         _flowHandle?.Dispose();
         _networkHandle = null;
         _flowHandle = null;
 
         _isRunning = false;
+        _opened = false;
     }
 
     private static void ShutdownReceive(WinDivert? handle)
@@ -549,8 +562,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         var task = StopAsync();
         if (!task.IsCompleted)
             task.ConfigureAwait(false).GetAwaiter().GetResult();
-        // StopAsync returns early when the loops already stopped on their own.
-        _socketRefreshTimer?.Dispose();
         _cts?.Dispose();
+        _scheduler.Dispose();
     }
 }

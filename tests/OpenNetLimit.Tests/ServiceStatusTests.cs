@@ -60,6 +60,35 @@ public class ServiceStatusTests
     }
 
     [Fact]
+    public void PausedEngine_ShowsPausedInsteadOfFailed()
+    {
+        var (tracker, _) = NewTracker();
+
+        tracker.StatusReceived(new DiagnosticInfo { Running = false, Paused = true });
+
+        Assert.True(tracker.Current.Paused);
+        Assert.Equal("Status_Paused", tracker.Current.TextKey);
+        Assert.Equal("Status_Paused_Detail", tracker.Current.DetailKey);
+        Assert.Null(tracker.Current.Detail);
+    }
+
+    [Fact]
+    public void PausedWithTheDriverStillLoaded_SaysWhyUntilItUnloads()
+    {
+        var (tracker, shown) = NewTracker();
+
+        tracker.StatusReceived(new DiagnosticInfo { Paused = true, DriverLoadedReason = "wireguard.exe has it open." });
+        Assert.Equal("wireguard.exe has it open.", tracker.Current.ResolveDetail());
+
+        tracker.StatusReceived(new DiagnosticInfo { Paused = true });
+        Assert.Null(tracker.Current.Detail);
+
+        tracker.StatusReceived(new DiagnosticInfo { Running = true });
+        Assert.False(tracker.Current.Paused);
+        Assert.Equal(["Status_Paused", "Status_Paused", "Status_Connected"], shown.Select(s => s.TextKey));
+    }
+
+    [Fact]
     public void RunningEngine_ShowsConnectedWithNoDetail()
     {
         var (tracker, _) = NewTracker();
@@ -142,6 +171,20 @@ public class ServiceStatusTests
     [InlineData("Status_ServiceNotInstalled_Detail")]
     [InlineData("Status_ServiceNotRunning_Detail")]
     [InlineData("Menu_SelectAppFirst")]
+    [InlineData("Status_Paused")]
+    [InlineData("Status_Paused_Detail")]
+    [InlineData("Tray_Pause")]
+    [InlineData("Tray_Resume")]
+    [InlineData("Tray_StayPaused")]
+    [InlineData("Tray_TooltipPaused")]
+    [InlineData("Pause_Failed_Title")]
+    [InlineData("Pause_StillLoaded_Title")]
+    [InlineData("Pause_Unloaded_Title")]
+    [InlineData("Pause_Unloaded_Body")]
+    [InlineData("Resume_Done_Title")]
+    [InlineData("Resume_Done_Body")]
+    [InlineData("Resume_Failed_Title")]
+    [InlineData("Engine_NoAnswer")]
     public void NewStatusStrings_ExistInEveryLanguage(string key)
     {
         var resources = new ResourceManager("OpenNetLimit.UI.Resources.Strings", typeof(LocalizationManager).Assembly);

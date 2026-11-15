@@ -29,6 +29,8 @@ public class IpcProtocolTests
     [InlineData("UPDATE_ALERT_RULE")]
     [InlineData("REMOVE_ALERT_RULE")]
     [InlineData("RELOAD_PLUGINS")]
+    [InlineData("PAUSE")]
+    [InlineData("RESUME")]
     public void WriteCommands_AreValid_AndRequireAdmin(string command)
     {
         Assert.True(IpcProtocol.IsValidCommand(command));

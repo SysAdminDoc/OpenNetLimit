@@ -51,6 +51,9 @@ public sealed class WinDivertOpenException : Exception
         2 or 3 => "Windows couldn't find a WinDivert driver file. Antivirus may have quarantined WinDivert64.sys, or another program's WinDivert driver registration points at a folder that no longer exists.",
         5 => "The service isn't running with administrator rights.",
         87 => "WinDivert rejected the layer and flag combination.",
+        // Measured: a driver asked to stop while another program has it open stays loaded in
+        // StopPending, and every new open fails with ERROR_NO_SUCH_DEVICE until that program closes it.
+        433 => "The WinDivert driver is unloading but another program still has it open. Close that program (or restart Windows), then resume.",
         577 => "Windows rejected the WinDivert driver signature. Secure Boot policy or Memory Integrity (HVCI) can cause this.",
         654 => "A different WinDivert version is already loaded. Restart Windows and try again.",
         1060 => "The WinDivert driver service couldn't be registered.",

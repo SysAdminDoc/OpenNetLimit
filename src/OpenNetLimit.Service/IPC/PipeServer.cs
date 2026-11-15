@@ -223,7 +223,7 @@ public class PipeServer
         }
     }
 
-    private Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
+    internal Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
     {
         return action switch
         {
@@ -252,9 +252,39 @@ public class PipeServer
             "RELOAD_PLUGINS" => Task.FromResult(JsonSerializer.Serialize(_pluginManager.Reload(), JsonOptions)),
             "VERIFY_PROCESS" => VerifyProcess(payload, ct),
             "GEOIP" => ResolveGeoIp(payload, ct),
+            "PAUSE" => Pause(payload, ct),
+            "RESUME" => Resume(ct),
             _ => Task.FromResult(ErrorResponse("unknown command"))
         };
     }
+
+    private async Task<string> Pause(string payload, CancellationToken ct)
+    {
+        if (_controlPlane.PauseHandler is not { } pause)
+            return ErrorResponse("engine control unavailable");
+        bool stayPaused = false;
+        if (!string.IsNullOrWhiteSpace(payload))
+        {
+            try
+            {
+                stayPaused = JsonSerializer.Deserialize<PauseRequest>(payload, JsonOptions)?.StayPaused ?? false;
+            }
+            catch (JsonException ex)
+            {
+                return ErrorResponse($"invalid JSON: {ex.Message}");
+            }
+        }
+        return JsonSerializer.Serialize(await pause(stayPaused, ct), JsonOptions);
+    }
+
+    private async Task<string> Resume(CancellationToken ct)
+    {
+        if (_controlPlane.ResumeHandler is not { } resume)
+            return ErrorResponse("engine control unavailable");
+        return JsonSerializer.Serialize(await resume(ct), JsonOptions);
+    }
+
+    private sealed record PauseRequest(bool StayPaused);
 
     private string AddAlertRule(string payload)
     {

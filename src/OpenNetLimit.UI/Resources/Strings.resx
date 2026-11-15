@@ -39,6 +39,7 @@
   <data name="Column_TotalDown" xml:space="preserve"><value>Total Down</value></data>
   <data name="Column_TotalUp" xml:space="preserve"><value>Total Up</value></data>
   <data name="Column_UploadPerSecond" xml:space="preserve"><value>Upload/s</value></data>
+  <data name="Engine_NoAnswer" xml:space="preserve"><value>The service didn't say why. Check that it's running, then try again.</value></data>
   <data name="Label_Download" xml:space="preserve"><value>Download: </value></data>
   <data name="Label_Upload" xml:space="preserve"><value>Upload: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Language: {0}</value></data>
@@ -51,8 +52,15 @@
   <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Set Bandwidth Limit...</value></data>
   <data name="Mode_Administrator" xml:space="preserve"><value>Administrator</value></data>
   <data name="Mode_ReadOnly" xml:space="preserve"><value>Read-only</value></data>
+  <data name="Pause_Failed_Title" xml:space="preserve"><value>Couldn't pause</value></data>
+  <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>Paused, but the driver is still loaded</value></data>
+  <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Nothing from OpenNetLimit is loaded now, so you can start your game.</value></data>
+  <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Driver unloaded</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Process traffic list</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>
+  <data name="Resume_Done_Body" xml:space="preserve"><value>Your limits and blocks apply again.</value></data>
+  <data name="Resume_Done_Title" xml:space="preserve"><value>Resumed</value></data>
+  <data name="Resume_Failed_Title" xml:space="preserve"><value>Couldn't resume</value></data>
   <data name="ServiceStatus_Automation" xml:space="preserve"><value>Service status</value></data>
   <data name="SetLimit_DownloadAutomation" xml:space="preserve"><value>Download limit in KB/s</value></data>
   <data name="SetLimit_DownloadLabel" xml:space="preserve"><value>Download:</value></data>
@@ -81,6 +89,8 @@
   <data name="Status_Disconnected" xml:space="preserve"><value>Disconnected</value></data>
   <data name="Status_EngineFailed" xml:space="preserve"><value>Failed to start</value></data>
   <data name="Status_EngineFailed_Detail" xml:space="preserve"><value>The service is running but couldn't start packet filtering. Details are in C:\ProgramData\OpenNetLimit\last-error.txt.</value></data>
+  <data name="Status_Paused" xml:space="preserve"><value>Paused</value></data>
+  <data name="Status_Paused_Detail" xml:space="preserve"><value>Packet filtering is off and the WinDivert driver is unloaded. Resume from the tray menu.</value></data>
   <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Service disconnected</value></data>
   <data name="Status_ServiceNotInstalled" xml:space="preserve"><value>Service not installed</value></data>
   <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Install it with the OpenNetLimit setup. If you use the ZIP, run Install-Service.ps1 from an administrator PowerShell in that folder.</value></data>
@@ -112,7 +122,11 @@
   <data name="History_Bytes" xml:space="preserve"><value>MB</value></data>
   <data name="History_Refresh" xml:space="preserve"><value>Refresh</value></data>
   <data name="Tray_Exit" xml:space="preserve"><value>Exit</value></data>
+  <data name="Tray_Pause" xml:space="preserve"><value>Pause for games</value></data>
+  <data name="Tray_Resume" xml:space="preserve"><value>Resume</value></data>
   <data name="Tray_Show" xml:space="preserve"><value>Show</value></data>
+  <data name="Tray_StayPaused" xml:space="preserve"><value>Stay paused after restart</value></data>
+  <data name="Tray_TooltipPaused" xml:space="preserve"><value>OpenNetLimit (paused)</value></data>
   <data name="Main_Subtitle" xml:space="preserve"><value>Per-application bandwidth control for Windows</value></data>
   <data name="Service_Label" xml:space="preserve"><value>ENGINE</value></data>
   <data name="Metric_Download" xml:space="preserve"><value>DOWNLOAD</value></data>

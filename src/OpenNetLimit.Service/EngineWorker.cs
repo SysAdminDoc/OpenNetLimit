@@ -23,8 +23,16 @@ public class EngineWorker : BackgroundService
     private readonly BandwidthAlertTracker _alertTracker;
     private readonly PluginManager _pluginManager;
     private readonly ControlPlaneState _controlPlane;
+    private readonly DriverUnloader _driverUnloader;
     private readonly ILogger<EngineWorker> _logger;
     private readonly DateTime _startedAt = DateTime.UtcNow;
+
+    /// <summary>One engine start, pause, resume or shutdown at a time.</summary>
+    private readonly SemaphoreSlim _engineGate = new(1, 1);
+    private volatile bool _paused;
+    private volatile bool _stayPaused;
+    private volatile string? _driverLoadedReason;
+    private bool _backgroundStarted;
     private RuleReconciler? _reconciler;
     private QuotaTracker? _quotaTracker;
     private TrafficStatsDb? _statsDb;
@@ -53,6 +61,9 @@ public class EngineWorker : BackgroundService
     private readonly string _statsDbPath;
     private readonly string _lastErrorPath;
 
+    /// <summary>There while the user wants the engine to stay paused after a restart.</summary>
+    private readonly string _stayPausedPath;
+
     public EngineWorker(
         IPacketInterceptor interceptor,
         IRuleEngine ruleEngine,
@@ -63,9 +74,10 @@ public class EngineWorker : BackgroundService
         BandwidthAlertTracker alertTracker,
         PluginManager pluginManager,
         ControlPlaneState controlPlane,
+        DriverUnloader driverUnloader,
         ILogger<EngineWorker> logger)
         : this(interceptor, ruleEngine, rateLimiter, flowTracker, trafficMonitor, pipeServer.StartAsync,
-            alertTracker, pluginManager, controlPlane, logger, DefaultDataDir, IsRunningAsAdmin)
+            alertTracker, pluginManager, controlPlane, logger, DefaultDataDir, IsRunningAsAdmin, driverUnloader)
     {
     }
 
@@ -81,9 +93,11 @@ public class EngineWorker : BackgroundService
         ControlPlaneState controlPlane,
         ILogger<EngineWorker> logger,
         string dataDir,
-        Func<bool> isAdmin)
+        Func<bool> isAdmin,
+        DriverUnloader driverUnloader)
     {
         _interceptor = interceptor;
+        _driverUnloader = driverUnloader;
         _ruleEngine = ruleEngine;
         _rateLimiter = rateLimiter;
         _flowTracker = flowTracker;
@@ -99,6 +113,7 @@ public class EngineWorker : BackgroundService
         _alertsPath = Path.Combine(dataDir, "alerts.json");
         _statsDbPath = Path.Combine(dataDir, "traffic.db");
         _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
+        _stayPausedPath = Path.Combine(dataDir, "paused");
     }
 
     // Since .NET 10 the host runs ExecuteAsync on a thread-pool thread and starts the next
@@ -123,6 +138,8 @@ public class EngineWorker : BackgroundService
 
         _controlPlane.QuotaTracker = _quotaTracker;
         _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
+        _controlPlane.PauseHandler = PauseAsync;
+        _controlPlane.ResumeHandler = ResumeAsync;
         return base.StartAsync(cancellationToken);
     }
 
@@ -143,8 +160,8 @@ public class EngineWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_prerequisitesMet && await TryStartInterceptorAsync(stoppingToken))
-            StartBackgroundWork();
+        if (_prerequisitesMet)
+            await StartEngineAsync(stoppingToken);
 
         // The control pipe stays up even when the engine can't start. Without it the app
         // could only report "Service not running" and never the reason.
@@ -238,6 +255,146 @@ public class EngineWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Starts the engine at boot, unless the user paused it and asked it to stay paused. A
+    /// pause asked for before this runs (the REST API is already up) also keeps it stopped.
+    /// </summary>
+    private async Task StartEngineAsync(CancellationToken stoppingToken)
+    {
+        await _engineGate.WaitAsync(CancellationToken.None);
+        try
+        {
+            if (File.Exists(_stayPausedPath))
+            {
+                _paused = _stayPaused = true;
+                _logger.LogInformation("The packet engine stays paused, as asked before the restart");
+            }
+            if (_paused || await TryStartInterceptorAsync(stoppingToken))
+                StartBackgroundWork();
+        }
+        finally
+        {
+            _engineGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Stops filtering packets and unloads the WinDivert driver, so a kernel anti-cheat that
+    /// refuses to run beside a packet driver lets the game start.
+    /// </summary>
+    /// <param name="stayPaused">Keep it paused after the service or Windows restarts.</param>
+    internal async Task<DiagnosticInfo> PauseAsync(bool stayPaused, CancellationToken cancellationToken)
+    {
+        if (!_prerequisitesMet)
+            return GetDiagnosticInfo();
+        await _engineGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_stopping)
+                return GetDiagnosticInfo();
+
+            _paused = true;
+            _engineError = null;
+            try
+            {
+                await _interceptor.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error stopping the packet interceptor for a pause");
+            }
+            _stayPaused = SaveStayPaused(stayPaused);
+
+            _driverLoadedReason = null;
+            try
+            {
+                // Bounded by DriverUnloader.UnloadLimit. Only a service stop cuts it short, so a
+                // client that hangs up mid-pause doesn't leave the reason unknown.
+                _driverLoadedReason = _driverUnloader.Unload(_shutdown.Token);
+            }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+            {
+                // The service is stopping.
+            }
+
+            if (_driverLoadedReason is null)
+                _logger.LogInformation("Packet engine paused and the WinDivert driver unloaded");
+            else
+                _logger.LogWarning("Packet engine paused, but the driver is still loaded: {Reason}", _driverLoadedReason);
+        }
+        finally
+        {
+            _engineGate.Release();
+        }
+        return GetDiagnosticInfo();
+    }
+
+    /// <summary>
+    /// Starts the engine again after a pause. It also retries an engine that failed to start
+    /// or stopped after errors, which is what the error messages ask the user to do.
+    /// </summary>
+    internal async Task<DiagnosticInfo> ResumeAsync(CancellationToken cancellationToken)
+    {
+        if (!_prerequisitesMet)
+            return GetDiagnosticInfo();
+        await _engineGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_stopping || (!_paused && _interceptor.IsRunning))
+                return GetDiagnosticInfo();
+
+            SaveStayPaused(false);
+            _stayPaused = false;
+            _driverLoadedReason = null;
+            _engineError = null;
+            try
+            {
+                // Closes whatever an engine that stopped after errors left open.
+                await _interceptor.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error closing the packet interceptor before a resume");
+            }
+
+            // Still paused while it starts, so a status read meanwhile isn't an error.
+            bool started = await TryStartInterceptorAsync(_shutdown.Token);
+            _paused = false;
+            if (started)
+            {
+                ClearLastError();
+                if (!_backgroundStarted)
+                    StartBackgroundWork();
+                _logger.LogInformation("Packet engine resumed");
+            }
+        }
+        finally
+        {
+            _engineGate.Release();
+        }
+        return GetDiagnosticInfo();
+    }
+
+    /// <summary>Saves or clears the stay-paused choice. Returns whether it's saved.</summary>
+    private bool SaveStayPaused(bool stayPaused)
+    {
+        try
+        {
+            if (stayPaused)
+            {
+                EnsureDataDirectory();
+                File.WriteAllText(_stayPausedPath, DateTime.UtcNow.ToString("O"));
+                return true;
+            }
+            File.Delete(_stayPausedPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not save whether the engine stays paused at {Path}", _stayPausedPath);
+        }
+        return false;
+    }
+
     /// <summary>One line the app can show when the packet engine can't start.</summary>
     internal static string DescribeStartFailure(Exception ex) => ex switch
     {
@@ -248,6 +405,7 @@ public class EngineWorker : BackgroundService
 
     private void StartBackgroundWork()
     {
+        _backgroundStarted = true;
         try
         {
             _statsDb = new TrafficStatsDb(_statsDbPath);
@@ -562,6 +720,8 @@ public class EngineWorker : BackgroundService
     private async Task ShutdownGracefully()
     {
         _stopping = true;
+        // Lets a pause or resume in progress finish first. Waiting ones see _stopping and return.
+        await _engineGate.WaitAsync(CancellationToken.None);
         _quotaTimer?.Dispose();
         _scheduleTimer?.Dispose();
         _quotaResetTimer?.Dispose();
@@ -587,6 +747,7 @@ public class EngineWorker : BackgroundService
             SaveAlerts();
         }
         _statsDb?.Dispose();
+        _engineGate.Release();
         _logger.LogInformation("OpenNetLimit engine stopped");
     }
 
@@ -621,13 +782,25 @@ public class EngineWorker : BackgroundService
     {
         var running = _interceptor.IsRunning;
         var engineError = _engineError;
-        if (engineError is null && _engineStarted && !running && !_stopping)
+        bool paused = _paused;
+        if (engineError is null && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
+
+        // A stop left pending finishes once the other program closes the driver.
+        var driverLoadedReason = _driverLoadedReason;
+        if (paused && driverLoadedReason is not null && _driverUnloader.IsUnloaded())
+        {
+            Interlocked.CompareExchange(ref _driverLoadedReason, null, driverLoadedReason);
+            driverLoadedReason = null;
+        }
 
         return new DiagnosticInfo
         {
             Running = running,
             EngineError = engineError,
+            Paused = paused,
+            StayPaused = paused && _stayPaused,
+            DriverLoadedReason = paused ? driverLoadedReason : null,
             ActiveFlows = _flowTracker.GetActiveConnections().Count,
             ActiveRules = _ruleEngine.GetAllRules().Count,
             StartedAt = _startedAt,

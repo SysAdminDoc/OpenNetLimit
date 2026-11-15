@@ -20,9 +20,14 @@ public sealed class EngineWorkerTests : IDisposable
     private readonly RuleEngine _rules = new();
     private readonly TrafficMonitor _monitor = new();
     private readonly ControlPlaneState _controlPlane = new();
-    private readonly TaskCompletionSource _pipeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly DriverPreflightTests.FakeDriverService _driver = new();
+    private string[] _programsUsingWinDivert = [];
+
+    /// <summary>Set once the worker's boot start is done and it serves the control pipe.</summary>
+    private TaskCompletionSource _pipeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private string RulesPath => Path.Combine(_dataDir, "rules.json");
+    private string StayPausedPath => Path.Combine(_dataDir, "paused");
 
     [Fact]
     public async Task InterceptorFailure_StillServesTheControlPipeWithTheReason()
@@ -161,6 +166,145 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Pause_StopsTheEngineAndUnloadsTheDriver_AndResumeStartsItAgain()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.Stopped);
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+
+        var paused = await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(paused.Paused);
+        Assert.False(paused.Running);
+        Assert.False(paused.StayPaused);
+        Assert.Null(paused.EngineError);
+        Assert.Null(paused.DriverLoadedReason);
+        Assert.Equal(1, _driver.StopRequests);
+        Assert.False(File.Exists(StayPausedPath));
+        Assert.True(resumed.Running);
+        Assert.False(resumed.Paused);
+        Assert.Equal(2, interceptor.StartCount);
+    }
+
+    [Fact]
+    public async Task Pause_DriverHeldByAnotherProgram_StaysPausedAndSaysWhyUntilItUnloads()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+
+        var paused = await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        var stillHeld = _controlPlane.GetDiagnostics();
+        _driver.Then(DriverServiceState.Stopped);
+        var released = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(paused.Paused);
+        Assert.Contains("wireguard.exe", paused.DriverLoadedReason);
+        Assert.NotNull(stillHeld.DriverLoadedReason);
+        Assert.True(released.Paused);
+        Assert.Null(released.DriverLoadedReason);
+        Assert.Null(released.EngineError);
+    }
+
+    [Fact]
+    public async Task StayPaused_KeepsTheEngineStoppedAfterARestart_UntilResumed()
+    {
+        var first = new FakeInterceptor();
+        using (var worker = CreateWorker(first, isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(worker);
+            var paused = await _controlPlane.PauseHandler!(true, CancellationToken.None);
+            await worker.StopAsync(CancellationToken.None);
+            Assert.True(paused.StayPaused);
+        }
+        bool keptAcrossTheRestart = File.Exists(StayPausedPath);
+
+        var second = new FakeInterceptor();
+        using var restarted = CreateWorker(second, isAdmin: true);
+        await StartAndWaitForBootAsync(restarted);
+        var afterRestart = _controlPlane.GetDiagnostics();
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await restarted.StopAsync(CancellationToken.None);
+
+        Assert.True(keptAcrossTheRestart);
+        Assert.True(afterRestart.Paused);
+        Assert.True(afterRestart.StayPaused);
+        Assert.False(afterRestart.Running);
+        Assert.Null(afterRestart.EngineError);
+        Assert.True(resumed.Running);
+        Assert.Equal(1, second.StartCount);
+        Assert.False(File.Exists(StayPausedPath));
+    }
+
+    [Fact]
+    public async Task PauseNotKept_EngineStartsAgainAfterARestart()
+    {
+        using (var worker = CreateWorker(new FakeInterceptor(), isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(worker);
+            await _controlPlane.PauseHandler!(true, CancellationToken.None);
+            // Pausing again without asking to stay paused takes the earlier choice back.
+            await _controlPlane.PauseHandler!(false, CancellationToken.None);
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        var second = new FakeInterceptor();
+        using var restarted = CreateWorker(second, isAdmin: true);
+        await StartAndWaitForBootAsync(restarted);
+        var status = _controlPlane.GetDiagnostics();
+        await restarted.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Running);
+        Assert.False(status.Paused);
+        Assert.Equal(1, second.StartCount);
+    }
+
+    [Fact]
+    public async Task Resume_RetriesAnEngineThatFailedToStart()
+    {
+        var interceptor = new FakeInterceptor(new WinDivertOpenException(
+            WinDivert.Layer.Flow, WinDivert.Flag.Sniff, 433, "A device which does not exist was specified."));
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var failed = _controlPlane.GetDiagnostics();
+        var statsBeforeResume = _controlPlane.StatsProvider;
+
+        interceptor.StartFailure = null;
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        var statsAfterResume = _controlPlane.StatsProvider;
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains(WinDivertOpenException.DescribeError(433), failed.EngineError);
+        Assert.True(resumed.Running);
+        Assert.Null(resumed.EngineError);
+        Assert.Null(statsBeforeResume);
+        Assert.NotNull(statsAfterResume);
+    }
+
+    [Fact]
+    public async Task NotAdmin_PauseAndResumeChangeNothing()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: false);
+        await StartAndWaitForBootAsync(worker);
+
+        var paused = await _controlPlane.PauseHandler!(true, CancellationToken.None);
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.False(paused.Paused);
+        Assert.False(interceptor.StartCalled);
+        Assert.Equal(0, _driver.StopRequests);
+        Assert.False(File.Exists(StayPausedPath));
+        Assert.Equal(WinDivertOpenException.DescribeError(5), resumed.EngineError);
+    }
+
+    [Fact]
     public void StartFailure_MissingDll_SaysWhatIsMissing()
     {
         var message = EngineWorker.DescribeStartFailure(new DllNotFoundException("Unable to load DLL 'WinDivert.dll'"));
@@ -206,7 +350,15 @@ public sealed class EngineWorkerTests : IDisposable
             _controlPlane,
             NullLogger<EngineWorker>.Instance,
             _dataDir,
-            isAdmin);
+            isAdmin,
+            new DriverUnloader(_driver, (_, _) => { }, () => _programsUsingWinDivert));
+    }
+
+    private async Task StartAndWaitForBootAsync(EngineWorker worker)
+    {
+        _pipeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
     }
 
     private async Task RunPipe(CancellationToken ct)
@@ -231,11 +383,11 @@ public sealed class EngineWorkerTests : IDisposable
 
     private sealed class FakeInterceptor : IPacketInterceptor
     {
-        private readonly Exception? _startFailure;
+        public FakeInterceptor(Exception? startFailure = null) => StartFailure = startFailure;
 
-        public FakeInterceptor(Exception? startFailure = null) => _startFailure = startFailure;
-
-        public bool StartCalled { get; private set; }
+        public Exception? StartFailure { get; set; }
+        public bool StartCalled => StartCount > 0;
+        public int StartCount { get; private set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Like a start waiting on another program's driver load: it ends when the service stops.</summary>
@@ -248,10 +400,10 @@ public sealed class EngineWorkerTests : IDisposable
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            StartCalled = true;
+            StartCount++;
             Started.TrySetResult();
-            if (_startFailure is not null)
-                throw _startFailure;
+            if (StartFailure is not null)
+                throw StartFailure;
             if (StartWaitsForStop)
                 return Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
             IsRunning = true;

@@ -37,6 +37,26 @@ public class PacketSchedulerTests
     }
 
     [Fact]
+    public void Detach_BeforeAndAfterDispose_DoesNotThrow()
+    {
+        // A pause detaches the scheduler from the handle it closes, and the service's own
+        // shutdown can run after the scheduler is disposed.
+        var scheduler = new PacketScheduler();
+        scheduler.Detach();
+        scheduler.Dispose();
+        scheduler.Detach();
+    }
+
+    [Fact]
+    public void SetHandle_AfterDispose_Throws()
+    {
+        var scheduler = new PacketScheduler();
+        scheduler.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => scheduler.SetHandle(null!));
+    }
+
+    [Fact]
     public void Enqueue_ExceedingMaxDelay_IncrementsTotalDropped()
     {
         using var scheduler = new PacketScheduler();

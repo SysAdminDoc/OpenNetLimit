@@ -15,7 +15,8 @@ public sealed record ServiceStatusView(
     string TextKey,
     string? Text = null,
     string? DetailKey = null,
-    string? Detail = null)
+    string? Detail = null,
+    bool Paused = false)
 {
     public string ResolveText() => Text ?? LocalizationManager.Text(TextKey);
 
@@ -72,6 +73,15 @@ public sealed class ServiceStatusTracker
     /// <summary>Applies a STATUS reply. Null means the service answered but gave no usable status.</summary>
     public void StatusReceived(DiagnosticInfo? diagnostics)
     {
+        if (diagnostics is { Paused: true })
+        {
+            Set(new ServiceStatusView(ConnectionState.Connected, "Status_Paused",
+                DetailKey: "Status_Paused_Detail",
+                Detail: string.IsNullOrWhiteSpace(diagnostics.DriverLoadedReason) ? null : diagnostics.DriverLoadedReason,
+                Paused: true));
+            return;
+        }
+
         if (diagnostics is null || diagnostics.Running)
         {
             Set(new ServiceStatusView(ConnectionState.Connected, "Status_Connected"));

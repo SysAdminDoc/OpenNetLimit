@@ -14,6 +14,7 @@ using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
+using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Core.Updates;
 using OpenNetLimit.UI.Services;
@@ -170,6 +171,64 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         OnPropertyChanged(nameof(CanEditLimits));
         OnPropertyChanged(nameof(LimitMenuHint));
+    }
+
+    private DiagnosticInfo? _engineStatus;
+    private bool _engineCommandRunning;
+
+    /// <summary>The engine was paused on request. False while the service's answer is unknown.</summary>
+    public bool IsPaused => _engineStatus?.Paused == true;
+
+    public bool StayPaused => _engineStatus?.StayPaused == true;
+
+    /// <summary>Pause and resume need an elevated UI that's connected, and one request at a time.</summary>
+    public bool CanControlEngine => IsAdmin && _client.State == ConnectionState.Connected && !_engineCommandRunning;
+
+    /// <summary>Raised when IsPaused or StayPaused may have changed.</summary>
+    public event Action? EngineStateChanged;
+
+    public event Action<TrayNotice>? TrayNoticeRaised;
+
+    public Task PauseAsync(bool stayPaused) =>
+        RunEngineCommandAsync(EnginePause.PauseCommand(stayPaused), EnginePause.AfterPause);
+
+    public Task ResumeAsync() => RunEngineCommandAsync(EnginePause.ResumeCommand, EnginePause.AfterResume);
+
+    private async Task RunEngineCommandAsync(string command, Func<string?, DiagnosticInfo?, TrayNotice> describe)
+    {
+        if (!CanControlEngine)
+            return;
+
+        _engineCommandRunning = true;
+        try
+        {
+            var reply = await _client.SendCommandAsync(command);
+            var status = ServiceStatusTracker.ParseDiagnostics(reply);
+            if (status is not null)
+            {
+                _statusTracker.StatusReceived(status);
+                ApplyEngineStatus(status, announceUnload: false);
+            }
+
+            TrayNoticeRaised?.Invoke(describe(reply, status));
+            if (reply is null)
+                OnDisconnected();
+        }
+        finally
+        {
+            _engineCommandRunning = false;
+        }
+    }
+
+    private void ApplyEngineStatus(DiagnosticInfo? status, bool announceUnload)
+    {
+        var previous = _engineStatus;
+        _engineStatus = status;
+
+        if (announceUnload && status is not null && EnginePause.AfterPoll(previous, status) is { } notice)
+            TrayNoticeRaised?.Invoke(notice);
+        if (previous?.Paused != status?.Paused || previous?.StayPaused != status?.StayPaused)
+            EngineStateChanged?.Invoke();
     }
 
     private string _permissionDisplay = "Read-only";
@@ -446,7 +505,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             OnDisconnected();
             return;
         }
-        _statusTracker.StatusReceived(ServiceStatusTracker.ParseDiagnostics(statusJson));
+        var diagnostics = ServiceStatusTracker.ParseDiagnostics(statusJson);
+        _statusTracker.StatusReceived(diagnostics);
+        if (diagnostics is not null)
+            ApplyEngineStatus(diagnostics, announceUnload: true);
 
         var snapshotJson = await _client.SendCommandAsync("SNAPSHOT");
         if (snapshotJson is null)
@@ -713,6 +775,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         _pollTimer.Stop();
         _statusTracker.Disconnected();
+        ApplyEngineStatus(null, announceUnload: false);
         if (!_reconnectTimer.IsEnabled)
             _reconnectTimer.Start();
     }
@@ -721,7 +784,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         StatusText = status.ResolveText();
         StatusDetail = status.ResolveDetail();
-        StatusColor = status.State switch
+        StatusColor = status.Paused ? Brushes.Orange : status.State switch
         {
             ConnectionState.Connected => Brushes.LimeGreen,
             ConnectionState.Connecting => Brushes.Orange,

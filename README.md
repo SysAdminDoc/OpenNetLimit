@@ -91,6 +91,12 @@ The rule applies right away and keeps applying after the app restarts. OpenNetLi
 
 Open **History**, choose a process or keep **All**, then switch between hourly and daily totals. Data stays in `%ProgramData%\OpenNetLimit\traffic.db`.
 
+### Pause for games
+
+Some kernel anti-cheat systems, Riot Vanguard and Call of Duty's Ricochet among them, won't run while any packet driver is loaded. Right-click the tray icon and choose **Pause for games**. Filtering stops and the WinDivert driver unloads. A notification tells you when nothing from OpenNetLimit is left loaded. If another program has WinDivert open too, the notification names it, and the driver unloads on its own once that program closes. Choose **Resume** when you're done playing. Both need the app running as administrator, the same as changing a rule.
+
+A pause ends when the service restarts. Check **Stay paused after restart** to keep it paused through reboots until you resume. Vanguard can still ask for a restart if it saw the driver before you paused. Turn on **Stay paused after restart** first, then restart Windows, and the driver won't load at all.
+
 ### Use the command line
 
 ```powershell
@@ -99,9 +105,11 @@ Open **History**, choose a process or keep **All**, then switch between hourly a
 ./onl.exe rules add --process steam.exe --download 8192 --upload 1024
 ./onl.exe stats top --days 7 --limit 10
 ./onl.exe selftest
+./onl.exe pause --stay-paused
+./onl.exe resume
 ```
 
-`selftest` limits the CLI itself for a few seconds and tells you whether the limit held.
+`selftest` limits the CLI itself for a few seconds and tells you whether the limit held. `pause` exits with code 2 when another program keeps the driver loaded, and says which one. Over REST they're `POST /api/v1/engine/pause?stay=true` and `POST /api/v1/engine/resume`.
 
 See the [CLI and REST API guide](docs/automation-api.md) for authentication, remote access, and the complete endpoint list.
 

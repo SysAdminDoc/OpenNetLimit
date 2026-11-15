@@ -29,8 +29,27 @@ public sealed class PacketScheduler : IDisposable
 
     public void SetHandle(WinDivert handle)
     {
-        _handle = handle;
-        _drainTimer.Change(1, 1);
+        lock (_sendLock)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            _handle = handle;
+            _drainTimer.Change(1, 1);
+        }
+    }
+
+    /// <summary>
+    /// Sends every queued packet right away and lets go of the handle, so it can be closed.
+    /// <see cref="SetHandle"/> attaches the next one.
+    /// </summary>
+    public void Detach()
+    {
+        lock (_sendLock)
+        {
+            if (Volatile.Read(ref _disposed) == 0)
+                _drainTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            FlushQueues();
+            _handle = null;
+        }
     }
 
     /// <summary>Whether a process's queue can take another packet.</summary>
@@ -67,14 +86,15 @@ public sealed class PacketScheduler : IDisposable
 
     private void DrainReady(object? state)
     {
-        if (_handle is null || Volatile.Read(ref _disposed) != 0)
-            return;
-
-        if (!Monitor.TryEnter(_sendLock))
+        if (Volatile.Read(ref _disposed) != 0 || !Monitor.TryEnter(_sendLock))
             return;
 
         try
         {
+            // Read under the lock: Detach clears it before the handle is closed.
+            var handle = _handle;
+            if (handle is null)
+                return;
             long now = Environment.TickCount64;
 
             Span<WinDivertAddress> addrSpan = stackalloc WinDivertAddress[1];
@@ -87,7 +107,7 @@ public sealed class PacketScheduler : IDisposable
                         try
                         {
                             addrSpan[0] = pkt.Address;
-                            _handle.SendEx(pkt.Data, addrSpan);
+                            handle.SendEx(pkt.Data, addrSpan);
                             Interlocked.Increment(ref _totalSent);
                         }
                         catch
@@ -118,28 +138,33 @@ public sealed class PacketScheduler : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _drainTimer.Dispose();
-
         lock (_sendLock)
         {
-            if (_handle is not null)
+            FlushQueues();
+            _handle = null;
+        }
+        _drainTimer.Dispose();
+    }
+
+    /// <summary>Sends every queued packet through the handle now. Called under the send lock.</summary>
+    private void FlushQueues()
+    {
+        if (_handle is not null)
+        {
+            Span<WinDivertAddress> flushAddr = stackalloc WinDivertAddress[1];
+            foreach (var (_, queue) in _queues)
             {
-                Span<WinDivertAddress> flushAddr = stackalloc WinDivertAddress[1];
-                foreach (var (_, queue) in _queues)
+                while (queue.TryDequeue(out var pkt))
                 {
-                    while (queue.TryDequeue(out var pkt))
+                    try
                     {
-                        try
-                        {
-                            flushAddr[0] = pkt.Address;
-                            _handle.SendEx(pkt.Data, flushAddr);
-                        }
-                        catch { }
+                        flushAddr[0] = pkt.Address;
+                        _handle.SendEx(pkt.Data, flushAddr);
                     }
+                    catch { }
                 }
             }
         }
-
         _queues.Clear();
     }
 }

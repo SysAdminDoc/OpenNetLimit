@@ -111,6 +111,14 @@ public sealed class RestApiRouter
                 RestApiResponse.Json(200, _pluginManager.GetPlugins(), JsonOptions),
             "/api/v1/plugins/reload" when method == "POST" =>
                 RestApiResponse.Json(200, _pluginManager.Reload(), JsonOptions),
+            "/api/v1/engine/pause" when method == "POST" =>
+                _controlPlane.PauseHandler is { } pause
+                    ? RestApiResponse.Json(200, await pause(GetBool(query, "stay"), ct), JsonOptions)
+                    : RestApiResponse.Error(503, "engine control unavailable", JsonOptions),
+            "/api/v1/engine/resume" when method == "POST" =>
+                _controlPlane.ResumeHandler is { } resume
+                    ? RestApiResponse.Json(200, await resume(ct), JsonOptions)
+                    : RestApiResponse.Error(503, "engine control unavailable", JsonOptions),
             _ => path.StartsWith("/api/v1/groups/", StringComparison.OrdinalIgnoreCase) && method == "GET"
                 ? HandleGroupByName(path)
                 : path.StartsWith("/api/v1/alerts/rules/", StringComparison.OrdinalIgnoreCase)

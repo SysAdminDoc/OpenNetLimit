@@ -125,6 +125,7 @@ public class WinDivertInterceptorTests
     [InlineData(3)]
     [InlineData(5)]
     [InlineData(87)]
+    [InlineData(433)]
     [InlineData(577)]
     [InlineData(1275)]
     public void OpenFailure_ExplainsKnownWindowsErrors(int code)

@@ -37,6 +37,8 @@ public static class Program
                 "alerts" => await GetJson("/api/v1/alerts/events"),
                 "health" => await GetJson("/health"),
                 "selftest" => await RunSelfTest(args[1..]),
+                "pause" => await PauseEngine(args[1..]),
+                "resume" => await ResumeEngine(),
                 "help" or "--help" or "-h" => PrintUsage(),
                 _ => PrintUsage()
             };
@@ -92,6 +94,75 @@ public static class Program
             Console.CancelKeyPress -= onCancel;
         }
     }
+
+    private static async Task<int> PauseEngine(string[] args)
+    {
+        bool stay = args.Contains("--stay-paused", StringComparer.OrdinalIgnoreCase);
+        var (succeeded, body) = await PostEmpty($"/api/v1/engine/pause?stay={stay}");
+        PrintFormatted(body);
+        return succeeded ? PauseOutcome(body, Console.Error) : 1;
+    }
+
+    private static async Task<int> ResumeEngine()
+    {
+        var (succeeded, body) = await PostEmpty("/api/v1/engine/resume");
+        PrintFormatted(body);
+        return succeeded ? ResumeOutcome(body, Console.Error) : 1;
+    }
+
+    /// <summary>
+    /// 0 when paused with the driver unloaded, 2 when paused but the driver is still loaded
+    /// (why goes to stderr), 1 when the engine isn't paused.
+    /// </summary>
+    internal static int PauseOutcome(string statusJson, TextWriter error)
+    {
+        if (!TryParseStatus(statusJson, error, out var status))
+            return 1;
+        if (!IsTrue(status, "paused"))
+        {
+            error.WriteLine($"Error: the engine isn't paused. {Text(status, "engineError")}".TrimEnd());
+            return 1;
+        }
+        if (Text(status, "driverLoadedReason") is { } reason)
+        {
+            error.WriteLine(reason);
+            return 2;
+        }
+        return 0;
+    }
+
+    /// <summary>0 when the engine runs again, 1 (with why on stderr) when it doesn't.</summary>
+    internal static int ResumeOutcome(string statusJson, TextWriter error)
+    {
+        if (!TryParseStatus(statusJson, error, out var status))
+            return 1;
+        if (IsTrue(status, "running"))
+            return 0;
+        error.WriteLine($"Error: the engine didn't start. {Text(status, "engineError")}".TrimEnd());
+        return 1;
+    }
+
+    private static bool TryParseStatus(string json, TextWriter error, out JsonElement status)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            status = doc.RootElement.Clone();
+            return status.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            error.WriteLine("Error: the service's answer wasn't a status.");
+            status = default;
+            return false;
+        }
+    }
+
+    private static bool IsTrue(JsonElement status, string name) =>
+        status.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
+
+    private static string? Text(JsonElement status, string name) =>
+        status.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static async Task<int> HandleRules(string[] args)
     {
@@ -250,6 +321,14 @@ public static class Program
         return response.IsSuccessStatusCode ? 0 : 1;
     }
 
+    private static async Task<(bool Succeeded, string Body)> PostEmpty(string path)
+    {
+        using var client = CreateClient();
+        using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+        var response = await client.PostAsync(BaseUrl + path, content);
+        return (response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     private static async Task<int> DeleteJson(string path)
     {
         using var client = CreateClient();
@@ -304,6 +383,11 @@ public static class Program
               health                          Liveness check
               selftest [--limit <KB/s>]       Limit this client, measure loopback traffic,
                                               then remove the limit (default 256 KB/s)
+              pause [--stay-paused]           Stop limiting and unload the driver, for games
+                                              whose anti-cheat won't start beside it. Exits 2
+                                              if the driver is still loaded, and says why.
+                                              --stay-paused keeps it paused after a restart
+              resume                          Start limiting again
 
               rules list                      List all bandwidth rules
               rules add --process <name>      Add a bandwidth rule

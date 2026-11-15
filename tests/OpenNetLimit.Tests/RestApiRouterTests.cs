@@ -39,6 +39,72 @@ public class RestApiRouterTests
         Assert.Contains("\"running\":true", response.Body);
     }
 
+    [Theory]
+    [InlineData("stay=true", true)]
+    [InlineData("", false)]
+    public async Task Pause_PassesTheStayChoiceAndReturnsTheStatus(string query, bool expectedStay)
+    {
+        bool? stay = null;
+        var (_, _, router) = CreateRouter("secret", pause: (stayPaused, _) =>
+        {
+            stay = stayPaused;
+            return Task.FromResult(new DiagnosticInfo { Paused = true, StayPaused = stayPaused, DriverLoadedReason = "held" });
+        });
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", "/api/v1/engine/pause", query, string.Empty, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(expectedStay, stay);
+        Assert.Contains("\"paused\":true", response.Body);
+        Assert.Contains("\"driverLoadedReason\":\"held\"", response.Body);
+    }
+
+    [Fact]
+    public async Task Resume_ReturnsTheStatus()
+    {
+        var (_, _, router) = CreateRouter("secret",
+            resume: _ => Task.FromResult(new DiagnosticInfo { Running = true }));
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", "/api/v1/engine/resume", string.Empty, string.Empty, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"running\":true", response.Body);
+        Assert.Contains("\"paused\":false", response.Body);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/engine/pause")]
+    [InlineData("/api/v1/engine/resume")]
+    public async Task PauseAndResume_NeedTheApiKeyEvenLocally(string path)
+    {
+        bool called = false;
+        var (_, _, router) = CreateRouter("secret",
+            pause: (_, _) => { called = true; return Task.FromResult(new DiagnosticInfo()); },
+            resume: _ => { called = true; return Task.FromResult(new DiagnosticInfo()); });
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", path, string.Empty, string.Empty, IsLoopback: true, ApiKey: null));
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.False(called);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/engine/pause")]
+    [InlineData("/api/v1/engine/resume")]
+    public async Task PauseAndResume_BeforeTheEngineIsUp_Answer503(string path)
+    {
+        var (_, _, router) = CreateRouter("secret");
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", path, string.Empty, string.Empty, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("engine control unavailable", response.Body);
+    }
+
     [Fact]
     public async Task RemoteRead_RequiresConfiguredApiKey()
     {
@@ -350,7 +416,9 @@ public class RestApiRouterTests
         string? apiKey = null,
         IProcessVerifier? verifier = null,
         IGeoIpResolver? geoIpResolver = null,
-        TrafficStatsDb? stats = null)
+        TrafficStatsDb? stats = null,
+        Func<bool, CancellationToken, Task<DiagnosticInfo>>? pause = null,
+        Func<CancellationToken, Task<DiagnosticInfo>>? resume = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
@@ -363,7 +431,9 @@ public class RestApiRouterTests
                 ActiveRules = rules.GetAllRules().Count,
                 StartedAt = DateTime.UtcNow
             },
-            StatsProvider = stats
+            StatsProvider = stats,
+            PauseHandler = pause,
+            ResumeHandler = resume
         };
         var options = new RestApiOptions { ApiKey = apiKey };
         return (monitor, rules, new RestApiRouter(

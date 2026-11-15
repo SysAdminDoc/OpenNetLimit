@@ -8,6 +8,8 @@
 - The app checks GitHub once a day for a newer release and shows it as a button in the status bar, which opens the release page. Nothing is downloaded or installed. Turn it off with the Updates button, or set `OPENNETLIMIT_NO_UPDATE_CHECK=1` to turn it off for everyone on a managed PC
 - A loopback benchmark in `tools/OpenNetLimit.Bench` measures throughput, round trips and UDP loss. Run it with the service stopped and again with it running to see what the engine costs on your PC
 - New issues on GitHub open a bug report form that asks for the version, how you installed it, `last-error.txt` and the self test output. Feature requests have their own form
+- Pause for games. The tray menu, `onl pause` and `POST /api/v1/engine/pause` stop filtering and unload the WinDivert driver, for games like Valorant and Call of Duty whose anti-cheat won't run next to a packet driver. If another program still has the driver open, the tray and `onl pause` (exit code 2) name it, and the app tells you once the driver finally unloads. Resume brings everything back. The app shows Paused instead of an engine error while it's off
+- Stay paused after restart, in the tray menu or as `onl pause --stay-paused`, keeps the engine off through reboots until you resume. Without it, a pause ends when the service restarts
 
 ### Fixed
 - Rules and alerts typed with `.exe` (like `steam.exe`, the README's own example) match the app. Windows names processes without the extension, so those rules never applied. History lookups by name accept `.exe` too

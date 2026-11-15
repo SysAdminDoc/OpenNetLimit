@@ -11,6 +11,12 @@ public sealed class ControlPlaneState
     public TrafficStatsDb? StatsProvider { get; set; }
     public QuotaTracker? QuotaTracker { get; set; }
 
+    /// <summary>Pauses the engine (the flag keeps it paused across restarts) and returns the new status.</summary>
+    public Func<bool, CancellationToken, Task<DiagnosticInfo>>? PauseHandler { get; set; }
+
+    /// <summary>Starts the engine again and returns the new status.</summary>
+    public Func<CancellationToken, Task<DiagnosticInfo>>? ResumeHandler { get; set; }
+
     public DiagnosticInfo GetDiagnostics() =>
         DiagnosticProvider?.Invoke() ?? new DiagnosticInfo { Running = false };
 

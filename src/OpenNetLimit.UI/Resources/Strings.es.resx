@@ -39,6 +39,7 @@
   <data name="Column_TotalDown" xml:space="preserve"><value>Total descargado</value></data>
   <data name="Column_TotalUp" xml:space="preserve"><value>Total subido</value></data>
   <data name="Column_UploadPerSecond" xml:space="preserve"><value>Subida/s</value></data>
+  <data name="Engine_NoAnswer" xml:space="preserve"><value>El servicio no dijo por qué. Comprueba que se está ejecutando y vuelve a intentarlo.</value></data>
   <data name="Label_Download" xml:space="preserve"><value>Descarga: </value></data>
   <data name="Label_Upload" xml:space="preserve"><value>Subida: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Idioma: {0}</value></data>
@@ -51,8 +52,15 @@
   <data name="Menu_SetBandwidthLimit" xml:space="preserve"><value>Establecer limite de ancho de banda...</value></data>
   <data name="Mode_Administrator" xml:space="preserve"><value>Administrador</value></data>
   <data name="Mode_ReadOnly" xml:space="preserve"><value>Solo lectura</value></data>
+  <data name="Pause_Failed_Title" xml:space="preserve"><value>No se pudo pausar</value></data>
+  <data name="Pause_StillLoaded_Title" xml:space="preserve"><value>En pausa, pero el controlador sigue cargado</value></data>
+  <data name="Pause_Unloaded_Body" xml:space="preserve"><value>Ya no queda nada de OpenNetLimit cargado, así que puedes iniciar tu juego.</value></data>
+  <data name="Pause_Unloaded_Title" xml:space="preserve"><value>Controlador descargado</value></data>
   <data name="ProcessGrid_Automation" xml:space="preserve"><value>Lista de trafico por proceso</value></data>
   <data name="RateUnit_Kbps" xml:space="preserve"><value>KB/s</value></data>
+  <data name="Resume_Done_Body" xml:space="preserve"><value>Tus límites y bloqueos vuelven a aplicarse.</value></data>
+  <data name="Resume_Done_Title" xml:space="preserve"><value>Reanudado</value></data>
+  <data name="Resume_Failed_Title" xml:space="preserve"><value>No se pudo reanudar</value></data>
   <data name="ServiceStatus_Automation" xml:space="preserve"><value>Estado del servicio</value></data>
   <data name="SetLimit_DownloadAutomation" xml:space="preserve"><value>Limite de descarga en KB/s</value></data>
   <data name="SetLimit_DownloadLabel" xml:space="preserve"><value>Descarga:</value></data>
@@ -81,6 +89,8 @@
   <data name="Status_Disconnected" xml:space="preserve"><value>Desconectado</value></data>
   <data name="Status_EngineFailed" xml:space="preserve"><value>No se pudo iniciar</value></data>
   <data name="Status_EngineFailed_Detail" xml:space="preserve"><value>El servicio se esta ejecutando pero no pudo iniciar el filtrado de paquetes. Los detalles estan en C:\ProgramData\OpenNetLimit\last-error.txt.</value></data>
+  <data name="Status_Paused" xml:space="preserve"><value>En pausa</value></data>
+  <data name="Status_Paused_Detail" xml:space="preserve"><value>El filtrado de paquetes está desactivado y el controlador WinDivert está descargado. Reanúdalo desde el menú de la bandeja.</value></data>
   <data name="Status_ServiceDisconnected" xml:space="preserve"><value>Servicio desconectado</value></data>
   <data name="Status_ServiceNotInstalled" xml:space="preserve"><value>Servicio no instalado</value></data>
   <data name="Status_ServiceNotInstalled_Detail" xml:space="preserve"><value>Instálalo con el instalador de OpenNetLimit. Si usas el ZIP, ejecuta Install-Service.ps1 desde PowerShell como administrador en esa carpeta.</value></data>
@@ -112,7 +122,11 @@
   <data name="History_Bytes" xml:space="preserve"><value>MB</value></data>
   <data name="History_Refresh" xml:space="preserve"><value>Actualizar</value></data>
   <data name="Tray_Exit" xml:space="preserve"><value>Salir</value></data>
+  <data name="Tray_Pause" xml:space="preserve"><value>Pausar para juegos</value></data>
+  <data name="Tray_Resume" xml:space="preserve"><value>Reanudar</value></data>
   <data name="Tray_Show" xml:space="preserve"><value>Mostrar</value></data>
+  <data name="Tray_StayPaused" xml:space="preserve"><value>Seguir en pausa tras reiniciar</value></data>
+  <data name="Tray_TooltipPaused" xml:space="preserve"><value>OpenNetLimit (en pausa)</value></data>
   <data name="Main_Subtitle" xml:space="preserve"><value>Control de ancho de banda por aplicación para Windows</value></data>
   <data name="Service_Label" xml:space="preserve"><value>MOTOR</value></data>
   <data name="Metric_Download" xml:space="preserve"><value>DESCARGA</value></data>

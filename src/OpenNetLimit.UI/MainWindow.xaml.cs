@@ -15,6 +15,8 @@ public partial class MainWindow : Window
     private System.Drawing.Icon? _trayIconImage;
     private Forms.ToolStripMenuItem? _showTrayItem;
     private Forms.ToolStripMenuItem? _exitTrayItem;
+    private Forms.ToolStripMenuItem? _pauseTrayItem;
+    private Forms.ToolStripMenuItem? _stayPausedTrayItem;
 
     public MainWindow()
     {
@@ -24,6 +26,8 @@ public partial class MainWindow : Window
         if (MarketingCapture.IsEnabled && MarketingCapture.View == "history")
             MainTabs.SelectedIndex = 1;
         _viewModel.BandwidthAlertRaised += OnBandwidthAlertRaised;
+        _viewModel.TrayNoticeRaised += OnTrayNotice;
+        _viewModel.EngineStateChanged += UpdateTrayPauseState;
         LocalizationManager.CultureChanged += OnCultureChanged;
         if (!MarketingCapture.IsEnabled)
             InitializeTrayIcon();
@@ -33,10 +37,24 @@ public partial class MainWindow : Window
 
     private void InitializeTrayIcon()
     {
-        var menu = new Forms.ContextMenuStrip();
+        var menu = new Forms.ContextMenuStrip { ShowItemToolTips = true };
         _showTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_Show"), null, (_, _) => RestoreFromTray());
         menu.Items.Add(_showTrayItem);
         menu.Items.Add("-");
+        _pauseTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_Pause"), null, async (_, _) =>
+        {
+            if (_viewModel.IsPaused)
+                await _viewModel.ResumeAsync();
+            else
+                await _viewModel.PauseAsync(stayPaused: false);
+        });
+        menu.Items.Add(_pauseTrayItem);
+        _stayPausedTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_StayPaused"), null,
+            async (_, _) => await _viewModel.PauseAsync(!_viewModel.StayPaused));
+        menu.Items.Add(_stayPausedTrayItem);
+        menu.Items.Add("-");
+        // Connection and admin state aren't observable, so the items are brought up to date as the menu opens.
+        menu.Opening += (_, _) => UpdateTrayPauseState();
         _exitTrayItem = new Forms.ToolStripMenuItem(LocalizationManager.Text("Tray_Exit"), null, (_, _) =>
         {
             _trayIcon?.Dispose();
@@ -61,7 +79,34 @@ public partial class MainWindow : Window
         };
 
         _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+        UpdateTrayPauseState();
     }
+
+    private void UpdateTrayPauseState()
+    {
+        if (_trayIcon is null || _pauseTrayItem is null || _stayPausedTrayItem is null)
+            return;
+
+        var paused = _viewModel.IsPaused;
+        var canControl = _viewModel.CanControlEngine;
+        var hint = _viewModel.IsAdmin ? null : LocalizationManager.Text("Menu_AdminRequired");
+
+        _pauseTrayItem.Text = LocalizationManager.Text(paused ? "Tray_Resume" : "Tray_Pause");
+        _pauseTrayItem.Enabled = canControl;
+        _pauseTrayItem.ToolTipText = hint;
+        _stayPausedTrayItem.Text = LocalizationManager.Text("Tray_StayPaused");
+        _stayPausedTrayItem.Checked = _viewModel.StayPaused;
+        _stayPausedTrayItem.Enabled = canControl && paused;
+        _stayPausedTrayItem.ToolTipText = hint;
+        _trayIcon.Text = paused ? LocalizationManager.Text("Tray_TooltipPaused") : "OpenNetLimit";
+    }
+
+    private void OnTrayNotice(TrayNotice notice) =>
+        _trayIcon?.ShowBalloonTip(
+            5000,
+            notice.ResolveTitle(),
+            notice.ResolveBody(),
+            notice.IsWarning ? Forms.ToolTipIcon.Warning : Forms.ToolTipIcon.Info);
 
     private void OnStateChanged(object? sender, EventArgs e)
     {
@@ -83,6 +128,8 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _viewModel.BandwidthAlertRaised -= OnBandwidthAlertRaised;
+        _viewModel.TrayNoticeRaised -= OnTrayNotice;
+        _viewModel.EngineStateChanged -= UpdateTrayPauseState;
         LocalizationManager.CultureChanged -= OnCultureChanged;
         _trayIcon?.Dispose();
         _trayIcon = null;
@@ -163,6 +210,7 @@ public partial class MainWindow : Window
             _showTrayItem.Text = LocalizationManager.Text("Tray_Show");
         if (_exitTrayItem is not null)
             _exitTrayItem.Text = LocalizationManager.Text("Tray_Exit");
+        UpdateTrayPauseState();
         ApplyFlowDirection();
     }
 

@@ -64,14 +64,66 @@ public class PipeServerTests
         await serving;
     }
 
-    private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName)
+    [Theory]
+    [InlineData("""{"stayPaused":true}""", true)]
+    [InlineData("""{"stayPaused":false}""", false)]
+    [InlineData("", false)]
+    public async Task Pause_ReadsTheStayChoiceAndAnswersWithTheStatus(string payload, bool expectedStay)
+    {
+        bool? stay = null;
+        var controlPlane = new ControlPlaneState
+        {
+            PauseHandler = (stayPaused, _) =>
+            {
+                stay = stayPaused;
+                return Task.FromResult(new OpenNetLimit.Core.IPC.DiagnosticInfo { Paused = true, StayPaused = stayPaused });
+            }
+        };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("PAUSE", payload, CancellationToken.None);
+
+        Assert.Equal(expectedStay, stay);
+        Assert.Contains("\"paused\":true", reply);
+    }
+
+    [Fact]
+    public async Task Pause_BadPayload_IsRefusedWithoutPausing()
+    {
+        bool called = false;
+        var controlPlane = new ControlPlaneState
+        {
+            PauseHandler = (_, _) => { called = true; return Task.FromResult(new OpenNetLimit.Core.IPC.DiagnosticInfo()); }
+        };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("PAUSE", "{not json", CancellationToken.None);
+
+        Assert.Contains("invalid JSON", reply);
+        Assert.False(called);
+    }
+
+    [Theory]
+    [InlineData("PAUSE")]
+    [InlineData("RESUME")]
+    public async Task PauseAndResume_BeforeTheEngineIsUp_SayItIsUnavailable(string command)
+    {
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused");
+
+        var reply = await server.ProcessCommandAsync(command, string.Empty, CancellationToken.None);
+
+        Assert.Contains("engine control unavailable", reply);
+    }
+
+    private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
+        ControlPlaneState? controlPlane = null)
     {
         var monitor = new TrafficMonitor();
         return new PipeServer(
             monitor,
             rules,
             new BandwidthAlertTracker(monitor),
-            new ControlPlaneState(),
+            controlPlane ?? new ControlPlaneState(),
             new UnusedVerifier(),
             new UnusedGeoIpResolver(),
             new PluginManager(new PluginOptions(), NullLogger<PluginManager>.Instance),

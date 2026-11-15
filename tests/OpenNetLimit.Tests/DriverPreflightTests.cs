@@ -11,7 +11,8 @@ public class DriverPreflightTests
     private const string OurDriver = OurFolder + @"\WinDivert64.sys";
     private const string GoneDriver = @"C:\Tools\OldVpn\WinDivert64.sys";
 
-    private sealed class FakeDriverService(params DriverServiceState[] states) : IDriverService
+    /// <summary>Answers each state query with the next of the given states, then repeats the last.</summary>
+    internal sealed class FakeDriverService(params DriverServiceState[] states) : IDriverService
     {
         private readonly Queue<DriverServiceState> _states = new(states);
         private DriverServiceState _last = DriverServiceState.NotInstalled;
@@ -20,6 +21,15 @@ public class DriverPreflightTests
         public Exception? QueryFailure { get; set; }
         public Exception? ImagePathFailure { get; set; }
         public Exception? DeleteFailure { get; set; }
+        public Exception? StopFailure { get; set; }
+        public int StopRequests { get; private set; }
+
+        /// <summary>The states the next queries answer with, once the current ones are used up.</summary>
+        public void Then(params DriverServiceState[] states)
+        {
+            foreach (var state in states)
+                _states.Enqueue(state);
+        }
 
         /// <summary>Runs after each ImagePath read, so a test can change the registration mid-check.</summary>
         public Action<FakeDriverService>? AfterImagePathRead { get; set; }
@@ -53,6 +63,13 @@ public class DriverPreflightTests
             if (DeleteFailure is not null)
                 throw DeleteFailure;
             Deleted = true;
+        }
+
+        public void Stop()
+        {
+            StopRequests++;
+            if (StopFailure is not null)
+                throw StopFailure;
         }
     }
 

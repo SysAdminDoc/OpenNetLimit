@@ -31,6 +31,12 @@ public interface IDriverService
 
     /// <summary>Removes the registration. WinDivert registers itself again on the next open.</summary>
     void DeleteRegistration();
+
+    /// <summary>
+    /// Asks Windows to unload the driver. Nothing happens when it isn't loaded. While another
+    /// program has it open it stays loaded in StopPending, and unloads once that program closes it.
+    /// </summary>
+    void Stop();
 }
 
 /// <summary>The real <c>WinDivert</c> service, through the service manager and the registry.</summary>
@@ -39,8 +45,12 @@ public sealed class WindowsDriverService : IDriverService
     private const string ServiceName = "WinDivert";
     private const uint ScManagerConnect = 0x0001;
     private const uint ServiceQueryStatus = 0x0004;
+    private const uint ServiceStop = 0x0020;
     private const uint Delete = 0x10000;
+    private const uint ServiceControlStop = 1;
     private const int ErrorServiceDoesNotExist = 1060;
+    private const int ErrorServiceNotActive = 1062;
+    private const int ErrorServiceCannotAcceptControl = 1061;
 
     public DriverServiceState QueryState()
     {
@@ -77,6 +87,21 @@ public sealed class WindowsDriverService : IDriverService
             return;
         if (!DeleteService(service.Handle))
             throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public void Stop()
+    {
+        using var service = OpenService(ServiceStop);
+        if (service is null)
+            return;
+        if (!ControlService(service.Handle, ServiceControlStop, out _))
+        {
+            // Not loaded, or already stopping (a stop sent while another program has it open
+            // stays StopPending until that program closes it).
+            int error = Marshal.GetLastWin32Error();
+            if (error is not (ErrorServiceNotActive or ErrorServiceCannotAcceptControl))
+                throw new Win32Exception(error);
+        }
     }
 
     private static ScHandle? OpenService(uint access)
@@ -129,6 +154,9 @@ public sealed class WindowsDriverService : IDriverService
 
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool DeleteService(IntPtr service);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool ControlService(IntPtr service, uint control, out ServiceStatus status);
 
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool CloseServiceHandle(IntPtr handle);
