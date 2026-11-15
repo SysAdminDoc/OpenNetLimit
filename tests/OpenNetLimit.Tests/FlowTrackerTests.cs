@@ -333,6 +333,59 @@ public class FlowTrackerTests
         Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void AThreadHeldUpWhileMakingACutoff_KeepsIt(bool heldAfterTheRead, bool heldProcess)
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        long tick = 0;
+        bool holdUp = false;
+        // At its next read of the clock the thread stops for 7 seconds, before the read (so the
+        // clock reads late against the tick count) or right after it (so it reads early).
+        var tracker = new FlowTracker(() =>
+        {
+            if (!holdUp)
+                return now;
+            holdUp = false;
+            var read = now;
+            now += TimeSpan.FromSeconds(7);
+            tick += 7_000;
+            return heldAfterTheRead ? read : now;
+        }, () => tick);
+        var namedEarlier = now - TimeSpan.FromSeconds(1);
+
+        holdUp = true;
+        if (heldProcess)
+            tracker.ForgetHeldProcess(300);
+        else
+            tracker.ForgetProcess(300, now);
+        now += TimeSpan.FromSeconds(1);
+        tick += 1_000;
+        tracker.RegisterFlow(MakeFlowKey(1), 300, "svchost", null, namedEarlier);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+    }
+
+    [Fact]
+    public void AForgetAfterTheClockWentBack_SweepsTheOldProcessesFlowsNamedAheadOfIt()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now, () => 0);
+        DateTime? toldListeners = null;
+        tracker.ForgettingProcess += (_, before) => toldListeners = before;
+        // Named a few seconds before the process exited, and then the clock went back an hour.
+        var idFree = now + TimeSpan.FromHours(1);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, idFree - TimeSpan.FromSeconds(3));
+
+        tracker.ForgetProcess(200, idFree);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        Assert.Equal(idFree, toldListeners);
+    }
+
     [Fact]
     public void AnIdForgottenTwice_KeepsTheLaterCutoffForAMinuteFromTheSecond()
     {

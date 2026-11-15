@@ -42,8 +42,9 @@ public class FlowTracker : IFlowTracker
     }
 
     /// <summary>
-    /// The tick count, then the clock. A thread held up between the two reads makes the clock look
-    /// ahead, which no check minds. The other way round it would look like the clock set back.
+    /// The tick count, then the clock, for a check. A thread held up between the two reads makes
+    /// the clock look ahead, which no check minds. The other way round it would look like the clock
+    /// set back. A cutoff is made the other way round (<see cref="MarkForgotten"/>).
     /// </summary>
     private Instant Now()
     {
@@ -156,36 +157,53 @@ public class FlowTracker : IFlowTracker
         }
     }
 
+    /// <summary>
+    /// Drops the process's flows named before <paramref name="identifiedBefore"/>, or all of them
+    /// when it's null, and turns away names from before it that come in late. The sweep and
+    /// <see cref="ForgettingProcess"/> get the cutoff as given, even one well past the clock: they
+    /// act once, on what's there, which was all named before now. Held to the clock, they'd only
+    /// spare the old process's names from before the clock went back.
+    /// </summary>
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
         if (identifiedBefore is { } cutoff)
-            MarkForgotten(processId, cutoff, Now());
+            MarkForgotten(processId, cutoff);
         ForgettingProcess?.Invoke(processId, identifiedBefore);
         Sweep(processId, identifiedBefore);
     }
 
     public void ForgetHeldProcess(uint processId)
     {
-        var now = Now();
-        MarkForgotten(processId, now.Utc, now);
+        MarkForgotten(processId, null);
         ForgettingProcess?.Invoke(processId, null);
         Sweep(processId, null);
     }
 
-    private void MarkForgotten(uint processId, DateTime before, Instant now)
+    /// <summary>
+    /// Turns away names for <paramref name="processId"/> from before <paramref name="before"/>, or
+    /// from before now when it's null, for the next minute.
+    /// </summary>
+    private void MarkForgotten(uint processId, DateTime? before)
     {
+        // The clock, then the tick count. A thread held up between the two reads makes the clock
+        // look ahead of the mark from then on. The other way round, the mark would look made after
+        // the clock was set back, and the first check once the hold passed the slack would void it.
+        var madeAt = _utcNow();
+        long madeAtMs = _tickMs();
+        var cutoff = before ?? madeAt;
         // A cutoff well past the clock was taken before the clock went back. Held to it, whatever
         // gets the ID next would be turned away for the minute. Names from before the clock went
         // back read as ahead of it and are turned away all the same.
-        if (before - now.Utc > HeldProcess.ClockSlack)
-            before = now.Utc;
-        var mark = new ForgetMark(before, now.Utc, now.TickMs);
+        if (cutoff - madeAt > HeldProcess.ClockSlack)
+            cutoff = madeAt;
+        var mark = new ForgetMark(cutoff, madeAt, madeAtMs);
+        var now = Now();
         foreach (var (otherId, other) in _forgottenBefore)
             if (!StillHolds(other, now))
                 _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, other));
         // Forgotten again, the later cutoff stays, kept for a minute from this forget.
         _forgottenBefore.AddOrUpdate(processId, mark,
-            (_, earlier) => StillHolds(earlier, now) && earlier.Before > before ? mark with { Before = earlier.Before } : mark);
+            (_, earlier) => StillHolds(earlier, now) && earlier.Before > cutoff ? mark with { Before = earlier.Before } : mark);
     }
 
     private void Sweep(uint processId, DateTime? identifiedBefore)
