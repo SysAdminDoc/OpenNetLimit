@@ -31,6 +31,13 @@ public class RuleEngine : IRuleEngine
     private long _nextOrder;
     private long _removals;
 
+    /// <summary>
+    /// How many times a change left each rule's quota not counting. Removing a rule keeps its
+    /// count, so one put back carries on with the use it had unless it came back off.
+    /// </summary>
+    private readonly Dictionary<Guid, long> _quotaStops = [];
+    private const int MaxQuotaStops = 4096;
+
     public event Action? OnRulesChanged;
 
     // The converter lets an imported or hand-edited file name its enums ("action": "Block")
@@ -88,6 +95,24 @@ public class RuleEngine : IRuleEngine
     {
         _order[rule.Id] = _removedOrder.Remove(rule.Id, out var removed) ? removed.Place : _nextOrder++;
         _rules.Add(rule);
+        CountQuotaStop(rule);
+    }
+
+    /// <summary>
+    /// Notes a rule just written whose quota doesn't count. When the list is full, rules no
+    /// longer here are forgotten first. Caller holds the lock.
+    /// </summary>
+    private void CountQuotaStop(BandwidthRule rule)
+    {
+        if (QuotaTracker.Counts(rule))
+            return;
+        if (_quotaStops.Count >= MaxQuotaStops && !_quotaStops.ContainsKey(rule.Id))
+        {
+            var present = _rules.Select(r => r.Id).ToHashSet();
+            foreach (var id in _quotaStops.Keys.Where(id => !present.Contains(id)).ToList())
+                _quotaStops.Remove(id);
+        }
+        _quotaStops[rule.Id] = _quotaStops.GetValueOrDefault(rule.Id) + 1;
     }
 
     /// <summary>
@@ -111,9 +136,14 @@ public class RuleEngine : IRuleEngine
         {
             var index = _rules.FindIndex(r => r.Id == rule.Id);
             if (index >= 0)
+            {
                 _rules[index] = rule;
+                CountQuotaStop(rule);
+            }
             else
+            {
                 Insert(rule);
+            }
             SortByPriority();
         }
         OnRulesChanged?.Invoke();
@@ -131,6 +161,15 @@ public class RuleEngine : IRuleEngine
     {
         lock (_lock)
         {
+            return _rules.Select(r => r.Clone()).ToList();
+        }
+    }
+
+    public IReadOnlyList<BandwidthRule> GetAllRules(out IReadOnlyDictionary<Guid, long> quotaStops)
+    {
+        lock (_lock)
+        {
+            quotaStops = new Dictionary<Guid, long>(_quotaStops);
             return _rules.Select(r => r.Clone()).ToList();
         }
     }
@@ -289,9 +328,14 @@ public class RuleEngine : IRuleEngine
             {
                 var index = _rules.FindIndex(r => r.Id == rule.Id);
                 if (index >= 0)
+                {
                     _rules[index] = rule;
+                    CountQuotaStop(rule);
+                }
                 else
+                {
                     Insert(rule);
+                }
             }
             SortByPriority();
         }

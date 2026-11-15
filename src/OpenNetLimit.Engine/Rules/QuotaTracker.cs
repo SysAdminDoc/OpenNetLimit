@@ -80,7 +80,7 @@ public class QuotaTracker
 
     private void UpdateLocked(List<(Action<string, QuotaState>? Event, string Name, QuotaState State)> notifications)
     {
-        var allRules = _ruleEngine.GetAllRules();
+        var allRules = _ruleEngine.GetAllRules(out var quotaStops);
         var rules = QuotaRules(allRules);
         var processes = _trafficMonitor.GetAllProcesses();
         bool firstUpdate = !_started;
@@ -107,15 +107,17 @@ public class QuotaTracker
         foreach (var rule in rules)
         {
             long totalBytes = UsageOf(rule, processes);
+            long stops = quotaStops.GetValueOrDefault(rule.Id);
 
-            if (!_quotas.ContainsKey(rule.Id) && _removed.Remove(rule.Id, out var kept) && kept.IsFor(rule))
+            if (!_quotas.ContainsKey(rule.Id) && _removed.Remove(rule.Id, out var kept) && kept.IsFor(rule) && kept.Stops == stops)
                 _quotas[rule.Id] = kept;
 
-            // A rule added later, or pointed at a different app, counts from now. The app's
-            // earlier traffic can't be split by quota period, so it isn't charged.
+            // A rule added later, pointed at a different app, or turned off and on again since
+            // the last update (two clients can do both before one runs) counts from now. The
+            // app's earlier traffic can't be split by quota period, so it isn't charged.
             var state = _quotas.AddOrUpdate(rule.Id,
-                _ => NewState(rule, firstUpdate ? 0 : totalBytes),
-                (_, current) => current.IsFor(rule) ? current : NewState(rule, totalBytes));
+                _ => NewState(rule, firstUpdate ? 0 : totalBytes, stops),
+                (_, current) => current.IsFor(rule) && current.Stops == stops ? current : NewState(rule, totalBytes, stops));
 
             lock (state)
             {
@@ -189,8 +191,12 @@ public class QuotaTracker
     /// path, or a name and a path. A rule that's off doesn't count, or it came back on already used up.
     /// </summary>
     private static List<BandwidthRule> QuotaRules(IReadOnlyList<BandwidthRule> rules) =>
-        rules.Where(r => r.Enabled && r.Quota is not null
-            && (r.ServiceName is not null || r.ProcessName is not null || r.ProcessPath is not null)).ToList();
+        rules.Where(Counts).ToList();
+
+    /// <summary>Whether the rule's quota counts: it's on, with a quota and something to match.</summary>
+    internal static bool Counts(BandwidthRule rule) =>
+        rule.Enabled && rule.Quota is not null
+        && (rule.ServiceName is not null || rule.ProcessName is not null || rule.ProcessPath is not null);
 
     /// <summary>
     /// What the processes the rule covers sent and received. A service shares its svchost's
@@ -204,13 +210,14 @@ public class QuotaTracker
     private static string DisplayName(BandwidthRule rule) =>
         rule.ServiceName ?? rule.ProcessName ?? rule.ProcessPath ?? string.Empty;
 
-    private static QuotaState NewState(BandwidthRule rule, long baselineBytes) => new()
+    private static QuotaState NewState(BandwidthRule rule, long baselineBytes, long stops) => new()
     {
         RuleId = rule.Id,
         ProcessName = DisplayName(rule),
         ProcessPath = rule.ProcessPath,
         ServiceName = rule.ServiceName,
-        BaselineBytes = baselineBytes
+        BaselineBytes = baselineBytes,
+        Stops = stops
     };
 
     public IReadOnlyList<QuotaState> GetAllQuotaStates()
@@ -300,6 +307,9 @@ public class QuotaState
 
     /// <summary>The limit in force when the quota was used up. Only a higher limit lifts it.</summary>
     internal long UsedUpAtLimitBytes { get; set; }
+
+    /// <summary>How many times the rule had been turned off when this count started.</summary>
+    internal long Stops { get; set; }
     public int PercentUsed => LimitBytes > 0 ? (int)(UsedBytes * 100 / LimitBytes) : 0;
 
     /// <summary>Whether this state still counts the apps <paramref name="rule"/> matches.</summary>

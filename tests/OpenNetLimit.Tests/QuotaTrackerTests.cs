@@ -735,6 +735,123 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public async Task UsedUpRule_TurnedOffAndOnByTwoClientsBeforeAnUpdate_StartsOver()
+    {
+        // Two clients sent "off" and "on" so close together that both updates read the rule
+        // already back on. Neither saw it off, so the app stayed blocked after the reset.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+        Assert.True(tracker.GetQuotaState(rule.Id)!.IsExceeded);
+
+        var off = rule.Clone();
+        off.Enabled = false;
+        await Task.Run(() => ruleEngine.UpdateRule(off));
+        await Task.Run(() => ruleEngine.UpdateRule(rule.Clone()));
+        await Task.WhenAll(Task.Run(tracker.Update), Task.Run(tracker.Update));
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
+    public void UsedUpCap_RemovedAndPutBackBeforeAnUpdate_StartsOver()
+    {
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        var noCap = rule.Clone();
+        noCap.Quota = null;
+        ruleEngine.UpdateRule(noCap);
+        ruleEngine.UpdateRule(rule.Clone());
+        tracker.Update();
+
+        Assert.False(tracker.GetQuotaState(rule.Id)!.IsExceeded);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UsedUpRule_DeletedPutBackOffAndTurnedOn_StartsOver(bool updateWhileDeleted)
+    {
+        // Delete, an import that brings it back off, then on: all of it can land between two updates.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        ruleEngine.RemoveRule(rule.Id);
+        if (updateWhileDeleted)
+            tracker.Update();
+        var off = rule.Clone();
+        off.Enabled = false;
+        ruleEngine.AddRule(off);
+        ruleEngine.UpdateRule(rule.Clone());
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
+    public void UsedUpRule_EditedWhileOnBeforeAnUpdate_StaysUsedUp()
+    {
+        // Only turning it off starts a cap over. Renaming it or moving its priority doesn't.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        var renamed = rule.Clone();
+        renamed.Name = "Browser";
+        ruleEngine.UpdateRule(renamed);
+        var moved = renamed.Clone();
+        moved.Priority = 5;
+        ruleEngine.UpdateRule(moved);
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(1500, state.UsedBytes);
+        Assert.True(state.IsExceeded);
+    }
+
+    [Fact]
     public void RemovedRule_PutBackAfterItsPeriodReset_CountsFromThen()
     {
         var ruleEngine = new RuleEngine();
