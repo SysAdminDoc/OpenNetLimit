@@ -114,6 +114,8 @@ dotnet test OpenNetLimit.sln -c Release
 ./scripts/build-release.ps1
 ```
 
+`build-release.ps1` also builds the installer, which needs [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 or newer. Pass `-SkipSetup` to build only the ZIP.
+
 To see what the engine costs on your PC, run the loopback benchmark once with the service stopped and once with it running.
 
 ```powershell
