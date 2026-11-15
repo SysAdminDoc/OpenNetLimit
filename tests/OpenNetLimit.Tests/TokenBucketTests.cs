@@ -60,6 +60,52 @@ public class TokenBucketTests
 
         Assert.True(bucket.AvailableTokens > 0);
     }
+
+    private static readonly TimeSpan Plenty = TimeSpan.FromSeconds(30);
+
+    [Fact]
+    public void DelayedPackets_AreCharged_SoABurstLeavesAtTheLimit()
+    {
+        long now = 0;
+        var bucket = new TokenBucket(1000, () => now);
+        Assert.True(bucket.TryReserve(65536, Plenty, out var first));
+        Assert.Equal(TimeSpan.Zero, first);
+
+        for (int packet = 1; packet <= 5; packet++)
+        {
+            Assert.True(bucket.TryReserve(1000, Plenty, out var delay));
+            Assert.Equal(TimeSpan.FromSeconds(packet), delay);
+        }
+    }
+
+    [Fact]
+    public void PacketThatWouldWaitTooLong_IsNotCharged()
+    {
+        long now = 0;
+        var bucket = new TokenBucket(1000, () => now);
+        bucket.TryReserve(65536, Plenty, out _);
+
+        Assert.False(bucket.TryReserve(3000, TimeSpan.FromSeconds(2), out _));
+        Assert.True(bucket.TryReserve(1000, TimeSpan.FromSeconds(2), out var delay));
+        Assert.Equal(TimeSpan.FromSeconds(1), delay);
+    }
+
+    [Fact]
+    public void Debt_IsPaidOffAtTheRefillRate()
+    {
+        long now = 0;
+        var bucket = new TokenBucket(1000, () => now);
+        bucket.TryReserve(65536, Plenty, out _);
+        bucket.TryReserve(2000, Plenty, out _);
+
+        now += 1000;
+        Assert.True(bucket.TryReserve(1000, Plenty, out var delay));
+        Assert.Equal(TimeSpan.FromSeconds(2), delay);
+
+        now += 5000;
+        Assert.True(bucket.TryReserve(1000, Plenty, out delay));
+        Assert.Equal(TimeSpan.Zero, delay);
+    }
 }
 
 public class ProcessRateLimiterTests
@@ -128,5 +174,37 @@ public class ProcessRateLimiterTests
 
         Assert.True(downloadDelay > TimeSpan.Zero);
         Assert.True(uploadDelay > TimeSpan.Zero);
+    }
+
+    private static readonly TimeSpan Plenty = TimeSpan.FromSeconds(30);
+
+    [Fact]
+    public void TryReserve_SpreadsAProcessesBurstOnlyInItsLimitedDirection()
+    {
+        var limiter = new ProcessRateLimiter();
+        limiter.SetLimit(1, 1000, 0);
+        limiter.TryReserve(1, 65536, isUpload: false, Plenty, out _);
+
+        limiter.TryReserve(1, 1000, isUpload: false, Plenty, out var firstDelay);
+        limiter.TryReserve(1, 1000, isUpload: false, Plenty, out var secondDelay);
+        Assert.True(firstDelay > TimeSpan.FromSeconds(0.5), $"first delay {firstDelay}");
+        Assert.True(secondDelay > firstDelay + TimeSpan.FromSeconds(0.5), $"second delay {secondDelay}");
+
+        Assert.True(limiter.TryReserve(1, 1_000_000, isUpload: true, Plenty, out var uploadDelay));
+        Assert.Equal(TimeSpan.Zero, uploadDelay);
+        Assert.True(limiter.TryReserve(2, 1_000_000, isUpload: false, Plenty, out var unlimitedDelay));
+        Assert.Equal(TimeSpan.Zero, unlimitedDelay);
+    }
+
+    [Fact]
+    public void TryGetLimit_ReportsTheRatesInForce()
+    {
+        var limiter = new ProcessRateLimiter();
+        limiter.SetLimit(1, 262_144, 0);
+
+        Assert.True(limiter.TryGetLimit(1, out var download, out var upload));
+        Assert.Equal(262_144, download);
+        Assert.Equal(0, upload);
+        Assert.False(limiter.TryGetLimit(2, out _, out _));
     }
 }

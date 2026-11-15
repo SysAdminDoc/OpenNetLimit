@@ -312,14 +312,19 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 if (_rateLimiter.HasLimit(processId.Value) && !ProtectedProcesses.Contains(processName))
                 {
-                    var delay = _rateLimiter.GetDelay(processId.Value, payloadLength, isOutbound);
+                    // Every packet is charged, the delayed ones too, so a burst queues behind its
+                    // own debt and leaves at the limit. A packet with nowhere to wait is dropped.
+                    if (!_scheduler.HasRoom(processId.Value)
+                        || !_rateLimiter.TryReserve(processId.Value, payloadLength, isOutbound, PacketScheduler.MaxDelay, out var delay))
+                    {
+                        _scheduler.RecordDrop();
+                        continue;
+                    }
                     if (delay > TimeSpan.Zero)
                     {
-                        _rateLimiter.TryConsume(processId.Value, payloadLength, isOutbound);
                         _scheduler.Enqueue(processId.Value, packet.Span, addrBuffer.Span, delay);
                         continue;
                     }
-                    _rateLimiter.TryConsume(processId.Value, payloadLength, isOutbound);
                 }
 
                 _networkHandle.SendEx(packet.Span, addrBuffer.Span);

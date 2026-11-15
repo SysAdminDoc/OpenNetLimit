@@ -33,6 +33,13 @@ public sealed class PacketScheduler : IDisposable
         _drainTimer.Change(1, 1);
     }
 
+    /// <summary>Whether a process's queue can take another packet.</summary>
+    public bool HasRoom(uint processId) =>
+        !_queues.TryGetValue(processId, out var queue) || queue.Count < MaxQueuePerProcess;
+
+    /// <summary>Counts a packet the caller dropped instead of queueing.</summary>
+    public void RecordDrop() => Interlocked.Increment(ref _totalDropped);
+
     public void Enqueue(uint processId, ReadOnlySpan<byte> packetData, ReadOnlySpan<WinDivertAddress> addr, TimeSpan delay)
     {
         if (delay > MaxDelay)

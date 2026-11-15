@@ -161,6 +161,17 @@ public class RuleReconcilerTests
         public Dictionary<uint, (long Download, long Upload)> Limits { get; } = new();
         public bool TryConsume(uint processId, int byteCount, bool isUpload) => true;
         public TimeSpan GetDelay(uint processId, int byteCount, bool isUpload) => TimeSpan.Zero;
+        public bool TryReserve(uint processId, int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay)
+        {
+            delay = TimeSpan.Zero;
+            return true;
+        }
+        public bool TryGetLimit(uint processId, out long downloadBytesPerSecond, out long uploadBytesPerSecond)
+        {
+            bool limited = Limits.TryGetValue(processId, out var limit);
+            (downloadBytesPerSecond, uploadBytesPerSecond) = limit;
+            return limited;
+        }
         public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond) =>
             Limits[processId] = (downloadBytesPerSecond, uploadBytesPerSecond);
         public void RemoveLimit(uint processId) => Limits.Remove(processId);

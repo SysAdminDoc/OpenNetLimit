@@ -25,6 +25,27 @@ public class ProcessRateLimiter : IRateLimiter
         return bucket?.GetDelay(byteCount) ?? TimeSpan.Zero;
     }
 
+    public bool TryReserve(uint processId, int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay)
+    {
+        delay = TimeSpan.Zero;
+        if (!_buckets.TryGetValue(processId, out var buckets))
+            return true;
+
+        var bucket = isUpload ? buckets.Upload : buckets.Download;
+        return bucket?.TryReserve(byteCount, maxDelay, out delay) ?? true;
+    }
+
+    public bool TryGetLimit(uint processId, out long downloadBytesPerSecond, out long uploadBytesPerSecond)
+    {
+        downloadBytesPerSecond = uploadBytesPerSecond = 0;
+        if (!_buckets.TryGetValue(processId, out var buckets))
+            return false;
+
+        downloadBytesPerSecond = buckets.Download?.RefillBytesPerSecond ?? 0;
+        uploadBytesPerSecond = buckets.Upload?.RefillBytesPerSecond ?? 0;
+        return true;
+    }
+
     public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond)
     {
         var buckets = new ProcessBuckets(
