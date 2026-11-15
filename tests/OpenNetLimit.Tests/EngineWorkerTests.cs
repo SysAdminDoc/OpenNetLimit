@@ -43,7 +43,30 @@ public sealed class EngineWorkerTests : IDisposable
     /// <summary>The limiter the newest worker was given.</summary>
     private ProcessRateLimiter _limiter = new();
 
+    /// <summary>The flows the newest worker was given.</summary>
+    private FlowTracker _flows = new();
+
     public EngineWorkerTests() => _alerts = new BandwidthAlertTracker(_monitor);
+
+    [Fact]
+    public async Task AServiceStartingInASvchost_GetsItsRuleAtTheNextServiceRead()
+    {
+        // A rule on BITS set while BITS was stopped, then Windows started it in a new svchost.
+        var hosts = new FakeServiceHosts();
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true, hosts);
+        await StartAndWaitForBootAsync(worker);
+        _rules.AddRule(new BandwidthRule { ServiceName = "BITS", DownloadBytesPerSecond = 65_536 });
+        _flows.RegisterFlow(new FlowKey(TransportProtocol.Tcp, System.Net.IPAddress.Parse("192.168.1.100"), 50_000,
+            System.Net.IPAddress.Parse("93.184.216.34"), 443), 200, "svchost", @"C:\Windows\System32\svchost.exe");
+        Assert.False(_limiter.HasLimit(200));
+
+        hosts.Set(200, "BITS");
+        hosts.Refresh();
+        bool limited = _limiter.HasLimit(200);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(limited);
+    }
 
     [Fact]
     public async Task InterceptorFailure_StillServesTheControlPipeWithTheReason()
@@ -1345,8 +1368,8 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.Equal(limit, applied);
     }
 
-    private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>
-        CreateWorker(interceptor, () => isAdmin);
+    private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin, IServiceHosts? serviceHosts = null) =>
+        CreateWorker(interceptor, () => isAdmin, serviceHosts);
 
     /// <summary>A control pipe on the worker's state, like the service's.</summary>
     private PipeServer CreatePipe() => new(
@@ -1360,13 +1383,14 @@ public sealed class EngineWorkerTests : IDisposable
             NullLogger<PluginManager>.Instance),
         NullLogger<PipeServer>.Instance);
 
-    private EngineWorker CreateWorker(IPacketInterceptor interceptor, Func<bool> isAdmin)
+    private EngineWorker CreateWorker(IPacketInterceptor interceptor, Func<bool> isAdmin,
+        IServiceHosts? serviceHosts = null)
     {
         return new EngineWorker(
             interceptor,
             _rules,
             _limiter = new ProcessRateLimiter(),
-            new FlowTracker(),
+            _flows = new FlowTracker(),
             _monitor,
             RunPipe,
             _alerts,
@@ -1380,7 +1404,8 @@ public sealed class EngineWorkerTests : IDisposable
             {
                 _whenListingPrograms?.Invoke();
                 return _programsUsingWinDivert;
-            }));
+            }),
+            serviceHosts);
     }
 
     private async Task StartAndWaitForBootAsync(EngineWorker worker)

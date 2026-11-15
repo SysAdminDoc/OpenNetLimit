@@ -4,7 +4,7 @@ using OpenNetLimit.Core.Models;
 namespace OpenNetLimit.UI.ViewModels;
 
 /// <summary>The editor field an error is about, so the dialog can put the cursor there.</summary>
-public enum DraftField { None, Target, Download, Upload, Start, End, Quota, Throttle }
+public enum DraftField { None, Target, Service, Download, Upload, Start, End, Quota, Throttle }
 
 /// <summary>A rule built from the editor, or the resource key that says what to fix and where.</summary>
 public sealed record RuleDraftResult(BandwidthRule? Rule, string? ErrorKey, DraftField Field = DraftField.None);
@@ -26,6 +26,10 @@ public sealed class RuleDraft
     public string Name { get; set; } = string.Empty;
     public string ProcessName { get; set; } = string.Empty;
     public string ProcessPath { get; set; } = string.Empty;
+
+    /// <summary>A Windows service, which puts the rule on the svchost it runs in. Stands alone.</summary>
+    public string ServiceName { get; set; } = string.Empty;
+
     public RuleAction Action { get; set; } = RuleAction.Limit;
     public string DownloadKbps { get; set; } = "0";
     public string UploadKbps { get; set; } = "0";
@@ -50,6 +54,7 @@ public sealed class RuleDraft
             Name = rule.Name,
             ProcessName = rule.ProcessName ?? string.Empty,
             ProcessPath = rule.ProcessPath ?? string.Empty,
+            ServiceName = rule.ServiceName ?? string.Empty,
             Action = rule.Action,
             // Show what the engine applies: a direction the rule leaves out isn't limited.
             DownloadKbps = Units(rule.Direction is RuleDirection.Upload ? 0 : rule.DownloadBytesPerSecond, BytesPerKilobyte),
@@ -79,12 +84,23 @@ public sealed class RuleDraft
         var processName = ProcessName.Trim();
         // Explorer's "Copy as path" wraps the path in quotes.
         var processPath = ProcessPath.Trim().Trim('"').Trim();
-        if (processName.Length == 0 && processPath.Length == 0)
+        var serviceName = ServiceName.Trim();
+        if (processName.Length == 0 && processPath.Length == 0 && serviceName.Length == 0)
             return Fail("RuleEditor_NeedTarget", DraftField.Target);
+        // The service decides which process the rule covers, so a name or path beside it would
+        // only narrow it to nothing. The service turns such a rule away too.
+        if (serviceName.Length > 0 && (processName.Length > 0 || processPath.Length > 0))
+            return Fail("RuleEditor_ServiceAlone", DraftField.Service);
+        // A rule on svchost by name never matches, and the service won't add one. A rule saved
+        // like that before service rules existed can still be edited and turned off.
+        if (serviceName.Length == 0 && ProcessRowText.IsServiceHost(processName)
+            && !ProcessRowText.IsServiceHost(original?.ProcessName))
+            return Fail("RuleEditor_UseService", DraftField.Service);
 
         rule.Name = Name.Trim();
         rule.ProcessName = processName.Length == 0 ? null : processName;
         rule.ProcessPath = processPath.Length == 0 ? null : processPath;
+        rule.ServiceName = serviceName.Length == 0 ? null : serviceName;
         rule.Action = Action;
         rule.Enabled = Enabled;
         rule.GroupName = GroupName.Trim() is { Length: > 0 } group ? group : null;

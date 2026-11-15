@@ -192,7 +192,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Tooltip on the limit menu items saying why they're unavailable, or null when they work.</summary>
     public string? LimitMenuHint => EditHint
-        ?? (LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is { } key ? LocalizationManager.Text(key) : null);
+        ?? (LimitMenu.HintKey(IsAdmin, SelectedProcess is not null) is { } key ? LocalizationManager.Text(key) : null)
+        ?? SelectedProcess?.ProtectedReason;
 
     private void OnLimitMenuChanged()
     {
@@ -532,11 +533,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             ProcessId = 1532,
             ProcessName = "svchost.exe",
+            Services = ["BITS", "DoSvc"],
             DownloadDisplay = "210.0 KB/s",
             UploadDisplay = "42.0 KB/s",
             TotalDownDisplay = "890.0 MB",
             TotalUpDisplay = "120.0 MB",
-            LimitDisplay = LocalizationManager.Text("Limit_None")
+            LimitDisplay = "↓ 256 KB/s"
         });
 
         HistoryViewModel.ApplyMarketingFixture();
@@ -683,7 +685,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 existing.UploadDisplay = ProcessViewModel.FormatBytes(proc.CurrentUploadBytesPerSecond);
                 existing.TotalDownDisplay = ProcessViewModel.FormatTotalBytes(proc.TotalBytesReceived);
                 existing.TotalUpDisplay = ProcessViewModel.FormatTotalBytes(proc.TotalBytesSent);
-                existing.LimitDisplay = FormatLimit(proc);
+                existing.LimitDisplay = ProcessRowText.LimitText(proc);
+                existing.Services = proc.Services;
+                var reason = ProcessRowText.ProtectedReason(proc);
+                if (existing.ProtectedReason != reason)
+                {
+                    existing.ProtectedReason = reason;
+                    // A service that starts or stops can make the selected row one rules can't touch.
+                    if (ReferenceEquals(existing, SelectedProcess))
+                        OnLimitMenuChanged();
+                }
             }
             else
             {
@@ -691,11 +702,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 {
                     ProcessId = proc.ProcessId,
                     ProcessName = proc.ProcessName,
+                    Services = proc.Services,
+                    ProtectedReason = ProcessRowText.ProtectedReason(proc),
                     DownloadDisplay = ProcessViewModel.FormatBytes(proc.CurrentDownloadBytesPerSecond),
                     UploadDisplay = ProcessViewModel.FormatBytes(proc.CurrentUploadBytesPerSecond),
                     TotalDownDisplay = ProcessViewModel.FormatTotalBytes(proc.TotalBytesReceived),
                     TotalUpDisplay = ProcessViewModel.FormatTotalBytes(proc.TotalBytesSent),
-                    LimitDisplay = FormatLimit(proc)
+                    LimitDisplay = ProcessRowText.LimitText(proc)
                 });
             }
         }
@@ -709,19 +722,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ActiveConnectionCount = processes.Count;
     }
 
-    private static string FormatLimit(ProcessTrafficInfo proc)
-    {
-        if (proc.DownloadLimitBytesPerSecond is null && proc.UploadLimitBytesPerSecond is null)
-            return LocalizationManager.Text("Limit_None");
-
-        var parts = new List<string>();
-        if (proc.DownloadLimitBytesPerSecond is > 0)
-            parts.Add($"↓{ProcessViewModel.FormatBytes(proc.DownloadLimitBytesPerSecond.Value)}");
-        if (proc.UploadLimitBytesPerSecond is > 0)
-            parts.Add($"↑{ProcessViewModel.FormatBytes(proc.UploadLimitBytesPerSecond.Value)}");
-        return parts.Count > 0 ? string.Join(" ", parts) : LocalizationManager.Text("Limit_None");
-    }
-
     private static string FormatRateAxis(double bytesPerSecond)
     {
         if (bytesPerSecond >= 1024 * 1024)
@@ -731,7 +731,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return $"{bytesPerSecond:F0} B/s";
     }
 
-    public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec)
+    /// <summary>Limits the program, or the service when <paramref name="serviceName"/> names one in a svchost.</summary>
+    public async Task SetLimitAsync(string processName, long downloadBytesPerSec, long uploadBytesPerSec,
+        string? serviceName = null)
     {
         if (_client.State != ConnectionState.Connected) return;
 
@@ -742,9 +744,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             try
             {
                 var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
-                existingRule = rules?.FirstOrDefault(r =>
-                    r.ProcessName?.Equals(processName, StringComparison.OrdinalIgnoreCase) == true &&
-                    r.Action == RuleAction.Limit);
+                existingRule = rules is null ? null : LimitMenu.ExistingLimit(rules, processName, serviceName);
             }
             catch { }
         }
@@ -758,19 +758,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            var rule = new BandwidthRule
-            {
-                ProcessName = processName,
-                DownloadBytesPerSecond = downloadBytesPerSec,
-                UploadBytesPerSecond = uploadBytesPerSec,
-                Action = RuleAction.Limit
-            };
+            var rule = LimitMenu.NewLimit(processName, serviceName, downloadBytesPerSec, uploadBytesPerSec);
             var json = JsonSerializer.Serialize(rule, JsonOptions);
             await _client.SendCommandAsync($"ADD_RULE {json}");
         }
     }
 
-    public async Task RemoveLimitAsync(string processName)
+    /// <summary>Removes the rules on the program and on any service running in it.</summary>
+    public async Task RemoveLimitAsync(string processName, IReadOnlyList<string>? services = null)
     {
         if (_client.State != ConnectionState.Connected) return;
 
@@ -782,8 +777,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             var rules = JsonSerializer.Deserialize<List<BandwidthRule>>(rulesJson, JsonOptions);
             if (rules is null) return;
 
-            foreach (var rule in rules.Where(r =>
-                r.ProcessName?.Equals(processName, StringComparison.OrdinalIgnoreCase) == true))
+            foreach (var rule in LimitMenu.RulesFor(rules, processName, services).ToList())
             {
                 await _client.SendCommandAsync($"REMOVE_RULE {rule.Id}");
             }
@@ -912,6 +906,34 @@ public class ProcessViewModel : INotifyPropertyChanged
 {
     public uint ProcessId { get; init; }
     public string ProcessName { get; init; } = string.Empty;
+
+    private IReadOnlyList<string>? _services;
+
+    /// <summary>The Windows services running in the process, null when there are none or they aren't known.</summary>
+    public IReadOnlyList<string>? Services
+    {
+        get => _services;
+        set
+        {
+            // A new list comes with every poll. Only a different one changes the row.
+            if (_services is null ? value is null : value is not null && _services.SequenceEqual(value))
+                return;
+            _services = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Services)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+        }
+    }
+
+    public string DisplayName => ProcessRowText.DisplayName(ProcessName, Services);
+
+    private string? _protectedReason;
+
+    /// <summary>Why no rule slows the process, or null when rules apply to it.</summary>
+    public string? ProtectedReason
+    {
+        get => _protectedReason;
+        set => SetField(ref _protectedReason, value);
+    }
 
     private string _downloadDisplay = "0 B/s";
     public string DownloadDisplay

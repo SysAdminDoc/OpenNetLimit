@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using OpenNetLimit.Core;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Monitoring;
 
 namespace OpenNetLimit.Engine.Rules;
 
@@ -44,6 +45,11 @@ public class RuleEngine : IRuleEngine
     public void AddRule(BandwidthRule rule)
     {
         ValidateRule(rule);
+        // Only on adding: one saved before service rules existed can still be edited or turned
+        // off. It never matches a svchost either way.
+        if (rule.ServiceName is null && ServiceHosts.IsServiceHost(rule.ProcessName ?? string.Empty))
+            throw new ArgumentException(
+                "svchost runs Windows services, often several in one process. Limit one of them by its service name instead.");
         lock (_lock)
         {
             // Edits, removal and quotas find a rule by id. A rule copied from an export keeps
@@ -129,24 +135,25 @@ public class RuleEngine : IRuleEngine
         }
     }
 
-    public BandwidthRule? FindMatchingRule(string processName, string? processPath)
+    public BandwidthRule? FindMatchingRule(string processName, string? processPath, IReadOnlyList<string>? services = null)
     {
         lock (_lock)
         {
             return _rules
-                .Where(r => r.IsActiveNow() && r.MatchesProcess(processName, processPath))
+                .Where(r => r.IsActiveNow() && r.MatchesProcess(processName, processPath, services))
                 .FirstOrDefault()?.Clone();
         }
     }
 
     public BandwidthRule? FindMatchingRule(string processName, string? processPath,
-        IPAddress? remoteAddress, int? remotePort, string? protocol, string? countryCode = null, string? resolvedDomain = null)
+        IPAddress? remoteAddress, int? remotePort, string? protocol, string? countryCode = null, string? resolvedDomain = null,
+        IReadOnlyList<string>? services = null)
     {
         lock (_lock)
         {
             return _rules
                 .Where(r => r.IsActiveNow() &&
-                            r.MatchesProcess(processName, processPath) &&
+                            r.MatchesProcess(processName, processPath, services) &&
                             r.MatchesConnection(remoteAddress, remotePort, protocol) &&
                             r.MatchesCountry(countryCode) &&
                             r.MatchesDomain(resolvedDomain))
@@ -299,8 +306,20 @@ public class RuleEngine : IRuleEngine
         // client's connection instead of telling it what was wrong.
         if (rule is null)
             throw new ArgumentException("A rule in the list is empty.");
+        if (rule.ServiceName is { } service)
+        {
+            // A service rule covers whatever process the service runs in, so a name or path
+            // beside it would only make the rule match less than it says.
+            if (!string.IsNullOrWhiteSpace(rule.ProcessName) || !string.IsNullOrWhiteSpace(rule.ProcessPath))
+                throw new ArgumentException("A rule on a service can't also name a process or a path.");
+            if (service.Length > 256 || service.IndexOfAny(['/', '\\']) >= 0)
+                throw new ArgumentException($"\"{service}\" isn't a Windows service name.");
+            if (ProtectedProcesses.NetworkingServices.Contains(service))
+                throw new ArgumentException($"{service} is part of Windows networking, so no rule can block or slow it.");
+            return;
+        }
         if (string.IsNullOrWhiteSpace(rule.ProcessName) && string.IsNullOrWhiteSpace(rule.ProcessPath))
-            throw new ArgumentException("Rule must specify at least ProcessName or ProcessPath.");
+            throw new ArgumentException("Rule must specify at least ProcessName or ProcessPath, or a ServiceName.");
     }
 
     /// <summary>

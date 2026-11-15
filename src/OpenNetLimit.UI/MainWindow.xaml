@@ -245,7 +245,7 @@
                                     </ContextMenu>
                                 </DataGrid.ContextMenu>
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding ProcessName}" Width="1.55*"/>
+                                    <DataGridTextColumn Header="{loc:Loc Column_Process}" Binding="{Binding DisplayName}" Width="1.55*"/>
                                     <DataGridTextColumn Header="{loc:Loc Column_PID}" Binding="{Binding ProcessId}" Width="0.55*"/>
                                     <DataGridTextColumn Header="{loc:Loc Column_DownloadPerSecond}" Binding="{Binding DownloadDisplay}" Width="*"/>
                                     <DataGridTextColumn Header="{loc:Loc Column_UploadPerSecond}" Binding="{Binding UploadDisplay}" Width="*"/>

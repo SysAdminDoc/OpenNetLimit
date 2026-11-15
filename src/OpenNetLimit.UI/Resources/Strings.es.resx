@@ -46,6 +46,10 @@
   <data name="Label_Upload" xml:space="preserve"><value>Subida: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Idioma: {0}</value></data>
   <data name="Limit_None" xml:space="preserve"><value>Ninguno</value></data>
+  <data name="Limit_Protected" xml:space="preserve"><value>Windows (nunca se limita)</value></data>
+  <data name="Process_ProtectedNetworking" xml:space="preserve"><value>Las reglas no lo tocan porque ejecuta {0}, que Windows necesita para seguir conectado.</value></data>
+  <data name="Process_ProtectedWindows" xml:space="preserve"><value>Las reglas no lo tocan porque Windows lo necesita.</value></data>
+  <data name="Process_ProtectedUnknown" xml:space="preserve"><value>Las reglas no tocan este svchost hasta saber qué servicios ejecuta.</value></data>
   <data name="Main_Title" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Menu_AdminRequired" xml:space="preserve"><value>Se requieren privilegios de administrador</value></data>
@@ -73,6 +77,11 @@
   <data name="SetLimit_InvalidMessage" xml:space="preserve"><value>Escriba numeros no negativos validos.</value></data>
   <data name="SetLimit_InvalidTitle" xml:space="preserve"><value>Entrada no valida</value></data>
   <data name="SetLimit_ProcessLabel" xml:space="preserve"><value>Limitar ancho de banda para: {0}</value></data>
+  <data name="SetLimit_ServiceLabel" xml:space="preserve"><value>Limitar el ancho de banda del servicio {0}</value></data>
+  <data name="SetLimit_ServicePick" xml:space="preserve"><value>Elige el servicio que quieres limitar</value></data>
+  <data name="SetLimit_ServiceAutomation" xml:space="preserve"><value>Servicio que se limita</value></data>
+  <data name="SetLimit_SharedOne" xml:space="preserve"><value>{1} se ejecuta en el mismo proceso que {0}, así que este límite también lo frena.</value></data>
+  <data name="SetLimit_SharedMany" xml:space="preserve"><value>{1} se ejecutan en el mismo proceso que {0}, así que este límite también los frena.</value></data>
   <data name="SetLimit_Title" xml:space="preserve"><value>Establecer limite de ancho de banda</value></data>
   <data name="SetLimit_UploadAutomation" xml:space="preserve"><value>Limite de subida en KB/s</value></data>
   <data name="SetLimit_UploadLabel" xml:space="preserve"><value>Subida:</value></data>
@@ -194,6 +203,7 @@
   <data name="Rules_NoService" xml:space="preserve"><value>No se pudo conectar con el servicio de OpenNetLimit. Comprueba que esté en ejecución.</value></data>
   <data name="Rules_ServiceError" xml:space="preserve"><value>El servicio lo rechazó: {0}</value></data>
   <data name="Rules_Added" xml:space="preserve"><value>Se agregó una regla para {0}.</value></data>
+  <data name="Rules_ServiceTarget" xml:space="preserve"><value>{0} (servicio)</value></data>
   <data name="Rules_Saved" xml:space="preserve"><value>Se guardó la regla para {0}.</value></data>
   <data name="Rules_TurnedOn" xml:space="preserve"><value>Se activó la regla para {0}.</value></data>
   <data name="Rules_TurnedOff" xml:space="preserve"><value>Se desactivó la regla para {0}.</value></data>
@@ -229,6 +239,10 @@
   <data name="RuleEditor_ProgramLabel" xml:space="preserve"><value>Programa</value></data>
   <data name="RuleEditor_ProgramHint" xml:space="preserve"><value>Un nombre de archivo como chrome.exe, una ruta completa o ambos.</value></data>
   <data name="RuleEditor_PathLabel" xml:space="preserve"><value>Ruta completa</value></data>
+  <data name="RuleEditor_ServiceLabel" xml:space="preserve"><value>Servicio</value></data>
+  <data name="RuleEditor_ServiceHint" xml:space="preserve"><value>O un servicio de Windows como BITS o DoSvc, para limitar el svchost en el que se ejecuta.</value></data>
+  <data name="RuleEditor_ServiceAlone" xml:space="preserve"><value>Una regla de servicio no puede indicar también un programa o una ruta. Borra uno de los dos.</value></data>
+  <data name="RuleEditor_UseService" xml:space="preserve"><value>svchost ejecuta muchos servicios de Windows a la vez. Escribe en Servicio el que quieres limitar, como BITS.</value></data>
   <data name="RuleEditor_Browse" xml:space="preserve"><value>Examinar</value></data>
   <data name="RuleEditor_BrowseFilter" xml:space="preserve"><value>Programas (*.exe)|*.exe</value></data>
   <data name="RuleEditor_NameLabel" xml:space="preserve"><value>Nombre (opcional)</value></data>
@@ -253,7 +267,7 @@
   <data name="RuleEditor_QuotaBlock" xml:space="preserve"><value>Bloquear</value></data>
   <data name="RuleEditor_QuotaWarn" xml:space="preserve"><value>Solo avisarme</value></data>
   <data name="RuleEditor_SlowTo" xml:space="preserve"><value>Reducir a</value></data>
-  <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Escribe un nombre de programa o una ruta completa.</value></data>
+  <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Escribe un nombre de programa, una ruta completa o un servicio.</value></data>
   <data name="RuleEditor_BadNumber" xml:space="preserve"><value>Usa números enteros, como 512.</value></data>
   <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Pon un límite de descarga o de subida mayor que 0, añade un límite de datos o elige otra acción.</value></data>
   <data name="RuleEditor_BadTime" xml:space="preserve"><value>Escribe las dos horas con horas y minutos, como 09:00 y 17:30.</value></data>

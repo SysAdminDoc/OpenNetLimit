@@ -21,6 +21,7 @@ public class EngineWorker : BackgroundService
     private readonly IRateLimiter _rateLimiter;
     private readonly IFlowTracker _flowTracker;
     private readonly ITrafficMonitor _trafficMonitor;
+    private readonly IServiceHosts? _serviceHosts;
     private readonly Func<CancellationToken, Task> _runControlPipe;
     private readonly Func<bool> _isAdmin;
     private readonly BandwidthAlertTracker _alertTracker;
@@ -127,9 +128,11 @@ public class EngineWorker : BackgroundService
         PluginManager pluginManager,
         ControlPlaneState controlPlane,
         DriverUnloader driverUnloader,
+        IServiceHosts serviceHosts,
         ILogger<EngineWorker> logger)
         : this(interceptor, ruleEngine, rateLimiter, flowTracker, trafficMonitor, pipeServer.StartAsync,
-            alertTracker, pluginManager, controlPlane, logger, DefaultDataDir, IsRunningAsAdmin, driverUnloader)
+            alertTracker, pluginManager, controlPlane, logger, DefaultDataDir, IsRunningAsAdmin, driverUnloader,
+            serviceHosts)
     {
     }
 
@@ -146,9 +149,11 @@ public class EngineWorker : BackgroundService
         ILogger<EngineWorker> logger,
         string dataDir,
         Func<bool> isAdmin,
-        DriverUnloader driverUnloader)
+        DriverUnloader driverUnloader,
+        IServiceHosts? serviceHosts = null)
     {
         _interceptor = interceptor;
+        _serviceHosts = serviceHosts;
         _driverUnloader = driverUnloader;
         _ruleEngine = ruleEngine;
         _rateLimiter = rateLimiter;
@@ -249,7 +254,10 @@ public class EngineWorker : BackgroundService
     private void LoadState(CancellationToken stoppingToken)
     {
         _quotaTracker = new QuotaTracker(_ruleEngine, _trafficMonitor);
-        _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker, _quotaTracker);
+        _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker, _quotaTracker, _serviceHosts);
+        // A service that started, stopped or moved to another svchost takes its rule with it.
+        if (_serviceHosts is not null)
+            _serviceHosts.Changed += OnServicesChanged;
         if (_ruleEngine is RuleEngine concreteEngine)
         {
             concreteEngine.OnRulesChanged += () =>
@@ -830,6 +838,22 @@ public class EngineWorker : BackgroundService
     }
 
     private void SaveRules() => Save(_rulesFile, _ruleEngine.SaveRules, "rules", atStop: false);
+
+    /// <summary>
+    /// Raised from the interceptor's timer. A throw there would end the process, and the next
+    /// read of the service list tries again.
+    /// </summary>
+    private void OnServicesChanged()
+    {
+        try
+        {
+            _reconciler?.ReconcileAfterRuleChange();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rule reconciliation after a service change failed");
+        }
+    }
 
     private void SaveAlerts() => Save(_alertsFile, _alertTracker.SaveRules, "alert rules", atStop: false);
 

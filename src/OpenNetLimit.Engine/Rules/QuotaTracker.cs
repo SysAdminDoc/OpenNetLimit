@@ -185,24 +185,31 @@ public class QuotaTracker
     }
 
     /// <summary>
-    /// Rules that are on, with a quota and something to match: a process name, a path, or both.
-    /// A rule that's off doesn't count, or it came back on already used up.
+    /// Rules that are on, with a quota and something to match: a service, a process name, a
+    /// path, or a name and a path. A rule that's off doesn't count, or it came back on already used up.
     /// </summary>
     private static List<BandwidthRule> QuotaRules(IReadOnlyList<BandwidthRule> rules) =>
-        rules.Where(r => r.Enabled && r.Quota is not null && (r.ProcessName is not null || r.ProcessPath is not null)).ToList();
+        rules.Where(r => r.Enabled && r.Quota is not null
+            && (r.ServiceName is not null || r.ProcessName is not null || r.ProcessPath is not null)).ToList();
 
+    /// <summary>
+    /// What the processes the rule covers sent and received. A service shares its svchost's
+    /// traffic with whatever else runs in it, so a quota on one counts all of it.
+    /// </summary>
     private static long UsageOf(BandwidthRule rule, IReadOnlyList<ProcessTrafficInfo> processes) =>
         processes
-            .Where(p => rule.MatchesProcess(p.ProcessName, p.ProcessPath))
+            .Where(p => rule.MatchesProcess(p.ProcessName, p.ProcessPath, p.Services))
             .Sum(p => p.TotalBytesReceived + p.TotalBytesSent);
 
-    private static string DisplayName(BandwidthRule rule) => rule.ProcessName ?? rule.ProcessPath ?? string.Empty;
+    private static string DisplayName(BandwidthRule rule) =>
+        rule.ServiceName ?? rule.ProcessName ?? rule.ProcessPath ?? string.Empty;
 
     private static QuotaState NewState(BandwidthRule rule, long baselineBytes) => new()
     {
         RuleId = rule.Id,
         ProcessName = DisplayName(rule),
         ProcessPath = rule.ProcessPath,
+        ServiceName = rule.ServiceName,
         BaselineBytes = baselineBytes
     };
 
@@ -222,6 +229,7 @@ public class QuotaTracker
         RuleId = s.RuleId,
         ProcessName = s.ProcessName,
         ProcessPath = s.ProcessPath,
+        ServiceName = s.ServiceName,
         LimitBytes = s.LimitBytes,
         UsedBytes = s.UsedBytes,
         BaselineBytes = s.BaselineBytes,
@@ -274,9 +282,12 @@ public class QuotaState
 {
     public Guid RuleId { get; set; }
 
-    /// <summary>The rule's process name, or its path when it only has a path.</summary>
+    /// <summary>The rule's service, else its process name, else its path.</summary>
     public string ProcessName { get; set; } = string.Empty;
     public string? ProcessPath { get; set; }
+
+    /// <summary>The service the rule is on, when it's on one.</summary>
+    public string? ServiceName { get; set; }
     public long LimitBytes { get; set; }
     public long UsedBytes { get; set; }
     public long BaselineBytes { get; set; }
@@ -293,6 +304,7 @@ public class QuotaState
 
     /// <summary>Whether this state still counts the apps <paramref name="rule"/> matches.</summary>
     internal bool IsFor(BandwidthRule rule) =>
-        ProcessName.Equals(rule.ProcessName ?? rule.ProcessPath ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(ProcessPath, rule.ProcessPath, StringComparison.OrdinalIgnoreCase);
+        ProcessName.Equals(rule.ServiceName ?? rule.ProcessName ?? rule.ProcessPath ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(ProcessPath, rule.ProcessPath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(ServiceName, rule.ServiceName, StringComparison.OrdinalIgnoreCase);
 }

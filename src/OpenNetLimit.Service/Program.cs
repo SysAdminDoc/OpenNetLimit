@@ -34,6 +34,7 @@ try { Directory.CreateDirectory(logDir); } catch { }
 
 builder.Services.AddSingleton<IFlowTracker, FlowTracker>();
 builder.Services.AddSingleton<IRateLimiter, ProcessRateLimiter>();
+builder.Services.AddSingleton<IServiceHosts, ServiceHosts>();
 builder.Services.AddSingleton<ITrafficMonitor, TrafficMonitor>();
 builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
 builder.Services.AddSingleton<IDriverService, WindowsDriverService>();

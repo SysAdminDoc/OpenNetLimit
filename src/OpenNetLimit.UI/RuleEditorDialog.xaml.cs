@@ -43,7 +43,8 @@ public partial class RuleEditorDialog : Window
         UpdateFieldStates();
         // The whole form fits a 1080p screen at 125%. A shorter one scrolls instead of cutting off the buttons.
         MaxHeight = SystemParameters.WorkArea.Height;
-        Loaded += (_, _) => ProgramBox.Focus();
+        // A service rule names no program, so start where its target is.
+        Loaded += (_, _) => (original?.ServiceName is null ? ProgramBox : ServiceBox).Focus();
     }
 
     private void AddDayChecks()
@@ -66,6 +67,7 @@ public partial class RuleEditorDialog : Window
     {
         ProgramBox.Text = draft.ProcessName;
         PathBox.Text = draft.ProcessPath;
+        ServiceBox.Text = draft.ServiceName;
         NameBox.Text = draft.Name;
         EditorChoices.Select(ActionCombo, draft.Action);
         DownloadBox.Text = draft.DownloadKbps;
@@ -89,6 +91,7 @@ public partial class RuleEditorDialog : Window
         {
             ProcessName = ProgramBox.Text,
             ProcessPath = PathBox.Text,
+            ServiceName = ServiceBox.Text,
             Name = NameBox.Text,
             Action = EditorChoices.Selected(ActionCombo, RuleAction.Limit),
             DownloadKbps = DownloadBox.Text,
@@ -159,6 +162,7 @@ public partial class RuleEditorDialog : Window
     private WpfControl? FieldFor(DraftField field) => field switch
     {
         DraftField.Target => ProgramBox,
+        DraftField.Service => ServiceBox,
         DraftField.Download => DownloadBox,
         DraftField.Upload => UploadBox,
         DraftField.Start => StartBox,

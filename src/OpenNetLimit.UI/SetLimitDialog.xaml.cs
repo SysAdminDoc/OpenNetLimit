@@ -70,6 +70,45 @@ public partial class SetLimitDialog : Window, INotifyPropertyChanged
         return dialog;
     }
 
+    private IReadOnlyList<string>? _services;
+
+    /// <summary>The service the limit goes on, or null when it goes on the program.</summary>
+    public string? ServiceName => _services is null ? null : ServiceCombo.SelectedItem as string ?? _services[0];
+
+    /// <summary>
+    /// The dialog for a svchost: the limit goes on one of the <paramref name="services"/> it
+    /// runs, picked from a list when there's more than one, and the services sharing the
+    /// process are named since the limit slows them too.
+    /// </summary>
+    public static SetLimitDialog ForServices(string processName, IReadOnlyList<string> services)
+    {
+        if (services.Count == 0)
+            throw new ArgumentException("A svchost with no known services can't take a service limit.", nameof(services));
+        var dialog = new SetLimitDialog
+        {
+            _processName = processName,
+            _services = services,
+            _label = services.Count == 1
+                ? LocalizationManager.Format("SetLimit_ServiceLabel", services[0])
+                : LocalizationManager.Text("SetLimit_ServicePick")
+        };
+        dialog.OnPropertyChanged(nameof(ProcessLabel));
+        dialog.ServiceCombo.ItemsSource = services;
+        dialog.ServiceCombo.Visibility = services.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        dialog.ServiceCombo.SelectedIndex = 0;
+        dialog.ShowSharedNote();
+        return dialog;
+    }
+
+    private void OnServiceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => ShowSharedNote();
+
+    private void ShowSharedNote()
+    {
+        var note = _services is null || ServiceName is not { } service ? null : ProcessRowText.SharedNote(service, _services);
+        SharedNoteText.Text = note ?? string.Empty;
+        SharedNoteText.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     /// <summary>A whole number of KB/s, 0 or more, that still fits once it's turned into bytes.</summary>
     internal static bool TryParseKBps(string text, out long kilobytes) =>
         long.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out kilobytes)

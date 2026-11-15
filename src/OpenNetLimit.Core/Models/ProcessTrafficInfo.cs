@@ -5,7 +5,21 @@ public class ProcessTrafficInfo
     public uint ProcessId { get; init; }
     public string ProcessName { get; set; } = string.Empty;
     public string? ProcessPath { get; set; }
+    /// <summary>The first of <see cref="Services"/>, kept for clients that read one name.</summary>
     public string? ServiceName { get; set; }
+
+    /// <summary>The Windows services running in the process, null when there are none or they aren't known yet.</summary>
+    public string[]? Services { get; set; }
+
+    /// <summary>
+    /// Windows' own: no rule blocks or slows it. <see cref="NetworkingServices"/> says which of
+    /// its services keep it that way, and is empty for a process like lsass that always is.
+    /// </summary>
+    public bool IsProtected { get; set; }
+
+    /// <summary>The services in it that Windows networking needs (DNS, DHCP and the like), which no rule slows.</summary>
+    public string[]? NetworkingServices { get; set; }
+
     public string? AppxPackage { get; set; }
 
     private long _currentDownloadBytesPerSecond;

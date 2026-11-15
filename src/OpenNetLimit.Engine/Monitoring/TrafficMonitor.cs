@@ -10,6 +10,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     private readonly ConcurrentDictionary<uint, TrafficCounter> _counters = new();
     private readonly Timer _snapshotTimer;
     private readonly IRateLimiter? _rateLimiter;
+    private readonly IServiceHosts? _serviceHosts;
     private readonly double _intervalSeconds;
     private readonly object _usageLock = new();
     private readonly Dictionary<uint, (long Received, long Sent)> _usageMarks = new();
@@ -17,8 +18,10 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     public event Action<TrafficSnapshot>? OnSnapshot;
 
     /// <param name="rateLimiter">Where the limit each process is held to is read from.</param>
-    public TrafficMonitor(TimeSpan? snapshotInterval = null, IRateLimiter? rateLimiter = null)
-        : this(snapshotInterval ?? TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true)
+    /// <param name="serviceHosts">Where the services in each process are read from.</param>
+    public TrafficMonitor(TimeSpan? snapshotInterval = null, IRateLimiter? rateLimiter = null,
+        IServiceHosts? serviceHosts = null)
+        : this(snapshotInterval ?? TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true, serviceHosts)
     {
     }
 
@@ -26,10 +29,12 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     /// With <paramref name="sampleOnTimer"/> off, rates are only sampled by calling
     /// <see cref="SampleRates"/>, so a test can't lose its bytes to a timer tick mid-test.
     /// </summary>
-    internal TrafficMonitor(TimeSpan snapshotInterval, IRateLimiter? rateLimiter, bool sampleOnTimer)
+    internal TrafficMonitor(TimeSpan snapshotInterval, IRateLimiter? rateLimiter, bool sampleOnTimer,
+        IServiceHosts? serviceHosts = null)
     {
         _intervalSeconds = snapshotInterval.TotalSeconds;
         _rateLimiter = rateLimiter;
+        _serviceHosts = serviceHosts;
         _snapshotTimer = sampleOnTimer
             ? new Timer(OnSnapshotTick, null, snapshotInterval, snapshotInterval)
             : new Timer(OnSnapshotTick, null, Timeout.Infinite, Timeout.Infinite);
@@ -70,17 +75,35 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         info.LastActivityAt = DateTime.UtcNow;
     }
 
-    private static void EnrichProcessInfo(ProcessTrafficInfo info)
+    private void EnrichProcessInfo(ProcessTrafficInfo info)
     {
+        ReadServices(info);
         try
         {
-            info.ServiceName = ProcessIdentifier.GetServiceName(info.ProcessId);
             info.AppxPackage = ProcessIdentifier.GetAppxPackageName(info.ProcessId);
         }
         catch
         {
             // Best-effort enrichment
         }
+    }
+
+    /// <summary>
+    /// The services in the process and whether that keeps it out of rules, from the last read of
+    /// the service list. A svchost started since that read shows as Windows' own until the next.
+    /// </summary>
+    private void ReadServices(ProcessTrafficInfo info)
+    {
+        var services = _serviceHosts?.ServicesIn(info.ProcessId);
+        var protection = ProtectedProcesses.Of(info.ProcessName, services);
+        bool isProtected = protection != ProcessProtection.None;
+        if (ReferenceEquals(services, info.Services) && isProtected == info.IsProtected)
+            return;
+        var names = services as string[] ?? services?.ToArray();
+        info.Services = names;
+        info.ServiceName = names?.FirstOrDefault();
+        info.NetworkingServices = ProtectedProcesses.NetworkingIn(names);
+        info.IsProtected = isProtected;
     }
 
     public ProcessTrafficInfo? GetProcessInfo(uint processId)
@@ -112,6 +135,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             }
             info.CurrentDownloadBytesPerSecond = down;
             info.CurrentUploadBytesPerSecond = up;
+            ReadServices(info);
 
             if (_rateLimiter is not null)
             {
@@ -192,6 +216,9 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         ProcessName = info.ProcessName,
         ProcessPath = info.ProcessPath,
         ServiceName = info.ServiceName,
+        Services = info.Services,
+        IsProtected = info.IsProtected,
+        NetworkingServices = info.NetworkingServices,
         AppxPackage = info.AppxPackage,
         CurrentDownloadBytesPerSecond = down,
         CurrentUploadBytesPerSecond = up,

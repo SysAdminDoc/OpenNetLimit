@@ -3,6 +3,7 @@ using System.Text.Json;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.UI;
 using OpenNetLimit.UI.Services;
@@ -234,19 +235,22 @@ public sealed class WholePcLimitTests
 
     [Theory]
     // Windows Update, BITS, Delivery Optimization and SMB copies run in svchost or System over TCP.
-    [InlineData(true, TransportProtocol.Tcp, 443, true)]
-    [InlineData(true, TransportProtocol.Tcp, 445, true)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 443, true)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 445, true)]
     // DNS, DHCP and NTP stay free, DNS that falls back to TCP for a big answer too.
-    [InlineData(true, TransportProtocol.Udp, 53, false)]
-    [InlineData(true, TransportProtocol.Udp, 123, false)]
-    [InlineData(true, TransportProtocol.Tcp, 53, false)]
-    [InlineData(false, TransportProtocol.Tcp, 443, true)]
-    [InlineData(false, TransportProtocol.Tcp, 53, true)]
-    [InlineData(false, TransportProtocol.Udp, 443, true)]
-    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(bool isProtected, TransportProtocol protocol,
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 53, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Udp, 123, false)]
+    [InlineData(ProcessProtection.Windows, TransportProtocol.Tcp, 53, false)]
+    [InlineData(ProcessProtection.None, TransportProtocol.Tcp, 443, true)]
+    [InlineData(ProcessProtection.None, TransportProtocol.Tcp, 53, true)]
+    [InlineData(ProcessProtection.None, TransportProtocol.Udp, 443, true)]
+    // A svchost with only networking in it counts for nothing: its DNS over HTTPS used to.
+    [InlineData(ProcessProtection.Networking, TransportProtocol.Tcp, 443, false)]
+    [InlineData(ProcessProtection.Networking, TransportProtocol.Udp, 53, false)]
+    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(ProcessProtection protection, TransportProtocol protocol,
         int remotePort, bool counts)
     {
-        var limits = WinDivertInterceptor.LimitsFor(isProtected, protocol, remotePort, payloadLength: 1400,
+        var limits = WinDivertInterceptor.LimitsFor(protection, protocol, remotePort, payloadLength: 1400,
             closesFlow: false, pcLimitCounts: true, hasAppLimit: false);
 
         Assert.Equal(counts, limits.WholePc);
@@ -256,12 +260,15 @@ public sealed class WholePcLimitTests
     [Fact]
     public void WindowsServices_NeverGetAnAppLimit()
     {
-        var service = WinDivertInterceptor.LimitsFor(isProtected: true, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
+        var service = WinDivertInterceptor.LimitsFor(ProcessProtection.Windows, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
             pcLimitCounts: false, hasAppLimit: true);
-        var app = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
+        var networking = WinDivertInterceptor.LimitsFor(ProcessProtection.Networking, TransportProtocol.Tcp, 443, 1400,
+            closesFlow: false, pcLimitCounts: false, hasAppLimit: true);
+        var app = WinDivertInterceptor.LimitsFor(ProcessProtection.None, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
             pcLimitCounts: false, hasAppLimit: true);
 
         Assert.False(service.Any);
+        Assert.False(networking.Any);
         Assert.True(app.App);
     }
 
@@ -273,7 +280,7 @@ public sealed class WholePcLimitTests
     {
         // An upload's ACKs come in on the download side. Holding them behind a download cap's
         // queue slowed the upload too.
-        var limits = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 443, payloadLength, closesFlow,
+        var limits = WinDivertInterceptor.LimitsFor(ProcessProtection.None, TransportProtocol.Tcp, 443, payloadLength, closesFlow,
             pcLimitCounts: true, hasAppLimit: true);
 
         Assert.Equal(waits, limits.WholePc);
@@ -286,10 +293,10 @@ public sealed class WholePcLimitTests
     private const uint ServicePid = 4;
     private const uint AppPid = 1;
 
-    private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, bool isProtected,
+    private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, ProcessProtection protection,
         string remote, bool loopback = false, int remotePort = 443, TransportProtocol protocol = TransportProtocol.Tcp)
     {
-        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), processId, isProtected, protocol,
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), processId, protection, protocol,
             remotePort, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback,
             out var delay);
         Assert.Equal(fate == WinDivertInterceptor.PacketFate.Delay, delay > TimeSpan.Zero);
@@ -310,11 +317,22 @@ public sealed class WholePcLimitTests
     {
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
 
-        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9"));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9"));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9", protocol: TransportProtocol.Udp));
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", protocol: TransportProtocol.Udp));
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9", remotePort: 53));
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Windows, "203.0.113.9", remotePort: 53));
+    }
+
+    [Fact]
+    public void Charge_ASvchostWithOnlyNetworkingInIt_IsNeverHeld()
+    {
+        // DNS over HTTPS from Dnscache waited behind a big download and stalled every lookup.
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+        limiter.SetLimit(ServicePid, downloadBytesPerSecond: 1, uploadBytesPerSecond: 1);
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, ServicePid, ProcessProtection.Networking, "203.0.113.9"));
     }
 
     [Theory]
@@ -325,9 +343,9 @@ public sealed class WholePcLimitTests
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000) with { IncludeLan = true });
 
         Assert.Equal(WinDivertInterceptor.PacketFate.Send,
-            ChargeDownload(limiter, AppPid, isProtected: false, ownAddress, loopback: true));
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, ownAddress, loopback: true));
         Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
-            ChargeDownload(limiter, AppPid, isProtected: false, ownAddress, loopback: false));
+            ChargeDownload(limiter, AppPid, ProcessProtection.None, ownAddress, loopback: false));
     }
 
     [Fact]
@@ -338,7 +356,7 @@ public sealed class WholePcLimitTests
         limiter.SetLimit(AppPid, downloadBytesPerSecond: 10_000, uploadBytesPerSecond: 0);
         Assert.True(limiter.TryReserve(AppPid, 65_536, isUpload: false, wholePc: false, MaxDelay, out _));
 
-        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, isProtected: false, "203.0.113.9"));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9"));
     }
 
     [Fact]
@@ -346,7 +364,7 @@ public sealed class WholePcLimitTests
     {
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
 
-        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, isProtected: false,
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 1000, closesFlow: false, isOutbound: true,
             IPAddress.Parse("203.0.113.9"), loopback: false, out var delay);
 
@@ -361,7 +379,7 @@ public sealed class WholePcLimitTests
         var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
         limiter.SetLimit(AppPid, downloadBytesPerSecond: 100_000_000, uploadBytesPerSecond: 0);
 
-        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, isProtected: false, "203.0.113.9"));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, ProcessProtection.None, "203.0.113.9"));
     }
 
     [Fact]
@@ -373,10 +391,10 @@ public sealed class WholePcLimitTests
         for (var i = 0; i < PacketScheduler.MaxQueuePerProcess; i++)
             scheduler.Enqueue(AppPid, new byte[40], address, TimeSpan.FromSeconds(1));
 
-        var full = WinDivertInterceptor.Charge(limiter, scheduler, AppPid, isProtected: false, TransportProtocol.Tcp,
+        var full = WinDivertInterceptor.Charge(limiter, scheduler, AppPid, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
             loopback: false, out var noDelay);
-        var other = WinDivertInterceptor.Charge(limiter, scheduler, AppPid + 1, isProtected: false, TransportProtocol.Tcp,
+        var other = WinDivertInterceptor.Charge(limiter, scheduler, AppPid + 1, ProcessProtection.None, TransportProtocol.Tcp,
             443, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse("203.0.113.9"),
             loopback: false, out var otherDelay);
 
@@ -392,7 +410,7 @@ public sealed class WholePcLimitTests
     {
         var limiter = LimiterWithItsPcLimitUsedUp(Down(1_000));
 
-        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, isProtected: false,
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, ProcessProtection.None,
             TransportProtocol.Tcp, 443, payloadLength: 60_000, closesFlow: false, isOutbound: false,
             IPAddress.Parse("203.0.113.9"), loopback: false, out _);
 

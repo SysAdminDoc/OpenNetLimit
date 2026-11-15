@@ -19,21 +19,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     private readonly ConnectionLogger _connectionLog = new();
     private readonly DnsDomainCache _dnsCache = new();
     private readonly SocketOwners _socketOwners;
+    private readonly IServiceHosts _serviceHosts;
     private Timer? _socketRefreshTimer;
     private long _totalBlocked;
 
     /// <summary>How often adopted flows are checked against the OS socket tables.</summary>
     private static readonly TimeSpan SocketRefreshInterval = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// Windows' own processes. No rule blocks or slows them, since that would slow everything.
-    /// Their TCP still counts toward the whole-PC limit, see <see cref="LimitsFor"/>.
-    /// </summary>
-    private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "svchost", "services", "lsass", "csrss", "wininit", "smss",
-        "dns", "dhcp", "dnscache", "System", "ntoskrnl"
-    };
 
     /// <summary>
     /// The Flow layer only reports events, so WinDivert requires it to be opened as a
@@ -89,12 +80,14 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         IRateLimiter rateLimiter,
         IRuleEngine ruleEngine,
         ITrafficMonitor trafficMonitor,
-        IDriverService driverService)
+        IDriverService driverService,
+        IServiceHosts serviceHosts)
     {
         _flowTracker = flowTracker;
         _rateLimiter = rateLimiter;
         _ruleEngine = ruleEngine;
         _trafficMonitor = trafficMonitor;
+        _serviceHosts = serviceHosts;
         _preflight = new DriverPreflight(driverService);
         _socketOwners = new SocketOwners(flowTracker, OsSocketTable.Read,
             processId => new ProcessIdentity(ResolveProcessName(processId), ResolveProcessPath(processId)));
@@ -148,8 +141,13 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             TaskScheduler.Default);
 
         // The first read happens right away, after the flow handle is open, so every connection
-        // is either reported by the flow layer or found in the tables.
-        _socketRefreshTimer = new Timer(_ => RefreshSocketOwners(), null, TimeSpan.Zero, SocketRefreshInterval);
+        // is either reported by the flow layer or found in the tables. The service list is read
+        // on the same beat, so a service that moved to another svchost is found within it.
+        _socketRefreshTimer = new Timer(_ =>
+        {
+            RefreshSocketOwners();
+            _serviceHosts.Refresh();
+        }, null, TimeSpan.Zero, SocketRefreshInterval);
 
         return Task.CompletedTask;
     }
@@ -365,9 +363,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var remotePort = endpoints.RemotePort;
                 var protocolStr = flowKey.Protocol.ToString();
                 var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
+                // From the last read of the service list. Reading it here would stall every packet.
+                var services = _serviceHosts.ServicesIn(processId.Value);
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
-                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain);
-                bool isProtected = ProtectedProcesses.Contains(processName);
+                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain, services: services);
+                var protection = ProtectedProcesses.Of(processName, services);
+                bool isProtected = protection != ProcessProtection.None;
                 // A Block rule and a used-up quota that blocks both drop the packet here.
                 bool blockedByRule = matchingRule?.Action == RuleAction.Block;
                 if (!isProtected && (blockedByRule || _rateLimiter.IsBlocked(processId.Value)))
@@ -399,7 +400,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                var fate = Charge(_rateLimiter, _scheduler, processId.Value, isProtected, flowKey.Protocol, remotePort,
+                var fate = Charge(_rateLimiter, _scheduler, processId.Value, protection, flowKey.Protocol, remotePort,
                     payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback, out var delay);
                 if (fate == PacketFate.Drop)
                 {
@@ -444,7 +445,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// covers its direction and remote end, <paramref name="hasAppLimit"/> that its app has a
     /// limit of its own.
     /// </summary>
-    internal static PacketLimits LimitsFor(bool isProtected, TransportProtocol protocol, int remotePort,
+    internal static PacketLimits LimitsFor(ProcessProtection protection, TransportProtocol protocol, int remotePort,
         int payloadLength, bool closesFlow, bool pcLimitCounts, bool hasAppLimit)
     {
         // A pure ACK or SYN carries no data, so it never waits behind the debt data ran up.
@@ -452,14 +453,20 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         // RST still wait, or they'd get there before the data queued ahead of them.
         if (payloadLength == 0 && !closesFlow)
             return default;
-        // Windows' own services carry Windows Update, BITS, Delivery Optimization and SMB file
-        // copies over TCP, so that counts toward the whole-PC limit. Their UDP (DNS, DHCP, NTP)
-        // doesn't, nor does DNS that falls back to TCP for a big answer, and no app limit
-        // applies to them.
-        bool serviceTrafficCounts = protocol == TransportProtocol.Tcp && remotePort != DnsPort;
+        // Windows' own processes carry Windows Update, BITS, Delivery Optimization and SMB file
+        // copies over TCP when they share a process with networking services, so that counts
+        // toward the whole-PC limit. Their UDP (DNS, DHCP, NTP) doesn't, nor does DNS that falls
+        // back to TCP for a big answer. A svchost running only networking services (DNS over
+        // HTTPS included) counts for nothing, and no app limit applies to any of them.
+        bool counts = protection switch
+        {
+            ProcessProtection.None => true,
+            ProcessProtection.Windows => protocol == TransportProtocol.Tcp && remotePort != DnsPort,
+            _ => false
+        };
         return new PacketLimits(
-            WholePc: pcLimitCounts && (!isProtected || serviceTrafficCounts),
-            App: hasAppLimit && !isProtected);
+            WholePc: pcLimitCounts && counts,
+            App: hasAppLimit && protection == ProcessProtection.None);
     }
 
     private const int DnsPort = 53;
@@ -474,11 +481,11 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
     /// </summary>
     internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
-        bool isProtected, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
+        ProcessProtection protection, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
         bool isOutbound, IPAddress remote, bool loopback, out TimeSpan delay)
     {
         delay = TimeSpan.Zero;
-        var limits = LimitsFor(isProtected, protocol, remotePort, payloadLength, closesFlow,
+        var limits = LimitsFor(protection, protocol, remotePort, payloadLength, closesFlow,
             PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
             limiter.HasLimit(processId));
         if (!limits.Any)

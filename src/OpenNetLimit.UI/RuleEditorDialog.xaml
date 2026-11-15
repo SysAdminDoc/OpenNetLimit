@@ -62,6 +62,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130"/>
@@ -81,17 +83,23 @@
                     <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ProgramHint}"
                                Style="{StaticResource FieldHint}"/>
 
-                    <TextBlock Grid.Row="3" Text="{loc:Loc RuleEditor_NameLabel}" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="NameBox" Margin="0,0,0,8"
+                    <TextBlock Grid.Row="3" Text="{loc:Loc RuleEditor_ServiceLabel}" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ServiceBox" Margin="0,0,0,8"
+                             AutomationProperties.Name="{loc:Loc RuleEditor_ServiceLabel}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ServiceHint}"
+                               Style="{StaticResource FieldHint}"/>
+
+                    <TextBlock Grid.Row="5" Text="{loc:Loc RuleEditor_NameLabel}" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="NameBox" Margin="0,0,0,8"
                              AutomationProperties.Name="{loc:Loc RuleEditor_NameLabel}"/>
 
-                    <TextBlock Grid.Row="4" Text="{loc:Loc RuleEditor_ActionLabel}" Style="{StaticResource FieldLabel}"/>
-                    <ComboBox Grid.Row="4" Grid.Column="1" x:Name="ActionCombo" Margin="0,0,8,8" MinWidth="180"
+                    <TextBlock Grid.Row="6" Text="{loc:Loc RuleEditor_ActionLabel}" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox Grid.Row="6" Grid.Column="1" x:Name="ActionCombo" Margin="0,0,8,8" MinWidth="180"
                               HorizontalAlignment="Left" SelectionChanged="OnChoiceChanged"
                               AutomationProperties.Name="{loc:Loc RuleEditor_ActionLabel}"/>
 
-                    <TextBlock Grid.Row="5" Text="{loc:Loc RuleEditor_SpeedLabel}" Style="{StaticResource FieldLabel}"/>
-                    <StackPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Grid.Row="7" Text="{loc:Loc RuleEditor_SpeedLabel}" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="{loc:Loc RuleEditor_DownloadLabel}" Style="{StaticResource InlineText}" Margin="0,0,8,0"/>
                         <TextBox x:Name="DownloadBox" Width="90"
                                  AutomationProperties.Name="{loc:Loc RuleEditor_DownloadLabel}"/>
@@ -101,11 +109,11 @@
                                  AutomationProperties.Name="{loc:Loc RuleEditor_UploadLabel}"/>
                         <TextBlock Text="{loc:Loc RateUnit_Kbps}" Style="{StaticResource InlineText}" Margin="6,0,0,0"/>
                     </StackPanel>
-                    <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ZeroHint}"
+                    <TextBlock Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ZeroHint}"
                                Style="{StaticResource FieldHint}"/>
 
-                    <TextBlock Grid.Row="7" Text="{loc:Loc RuleEditor_HoursLabel}" Style="{StaticResource FieldLabel}"/>
-                    <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Grid.Row="9" Text="{loc:Loc RuleEditor_HoursLabel}" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBox x:Name="StartBox" Width="80"
                                  AutomationProperties.Name="{loc:Loc RuleEditor_HoursLabel}"/>
                         <TextBlock Text="{loc:Loc RuleEditor_To}" Style="{StaticResource InlineText}" Margin="10,0"/>
@@ -113,25 +121,25 @@
                                  AutomationProperties.Name="{loc:Loc RuleEditor_To}"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="8" Text="{loc:Loc RuleEditor_DaysLabel}" Style="{StaticResource FieldLabel}"/>
-                    <WrapPanel Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="DaysPanel" Margin="0,0,0,8"/>
-                    <TextBlock Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ScheduleHint}"
+                    <TextBlock Grid.Row="10" Text="{loc:Loc RuleEditor_DaysLabel}" Style="{StaticResource FieldLabel}"/>
+                    <WrapPanel Grid.Row="10" Grid.Column="1" Grid.ColumnSpan="2" x:Name="DaysPanel" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Row="11" Grid.Column="1" Grid.ColumnSpan="2" Text="{loc:Loc RuleEditor_ScheduleHint}"
                                Style="{StaticResource FieldHint}"/>
 
-                    <TextBlock Grid.Row="10" Text="{loc:Loc RuleEditor_GroupLabel}" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Grid.Row="10" Grid.Column="1" x:Name="GroupBox" Margin="0,0,16,8"
+                    <TextBlock Grid.Row="12" Text="{loc:Loc RuleEditor_GroupLabel}" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Grid.Row="12" Grid.Column="1" x:Name="GroupBox" Margin="0,0,16,8"
                              AutomationProperties.Name="{loc:Loc RuleEditor_GroupLabel}"/>
-                    <CheckBox Grid.Row="10" Grid.Column="2" x:Name="EnabledCheck" Margin="0,0,0,8"
+                    <CheckBox Grid.Row="12" Grid.Column="2" x:Name="EnabledCheck" Margin="0,0,0,8"
                               VerticalAlignment="Center" Content="{loc:Loc RuleEditor_Enabled}"/>
 
-                    <Border Grid.Row="11" Grid.ColumnSpan="3" BorderBrush="{DynamicResource BorderBrush}"
+                    <Border Grid.Row="13" Grid.ColumnSpan="3" BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="0,1,0,0" Margin="0,4,0,0"/>
-                    <CheckBox Grid.Row="11" Grid.Column="0" Grid.ColumnSpan="3" x:Name="QuotaCheck" Margin="0,16,0,10"
+                    <CheckBox Grid.Row="13" Grid.Column="0" Grid.ColumnSpan="3" x:Name="QuotaCheck" Margin="0,16,0,10"
                               Content="{loc:Loc RuleEditor_QuotaCheck}" FontWeight="SemiBold"
                               Checked="OnChoiceChanged" Unchecked="OnChoiceChanged"/>
 
-                    <TextBlock Grid.Row="12" Text="{loc:Loc RuleEditor_QuotaLabel}" Style="{StaticResource FieldLabel}"/>
-                    <StackPanel Grid.Row="12" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Grid.Row="14" Text="{loc:Loc RuleEditor_QuotaLabel}" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="14" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBox x:Name="QuotaBox" Width="110"
                                  AutomationProperties.Name="{loc:Loc RuleEditor_QuotaLabel}"/>
                         <TextBlock Text="{loc:Loc RateUnit_MB}" Style="{StaticResource InlineText}" Margin="8,0,12,0"/>
@@ -139,9 +147,9 @@
                                   AutomationProperties.Name="{loc:Loc RuleEditor_QuotaLabel}"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="13" Text="{loc:Loc RuleEditor_WhenUsedUp}" Style="{StaticResource FieldLabel}"
+                    <TextBlock Grid.Row="15" Text="{loc:Loc RuleEditor_WhenUsedUp}" Style="{StaticResource FieldLabel}"
                                TextWrapping="Wrap"/>
-                    <StackPanel Grid.Row="13" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="15" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <ComboBox x:Name="QuotaActionCombo" MinWidth="180" SelectionChanged="OnChoiceChanged"
                                   AutomationProperties.Name="{loc:Loc RuleEditor_WhenUsedUp}"/>
                         <!-- Only a slowdown needs a speed: "Slow it down to 10 KB/s". -->

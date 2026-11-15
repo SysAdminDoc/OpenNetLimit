@@ -269,16 +269,29 @@ public static class Program
         return await GetJson($"/api/v1/groups/{Uri.EscapeDataString(args[0])}");
     }
 
-    private static async Task<int> AddRule(string[] args)
+    /// <summary>
+    /// What <c>rules add</c> puts the rule on: the app from --process or the Windows service from
+    /// --service. Null, with why on <paramref name="error"/>, unless exactly one was given.
+    /// </summary>
+    internal static Dictionary<string, object?>? RuleTarget(string[] args, TextWriter error)
     {
         var process = GetArg(args, "--process", null);
-        if (process is null)
+        var service = GetArg(args, "--service", null);
+        if ((process is null) == (service is null))
         {
-            Console.Error.WriteLine("Error: --process is required");
-            return 1;
+            error.WriteLine("Error: give --process or --service (one of them)");
+            return null;
         }
+        return service is not null
+            ? new Dictionary<string, object?> { ["serviceName"] = service }
+            : new Dictionary<string, object?> { ["processName"] = process };
+    }
 
-        var body = new Dictionary<string, object?> { ["processName"] = process };
+    private static async Task<int> AddRule(string[] args)
+    {
+        var body = RuleTarget(args, Console.Error);
+        if (body is null)
+            return 1;
 
         var download = GetArg(args, "--download", null);
         if (download is not null)
@@ -476,6 +489,7 @@ public static class Program
 
               rules list                      List all bandwidth rules
               rules add --process <name>      Add a bandwidth rule
+                | --service <name>              or one on a Windows service (DoSvc, BITS)
                 [--download <KB/s>]             Download limit in KB/s
                 [--upload <KB/s>]               Upload limit in KB/s
                 [--action Limit|Block|Allow]     Rule action (default: Limit)

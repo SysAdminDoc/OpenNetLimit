@@ -46,6 +46,10 @@
   <data name="Label_Upload" xml:space="preserve"><value>Upload: </value></data>
   <data name="LanguageDisplay" xml:space="preserve"><value>Language: {0}</value></data>
   <data name="Limit_None" xml:space="preserve"><value>None</value></data>
+  <data name="Limit_Protected" xml:space="preserve"><value>Windows (never limited)</value></data>
+  <data name="Process_ProtectedNetworking" xml:space="preserve"><value>Rules leave this alone because it runs {0}, which Windows needs to stay online.</value></data>
+  <data name="Process_ProtectedWindows" xml:space="preserve"><value>Rules leave this alone because Windows needs it.</value></data>
+  <data name="Process_ProtectedUnknown" xml:space="preserve"><value>Rules leave this svchost alone until the services in it are known.</value></data>
   <data name="Main_Title" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Main_WindowTitle" xml:space="preserve"><value>OpenNetLimit</value></data>
   <data name="Menu_AdminRequired" xml:space="preserve"><value>Administrator privileges required</value></data>
@@ -73,6 +77,11 @@
   <data name="SetLimit_InvalidMessage" xml:space="preserve"><value>Please enter valid non-negative numbers.</value></data>
   <data name="SetLimit_InvalidTitle" xml:space="preserve"><value>Invalid Input</value></data>
   <data name="SetLimit_ProcessLabel" xml:space="preserve"><value>Limit bandwidth for: {0}</value></data>
+  <data name="SetLimit_ServiceLabel" xml:space="preserve"><value>Limit bandwidth for the {0} service</value></data>
+  <data name="SetLimit_ServicePick" xml:space="preserve"><value>Pick the service to limit</value></data>
+  <data name="SetLimit_ServiceAutomation" xml:space="preserve"><value>Service to limit</value></data>
+  <data name="SetLimit_SharedOne" xml:space="preserve"><value>{1} runs in the same process as {0}, so this limit slows it too.</value></data>
+  <data name="SetLimit_SharedMany" xml:space="preserve"><value>{1} run in the same process as {0}, so this limit slows them too.</value></data>
   <data name="SetLimit_Title" xml:space="preserve"><value>Set Bandwidth Limit</value></data>
   <data name="SetLimit_UploadAutomation" xml:space="preserve"><value>Upload limit in KB/s</value></data>
   <data name="SetLimit_UploadLabel" xml:space="preserve"><value>Upload:</value></data>
@@ -194,6 +203,7 @@
   <data name="Rules_NoService" xml:space="preserve"><value>Couldn't reach the OpenNetLimit service. Check that it's running.</value></data>
   <data name="Rules_ServiceError" xml:space="preserve"><value>The service turned that down: {0}</value></data>
   <data name="Rules_Added" xml:space="preserve"><value>Added a rule for {0}.</value></data>
+  <data name="Rules_ServiceTarget" xml:space="preserve"><value>{0} (service)</value></data>
   <data name="Rules_Saved" xml:space="preserve"><value>Saved the rule for {0}.</value></data>
   <data name="Rules_TurnedOn" xml:space="preserve"><value>Turned on the rule for {0}.</value></data>
   <data name="Rules_TurnedOff" xml:space="preserve"><value>Turned off the rule for {0}.</value></data>
@@ -229,6 +239,10 @@
   <data name="RuleEditor_ProgramLabel" xml:space="preserve"><value>Program</value></data>
   <data name="RuleEditor_ProgramHint" xml:space="preserve"><value>A file name like chrome.exe, a full path, or both.</value></data>
   <data name="RuleEditor_PathLabel" xml:space="preserve"><value>Full path</value></data>
+  <data name="RuleEditor_ServiceLabel" xml:space="preserve"><value>Service</value></data>
+  <data name="RuleEditor_ServiceHint" xml:space="preserve"><value>Or a Windows service like BITS or DoSvc, to limit the svchost it runs in.</value></data>
+  <data name="RuleEditor_ServiceAlone" xml:space="preserve"><value>A service rule can't also name a program or a path. Clear one of them.</value></data>
+  <data name="RuleEditor_UseService" xml:space="preserve"><value>svchost runs many Windows services at once. Enter the one to limit under Service, like BITS.</value></data>
   <data name="RuleEditor_Browse" xml:space="preserve"><value>Browse</value></data>
   <data name="RuleEditor_BrowseFilter" xml:space="preserve"><value>Programs (*.exe)|*.exe</value></data>
   <data name="RuleEditor_NameLabel" xml:space="preserve"><value>Name (optional)</value></data>
@@ -253,7 +267,7 @@
   <data name="RuleEditor_QuotaBlock" xml:space="preserve"><value>Block it</value></data>
   <data name="RuleEditor_QuotaWarn" xml:space="preserve"><value>Just warn me</value></data>
   <data name="RuleEditor_SlowTo" xml:space="preserve"><value>Slow to</value></data>
-  <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Enter a program name or a full path.</value></data>
+  <data name="RuleEditor_NeedTarget" xml:space="preserve"><value>Enter a program name, a full path or a service.</value></data>
   <data name="RuleEditor_BadNumber" xml:space="preserve"><value>Use whole numbers, like 512.</value></data>
   <data name="RuleEditor_NeedLimit" xml:space="preserve"><value>Set a download or upload limit above 0, add a data cap, or pick another action.</value></data>
   <data name="RuleEditor_BadTime" xml:space="preserve"><value>Enter both times as hours and minutes, like 09:00 and 17:30.</value></data>

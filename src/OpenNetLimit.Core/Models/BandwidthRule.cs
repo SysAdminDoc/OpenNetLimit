@@ -31,6 +31,21 @@ public class BandwidthRule
     }
     public string? ProcessPath { get; set; }
 
+    /// <summary>The process Windows runs shared services in.</summary>
+    public const string ServiceHostName = "svchost";
+
+    private string? _serviceName;
+
+    /// <summary>
+    /// A Windows service, by its short name ("DoSvc", "BITS"). The rule then covers the process
+    /// the service runs in, which for most services is a svchost of their own.
+    /// </summary>
+    public string? ServiceName
+    {
+        get => _serviceName;
+        set => _serviceName = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     public RuleAction Action { get; set; } = RuleAction.Limit;
     public RuleDirection Direction { get; set; } = RuleDirection.Both;
 
@@ -56,8 +71,29 @@ public class BandwidthRule
 
     public int Priority { get; set; }
 
-    public bool MatchesProcess(string processName, string? processPath)
+    public bool MatchesProcess(string processName, string? processPath) =>
+        MatchesProcess(processName, processPath, services: null);
+
+    /// <param name="services">The services running in the process, null when there are none or they aren't known.</param>
+    public bool MatchesProcess(string processName, string? processPath, IReadOnlyList<string>? services)
     {
+        if (ServiceName is not null)
+        {
+            if (services is null)
+                return false;
+            foreach (var service in services)
+            {
+                if (service.Equals(ServiceName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        // A svchost runs Windows services, often several at once. Only a rule on one of them by
+        // name covers it, so a rule on svchost or a path that takes it in can't slow them all.
+        if (processName.Equals(ServiceHostName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
         if (ProcessPath is not null && processPath is not null)
         {
             if (ProcessPath.Contains('*') || ProcessPath.Contains('?'))
@@ -166,6 +202,7 @@ public class BandwidthRule
         Enabled = Enabled,
         ProcessName = ProcessName,
         ProcessPath = ProcessPath,
+        ServiceName = ServiceName,
         Action = Action,
         Direction = Direction,
         DownloadBytesPerSecond = DownloadBytesPerSecond,

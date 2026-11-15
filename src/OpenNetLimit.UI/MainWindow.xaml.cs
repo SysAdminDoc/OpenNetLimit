@@ -155,17 +155,17 @@ public partial class MainWindow : Window
     {
         if (ProcessGrid.SelectedItem is not ProcessViewModel process) return;
 
-        var dialog = new SetLimitDialog
-        {
-            ProcessName = process.ProcessName,
-            Owner = this
-        };
+        // Rules reach a svchost only through a service in it, so its limit goes on one of those.
+        var dialog = ProcessRowText.IsServiceHost(process.ProcessName) && process.Services is { Count: > 0 } services
+            ? SetLimitDialog.ForServices(process.ProcessName, services)
+            : new SetLimitDialog { ProcessName = process.ProcessName };
+        dialog.Owner = this;
 
         if (dialog.ShowDialog() == true)
         {
             var downBytes = dialog.DownloadKBps * 1024;
             var upBytes = dialog.UploadKBps * 1024;
-            await _viewModel.SetLimitAsync(process.ProcessName, downBytes, upBytes);
+            await _viewModel.SetLimitAsync(process.ProcessName, downBytes, upBytes, dialog.ServiceName);
         }
     }
 
@@ -185,7 +185,7 @@ public partial class MainWindow : Window
     private async void OnRemoveLimit(object sender, RoutedEventArgs e)
     {
         if (ProcessGrid.SelectedItem is not ProcessViewModel process) return;
-        await _viewModel.RemoveLimitAsync(process.ProcessName);
+        await _viewModel.RemoveLimitAsync(process.ProcessName, process.Services);
     }
 
     private void OnToggleTheme(object sender, RoutedEventArgs e)

@@ -582,7 +582,9 @@ public sealed class RuleRow
     public string QuotaDisplay { get; }
     public string StateDisplay { get; }
 
-    internal static string TargetOf(BandwidthRule rule) => rule.ProcessPath ?? rule.ProcessName ?? string.Empty;
+    internal static string TargetOf(BandwidthRule rule) =>
+        rule.ServiceName is { } service ? LocalizationManager.Format("Rules_ServiceTarget", service)
+        : rule.ProcessPath ?? rule.ProcessName ?? string.Empty;
 
     private static string LimitOf(BandwidthRule rule)
     {

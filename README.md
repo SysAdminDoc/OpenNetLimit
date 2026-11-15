@@ -88,15 +88,17 @@ OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires admin
 
 The rule applies right away and keeps applying after the app restarts. OpenNetLimit won't block or limit system-critical Windows processes.
 
+Windows Update, Delivery Optimization and other Windows services run inside `svchost.exe`, so the list shows each svchost with the services in it, like `svchost (BITS)`. A limit on one of those goes on the service, and it follows the service if Windows restarts it in another svchost. When several services share one svchost, the dialog asks which one and names the others the limit will slow too. A svchost running DNS, DHCP, RPC, the firewall or another service Windows needs to stay online is never limited, and its row says why.
+
 ### Limit the whole PC
 
 The **Whole-PC limit** card on the **Real-time** tab caps every app's traffic added together. Select **Change**, enter the download and upload speeds in KB/s, and select **OK**. A 0 leaves that direction uncapped, and 0 in both turns the limit off.
 
-It only counts internet traffic by default, so copying files to a NAS or another PC at home still runs at full speed. Check **Count local network traffic too** if you want that capped as well. Traffic between programs on the PC itself is never counted. Windows Update and other Windows services do count toward it, even though no app limit can touch them. Apps with their own limit stay under both. Changing it needs the app running as administrator.
+It only counts internet traffic by default, so copying files to a NAS or another PC at home still runs at full speed. Check **Count local network traffic too** if you want that capped as well. Traffic between programs on the PC itself is never counted. Windows Update and other Windows services count toward it too, even the ones that have no limit of their own. Apps and services with their own limit stay under both. Changing it needs the app running as administrator.
 
 ### Manage rules and alerts
 
-The **Rules** tab lists every rule the service applies. **Add rule** opens a form where you pick the app by name or full path, then limit or block it. You can keep a rule to certain hours and days, or give it a daily, weekly or monthly data cap that blocks or slows the app once it's used up. Turning a rule off keeps it for later, and turning it back on starts its data cap over. **Undo** brings back one you deleted, with the data it had already used.
+The **Rules** tab lists every rule the service applies. **Add rule** opens a form where you pick the app by name or full path, or a Windows service by its short name (`BITS`, `DoSvc`, `wuauserv`), then limit or block it. You can keep a rule to certain hours and days, or give it a daily, weekly or monthly data cap that blocks or slows the app once it's used up. Turning a rule off keeps it for later, and turning it back on starts its data cap over. **Undo** brings back one you deleted, with the data it had already used.
 
 **Export** saves your rules to a JSON file and **Import** loads one, on this PC or another. Import also reads the `rules.json` the service keeps in `%ProgramData%\OpenNetLimit`, which it saves every time a rule changes. The alerts list under the rules tells you when an app, or every app, goes over a speed you pick. Changing rules or alerts needs the app running as administrator.
 
@@ -116,6 +118,7 @@ A pause ends when the service restarts. Check **Stay paused after restart** to k
 ./onl.exe status
 ./onl.exe snapshot
 ./onl.exe rules add --process steam.exe --download 8192 --upload 1024
+./onl.exe rules add --service DoSvc --download 1024
 ./onl.exe stats top --days 7 --limit 10
 ./onl.exe pc-limit set --download 1024
 ./onl.exe selftest

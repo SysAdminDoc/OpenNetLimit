@@ -1,5 +1,6 @@
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Monitoring;
 
 namespace OpenNetLimit.Engine.Rules;
 
@@ -9,6 +10,7 @@ public class RuleReconciler
     private readonly IRateLimiter _rateLimiter;
     private readonly IFlowTracker _flowTracker;
     private readonly QuotaTracker? _quotaTracker;
+    private readonly IServiceHosts? _serviceHosts;
     private readonly object _lock = new();
 
     /// <summary>
@@ -24,13 +26,18 @@ public class RuleReconciler
     /// <summary>The active rules at the last reconcile, and whether each one's quota was used up.</summary>
     private HashSet<(Guid RuleId, bool QuotaUsedUp)> _inputs = [];
 
+    /// <param name="serviceHosts">
+    /// The services in each process, which service rules match on. Without it every svchost is
+    /// treated as Windows' own and left alone.
+    /// </param>
     public RuleReconciler(IRuleEngine ruleEngine, IRateLimiter rateLimiter, IFlowTracker flowTracker,
-        QuotaTracker? quotaTracker = null)
+        QuotaTracker? quotaTracker = null, IServiceHosts? serviceHosts = null)
     {
         _ruleEngine = ruleEngine;
         _rateLimiter = rateLimiter;
         _flowTracker = flowTracker;
         _quotaTracker = quotaTracker;
+        _serviceHosts = serviceHosts;
         _flowTracker.FlowRegistered += EnsureLimit;
     }
 
@@ -49,7 +56,7 @@ public class RuleReconciler
             foreach (var conn in connections)
             {
                 connected.Add(conn.ProcessId);
-                if (PolicyFor(conn.ProcessName, conn.ProcessPath) is { } policy)
+                if (PolicyFor(conn.ProcessId, conn.ProcessName, conn.ProcessPath) is { } policy)
                 {
                     Apply(conn.ProcessId, conn.ProcessName, conn.ProcessPath, policy);
                     processesWithLimits.Add(conn.ProcessId);
@@ -69,7 +76,7 @@ public class RuleReconciler
             {
                 if (connected.Contains(processId))
                     continue;
-                if (PolicyFor(process.Name, process.Path) is { } policy)
+                if (PolicyFor(processId, process.Name, process.Path) is { } policy)
                 {
                     Enforce(processId, policy);
                 }
@@ -135,7 +142,7 @@ public class RuleReconciler
                 _rateLimiter.RemoveLimit(processId);
                 _applied.Remove(processId);
             }
-            if (PolicyFor(processName, processPath) is { } policy)
+            if (PolicyFor(processId, processName, processPath) is { } policy)
                 Apply(processId, processName, processPath, policy);
         }
     }
@@ -161,13 +168,17 @@ public class RuleReconciler
     /// <summary>
     /// What the process gets: a used-up quota that blocks wins, then the tighter of its limit
     /// rule and any used-up quota that throttles. Quotas stay in force until their period resets.
+    /// Windows' own processes get nothing, a svchost with DNS, DHCP or the like in it included.
     /// </summary>
-    private Policy? PolicyFor(string processName, string? processPath)
+    private Policy? PolicyFor(uint processId, string processName, string? processPath)
     {
-        var policy = RuleLimitFor(processName, processPath);
+        var services = _serviceHosts?.Resolve(processId, processName);
+        if (ProtectedProcesses.Of(processName, services) != ProcessProtection.None)
+            return null;
+        var policy = RuleLimitFor(processName, processPath, services);
         foreach (var rule in _usedUpQuotas)
         {
-            if (!rule.MatchesProcess(processName, processPath))
+            if (!rule.MatchesProcess(processName, processPath, services))
                 continue;
             if (rule.Quota!.OnExceeded == QuotaAction.Block)
                 return Policy.Blocked;
@@ -176,9 +187,9 @@ public class RuleReconciler
         return policy;
     }
 
-    private Policy? RuleLimitFor(string processName, string? processPath)
+    private Policy? RuleLimitFor(string processName, string? processPath, IReadOnlyList<string>? services)
     {
-        var rule = _ruleEngine.FindMatchingRule(processName, processPath);
+        var rule = _ruleEngine.FindMatchingRule(processName, processPath, services);
         if (rule is null || rule.Action != RuleAction.Limit || !rule.IsActiveNow())
             return null;
 
