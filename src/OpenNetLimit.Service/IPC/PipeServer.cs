@@ -54,12 +54,15 @@ public class PipeServer
         _logger = logger;
     }
 
+    /// <summary>Tests serve on a pipe of their own so they never meet an installed service.</summary>
+    internal string PipeName { get; init; } = IpcProtocol.PipeName;
+
     public async Task StartAsync(CancellationToken ct)
     {
         bool isFirst = true;
         while (!ct.IsCancellationRequested)
         {
-            var pipe = CreateSecurePipe(isFirst);
+            var pipe = CreateSecurePipe(PipeName, isFirst);
             isFirst = false;
 
             try
@@ -135,17 +138,25 @@ public class PipeServer
         {
             using (pipe)
             {
-                clientIdentity = GetClientIdentity(pipe);
-                bool isAdmin = IsClientAdmin(pipe);
-                _logger.LogInformation("IPC client connected: {Identity} (admin={IsAdmin})", clientIdentity, isAdmin);
-
                 using var reader = new StreamReader(pipe, Encoding.UTF8);
                 using var writer = new StreamWriter(pipe, Encoding.UTF8) { AutoFlush = true };
+                bool? clientIsAdmin = null;
 
                 while (pipe.IsConnected && !ct.IsCancellationRequested)
                 {
                     var line = await reader.ReadLineAsync(ct);
                     if (line is null) break;
+
+                    // Windows only lets a pipe server impersonate its client after reading data
+                    // from it. Asking at connect time always failed, so every client, an elevated
+                    // UI included, was "unknown" and non-admin and every limit change was refused.
+                    if (clientIsAdmin is null)
+                    {
+                        clientIdentity = GetClientIdentity(pipe);
+                        clientIsAdmin = IsClientAdmin(pipe);
+                        _logger.LogInformation("IPC client connected: {Identity} (admin={IsAdmin})", clientIdentity, clientIsAdmin);
+                    }
+                    bool isAdmin = clientIsAdmin.Value;
 
                     if (string.IsNullOrWhiteSpace(line) || line.Length > 65536)
                     {
@@ -200,7 +211,7 @@ public class PipeServer
             bool isAdmin = false;
             pipe.RunAsClient(() =>
             {
-                var identity = WindowsIdentity.GetCurrent();
+                using var identity = WindowsIdentity.GetCurrent();
                 var principal = new WindowsPrincipal(identity);
                 isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
             });
