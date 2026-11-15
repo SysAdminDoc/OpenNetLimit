@@ -251,6 +251,78 @@ public class RuleReconcilerTests
 
         Assert.Empty(limiter.Limits);
     }
+
+    [Fact]
+    public void RemovedRule_LiftsTheLimitFromAnAppWithNoOpenConnection()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        var rule = new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        flows.UnregisterFlow(MakeFlowKey());
+
+        rules.RemoveRule(rule.Id);
+
+        Assert.Empty(limiter.Limits);
+    }
+
+    [Fact]
+    public void ChangedRule_ReachesAnAppWithNoOpenConnection()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        var rule = new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(100), 500, "curl", null);
+        flows.UnregisterFlow(MakeFlowKey(100));
+
+        rule.DownloadBytesPerSecond = 131_072;
+        rules.UpdateRule(rule);
+        flows.RegisterFlow(MakeFlowKey(101), 500, "curl", null);
+
+        Assert.Equal((131_072L, 0L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void ReusedProcessId_DoesNotKeepTheLimitOfTheAppThatHadIt()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 });
+        rules.AddRule(new BandwidthRule { ProcessName = "git", UploadBytesPerSecond = 65_536, Direction = RuleDirection.Upload });
+        flows.RegisterFlow(MakeFlowKey(100), 500, "curl", null);
+        flows.UnregisterFlow(MakeFlowKey(100));
+
+        flows.RegisterFlow(MakeFlowKey(101), 500, "brave", null);
+        Assert.False(limiter.Limits.ContainsKey(500));
+
+        flows.UnregisterFlow(MakeFlowKey(101));
+        flows.RegisterFlow(MakeFlowKey(102), 500, "git", null);
+        Assert.Equal((0L, 65_536L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void QuotaThrottle_OnALimitedApp_SurvivesItsNextFlow()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows);
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 });
+        flows.RegisterFlow(MakeFlowKey(100), 500, "CURL", @"C:\Windows\System32\curl.exe");
+        limiter.SetLimit(500, 1_000, 1_000);
+
+        flows.RegisterFlow(MakeFlowKey(101), 500, "curl", null);
+
+        Assert.Equal((1_000L, 1_000L), limiter.Limits[500]);
+    }
 }
 
 public class RuleFileVersionTests
