@@ -39,7 +39,7 @@ internal sealed class HeldProcess : IHeldProcess
     /// Windows stamps a process's start with the time as of the clock's last tick, up to 15.6 ms
     /// before it really started. A name read in that gap would look newer than the process.
     /// </summary>
-    private static readonly TimeSpan StartStampLag = TimeSpan.FromMilliseconds(16);
+    internal static readonly TimeSpan StartStampLag = TimeSpan.FromMilliseconds(16);
 
     private readonly ProcessWait _process;
 

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Monitoring;
 
 namespace OpenNetLimit.Engine.Interception;
 
@@ -115,7 +116,20 @@ internal sealed class SocketOwners
         long? startedAt = _startedAt(processId);
         if (startedAt is not null && known.TryGetValue(processId, out var last) && last.StartedAt == startedAt)
             return last with { IdentifiedAt = readAt };
-        return new Owner(processId, _identify(processId), startedAt, readAt);
+        return new Owner(processId, _identify(processId), startedAt, NamedAt(readAt, startedAt));
+    }
+
+    /// <summary>
+    /// When a new owner counts as named. The read's start, unless the process started after it
+    /// (while the tables were being read): a name is never older than its process, or the next
+    /// process check would take it for an earlier one that had the ID.
+    /// </summary>
+    private static DateTime NamedAt(DateTime readAt, long? startedAt)
+    {
+        if (startedAt is not { } started || started <= 0)
+            return readAt;
+        var startedUtc = DateTime.FromFileTimeUtc(started) + HeldProcess.StartStampLag;
+        return startedUtc > readAt ? startedUtc : readAt;
     }
 
     /// <summary>

@@ -190,6 +190,25 @@ public class FlowTrackerTests
     }
 
     [Fact]
+    public void AFlowNamedBeforeAHeldProcessWasForgotten_IsTurnedAwayWhenItArrivesLate()
+    {
+        var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var tracker = new FlowTracker(() => now);
+        var namedEarlier = now;
+        now += TimeSpan.FromSeconds(1);
+
+        // A held process exits, so there's no cutoff: the ID is still its own.
+        tracker.ForgetProcess(200);
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null, namedEarlier);
+        // A flow the next process with the ID opens is named after the forget.
+        now += TimeSpan.FromSeconds(1);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "chrome", null);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        Assert.Equal("chrome", tracker.LookupConnection(MakeFlowKey(2))?.ProcessName);
+    }
+
+    [Fact]
     public void AForgottenIdsCutoff_IsLetGoOnceItsLongPast()
     {
         var now = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);

@@ -30,8 +30,9 @@ public interface IFlowTracker
     /// Drops the flows, open or closed, of a process that exited. Windows can give its ID to
     /// another process once it's let go, and a late packet on one of its flows would be
     /// credited to that process under the old one's name. When the ID may have gone to another
-    /// process from <paramref name="identifiedBefore"/> on, only flows named before then go, and
-    /// a flow named before then that's registered afterwards is turned away.
+    /// process from <paramref name="identifiedBefore"/> on, only flows named before then go.
+    /// Without it, every flow goes. Either way a flow named before then (or before now) that's
+    /// registered afterwards is turned away.
     /// </summary>
     void ForgetProcess(uint processId, DateTime? identifiedBefore = null);
 }

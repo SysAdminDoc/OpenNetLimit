@@ -102,14 +102,15 @@ public class FlowTracker : IFlowTracker
 
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
-        if (identifiedBefore is { } cutoff)
-        {
-            var stale = _utcNow() - ForgottenKeptFor;
-            foreach (var (otherId, otherCutoff) in _forgottenBefore)
-                if (otherCutoff < stale)
-                    _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
-            _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
-        }
+        var now = _utcNow();
+        // With no cutoff the process is still held, so its ID can't have gone to another yet:
+        // whatever was named for it until now was named for the one that exited.
+        var cutoff = identifiedBefore ?? now;
+        var stale = now - ForgottenKeptFor;
+        foreach (var (otherId, otherCutoff) in _forgottenBefore)
+            if (otherCutoff < stale)
+                _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
+        _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
         ForgettingProcess?.Invoke(processId, identifiedBefore);
         foreach (var (flowKey, connection) in _flows)
         {

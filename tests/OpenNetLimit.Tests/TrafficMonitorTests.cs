@@ -199,6 +199,32 @@ public class TrafficMonitorTests
     }
 
     [Fact]
+    public void AProcessThatStartedWhileTheSocketTablesWereRead_IsKept()
+    {
+        var flows = new FlowTracker(() => _now);
+        var local = Flow(1).LocalAddress;
+        var readAt = _now;
+        // It started just after the read did, and its socket made it into the tables.
+        var started = readAt + TimeSpan.FromMilliseconds(5);
+        _startedAt[200] = started;
+        _running[200] = new FakeProcess();
+        var sockets = new List<OpenSocket> { new(TransportProtocol.Tcp, local, 1, 200) };
+        var owners = new SocketOwners(flows, () => sockets.ToList(), _ => new ProcessIdentity("chrome", null),
+            _ => started.ToFileTimeUtc(), utcNow: () => readAt);
+        owners.Refresh();
+        using var monitor = Held(flows: flows);
+
+        _now += TimeSpan.FromSeconds(1);
+        Assert.True(owners.TryAdopt(Flow(1), isOutbound: true));
+        var flow = flows.LookupConnection(Flow(1))!;
+        monitor.RecordBytes(200, flow.ProcessName, 100, isUpload: false, flow.ProcessPath, flow.IdentifiedAt);
+        monitor.SampleRates();
+
+        Assert.Equal("chrome", Assert.Single(monitor.GetAllProcesses()).ProcessName);
+        Assert.NotNull(flows.LookupConnection(Flow(1)));
+    }
+
+    [Fact]
     public void ALatePacketNamedBeforeTheIdWentToAnotherProcess_GoesWithTheOldOne()
     {
         var flows = new FlowTracker(() => _now);

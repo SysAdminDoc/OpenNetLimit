@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.Engine.Rules;
 using Xunit;
@@ -325,6 +326,30 @@ public class SocketOwnersTests
         owners.Refresh();
 
         Assert.Equal([4242u, 4242u, 4242u, 4242u], tables.Identified);
+    }
+
+    [Fact]
+    public void AProcessThatStartedWhileTheTablesWereRead_IsNamedNoEarlierThanItStarted()
+    {
+        var readAt = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var started = readAt + TimeSpan.FromMilliseconds(5);
+        var tracker = new FlowTracker(() => readAt + TimeSpan.FromSeconds(1));
+        var sockets = new List<OpenSocket>
+        {
+            new(TransportProtocol.Tcp, Local, 51000, 4242),
+            new(TransportProtocol.Tcp, Local, 51001, 4243)
+        };
+        var startedAt = new Dictionary<uint, long?> { [4242] = started.ToFileTimeUtc(), [4243] = null };
+        var owners = new SocketOwners(tracker, () => sockets.ToList(),
+            pid => new ProcessIdentity($"app{pid}", null), pid => startedAt[pid], utcNow: () => readAt);
+        owners.Refresh();
+
+        Assert.True(owners.TryAdopt(Https, isOutbound: true));
+        Assert.True(owners.TryAdopt(Https with { LocalPort = 51001 }, isOutbound: true));
+
+        Assert.Equal(started + HeldProcess.StartStampLag, tracker.LookupConnection(Https)!.IdentifiedAt);
+        // One whose start can't be read goes by the read.
+        Assert.Equal(readAt, tracker.LookupConnection(Https with { LocalPort = 51001 })!.IdentifiedAt);
     }
 
     [Fact]
