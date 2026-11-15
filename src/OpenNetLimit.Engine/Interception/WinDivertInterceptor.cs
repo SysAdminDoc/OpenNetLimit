@@ -166,6 +166,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _socketRefreshTimer?.Dispose();
         _socketRefreshTimer = null;
 
+        // Both loops wait inside RecvEx, which never sees the cancellation. Without this a stop
+        // waited for the next packet and the next flow event, often several seconds. Shutting
+        // down receive makes a waiting RecvEx return once its queue is empty.
+        ShutdownReceive(_networkHandle);
+        ShutdownReceive(_flowHandle);
+
         try
         {
             if (_networkTask is not null)
@@ -187,6 +193,18 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
         _flowHandle = null;
 
         _isRunning = false;
+    }
+
+    private static void ShutdownReceive(WinDivert? handle)
+    {
+        try
+        {
+            handle?.ShutdownRecv();
+        }
+        catch (WinDivertException ex)
+        {
+            Trace.TraceWarning($"Stopping WinDivert receive failed: {ex.Message}");
+        }
     }
 
     private void FlowLoop(CancellationToken ct)
