@@ -30,10 +30,16 @@ internal static class PcLimitText
         bytesPerSecond <= 0 ? 0 : Math.Max(1, bytesPerSecond / 1024);
 
     /// <summary>
-    /// The rate in bytes for a KB/s value from the dialog. A value left as it showed keeps the
-    /// exact rate it came from, so OK on a limit set in bytes elsewhere (1,000,000 B/s shows as
-    /// 976 KB/s) doesn't round it down or start its bucket over.
+    /// The limit to send once the dialog closes with OK. Null is a box left alone, which keeps
+    /// the limit in effect <paramref name="now"/>, exactly: OK on a rate set in bytes elsewhere
+    /// (1,000,000 B/s shows as 976 KB/s) doesn't round it down or start its bucket over, and a
+    /// change made from the CLI while the dialog was open isn't undone. A box typed in is what
+    /// it says, even when that's the number it showed.
     /// </summary>
-    public static long Bytes(long kilobytes, long current) =>
-        kilobytes == Kilobytes(current) ? current : kilobytes * 1024;
+    public static WholePcLimit FromDialog(WholePcLimit now, long? downloadKBps, long? uploadKBps, bool? includeLan) => new()
+    {
+        DownloadBytesPerSecond = downloadKBps is { } down ? down * 1024 : now.DownloadBytesPerSecond,
+        UploadBytesPerSecond = uploadKBps is { } up ? up * 1024 : now.UploadBytesPerSecond,
+        IncludeLan = includeLan ?? now.IncludeLan
+    };
 }

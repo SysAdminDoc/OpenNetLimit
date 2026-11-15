@@ -399,29 +399,17 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                var limits = LimitsFor(isProtected, flowKey.Protocol, payloadLength, closesFlow,
-                    PcLimitScope.Applies(_rateLimiter.PcLimit, isOutbound, remoteAddr, addr.Loopback),
-                    _rateLimiter.HasLimit(processId.Value));
-                if (limits.Any)
+                var fate = Charge(_rateLimiter, _scheduler, processId.Value, isProtected, flowKey.Protocol, remotePort,
+                    payloadLength, closesFlow, isOutbound, remoteAddr, addr.Loopback, out var delay);
+                if (fate == PacketFate.Drop)
                 {
-                    // Every packet is charged, the delayed ones too, so a burst queues behind its
-                    // own debt and leaves at the limit. A packet with nowhere to wait is dropped.
-                    var reserved = false;
-                    var delay = TimeSpan.Zero;
-                    if (_scheduler.HasRoom(processId.Value))
-                        reserved = limits.App
-                            ? _rateLimiter.TryReserve(processId.Value, payloadLength, isOutbound, limits.WholePc, PacketScheduler.MaxDelay, out delay)
-                            : _rateLimiter.TryReserveWholePc(payloadLength, isOutbound, PacketScheduler.MaxDelay, out delay);
-                    if (!reserved)
-                    {
-                        _scheduler.RecordDrop();
-                        continue;
-                    }
-                    if (delay > TimeSpan.Zero)
-                    {
-                        _scheduler.Enqueue(processId.Value, packet.Span, addrBuffer.Span, delay);
-                        continue;
-                    }
+                    _scheduler.RecordDrop();
+                    continue;
+                }
+                if (fate == PacketFate.Delay)
+                {
+                    _scheduler.Enqueue(processId.Value, packet.Span, addrBuffer.Span, delay);
+                    continue;
                 }
 
                 _networkHandle.SendEx(packet.Span, addrBuffer.Span);
@@ -456,8 +444,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
     /// covers its direction and remote end, <paramref name="hasAppLimit"/> that its app has a
     /// limit of its own.
     /// </summary>
-    internal static PacketLimits LimitsFor(bool isProtected, TransportProtocol protocol, int payloadLength,
-        bool closesFlow, bool pcLimitCounts, bool hasAppLimit)
+    internal static PacketLimits LimitsFor(bool isProtected, TransportProtocol protocol, int remotePort,
+        int payloadLength, bool closesFlow, bool pcLimitCounts, bool hasAppLimit)
     {
         // A pure ACK or SYN carries no data, so it never waits behind the debt data ran up.
         // Holding an upload's ACKs behind a download cap's queue slowed the upload too. FIN and
@@ -466,10 +454,43 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
             return default;
         // Windows' own services carry Windows Update, BITS, Delivery Optimization and SMB file
         // copies over TCP, so that counts toward the whole-PC limit. Their UDP (DNS, DHCP, NTP)
-        // doesn't, and no app limit applies to them.
+        // doesn't, nor does DNS that falls back to TCP for a big answer, and no app limit
+        // applies to them.
+        bool serviceTrafficCounts = protocol == TransportProtocol.Tcp && remotePort != DnsPort;
         return new PacketLimits(
-            WholePc: pcLimitCounts && (!isProtected || protocol == TransportProtocol.Tcp),
+            WholePc: pcLimitCounts && (!isProtected || serviceTrafficCounts),
             App: hasAppLimit && !isProtected);
+    }
+
+    private const int DnsPort = 53;
+
+    /// <summary>What happens to a packet once it's charged to its limits.</summary>
+    internal enum PacketFate { Send, Delay, Drop }
+
+    /// <summary>
+    /// Charges a packet to the limits it waits for: it goes now, waits <paramref name="delay"/>,
+    /// or is dropped. Every packet is charged, the delayed ones too, so a burst queues behind its
+    /// own debt and leaves at the limit. A packet with nowhere to wait is dropped.
+    /// <paramref name="loopback"/> is WinDivert saying the packet never leaves the PC.
+    /// </summary>
+    internal static PacketFate Charge(IRateLimiter limiter, PacketScheduler scheduler, uint processId,
+        bool isProtected, TransportProtocol protocol, int remotePort, int payloadLength, bool closesFlow,
+        bool isOutbound, IPAddress remote, bool loopback, out TimeSpan delay)
+    {
+        delay = TimeSpan.Zero;
+        var limits = LimitsFor(isProtected, protocol, remotePort, payloadLength, closesFlow,
+            PcLimitScope.Applies(limiter.PcLimit, isOutbound, remote, loopback),
+            limiter.HasLimit(processId));
+        if (!limits.Any)
+            return PacketFate.Send;
+        if (!scheduler.HasRoom(processId))
+            return PacketFate.Drop;
+        var reserved = limits.App
+            ? limiter.TryReserve(processId, payloadLength, isOutbound, limits.WholePc, PacketScheduler.MaxDelay, out delay)
+            : limiter.TryReserveWholePc(payloadLength, isOutbound, PacketScheduler.MaxDelay, out delay);
+        if (!reserved)
+            return PacketFate.Drop;
+        return delay > TimeSpan.Zero ? PacketFate.Delay : PacketFate.Send;
     }
 
     /// <summary>

@@ -200,46 +200,27 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(LimitMenuHint));
     }
 
-    private WholePcLimit _pcLimit = WholePcLimit.Off;
+    private readonly PcLimitCard _pcLimitCard = new();
 
     /// <summary>The limit every app shares, as the service last reported it.</summary>
-    public WholePcLimit PcLimit
-    {
-        get => _pcLimit;
-        private set
-        {
-            if (SetField(ref _pcLimit, value))
-            {
-                // A limit changed from anywhere answers whatever went wrong with the last try.
-                _pcLimitError = null;
-                OnPcLimitChanged();
-            }
-        }
-    }
+    public WholePcLimit PcLimit => _pcLimitCard.Limit;
 
-    private string? _pcLimitError;
-
-    private void ClearPcLimitError()
-    {
-        if (_pcLimitError is null)
-            return;
-        _pcLimitError = null;
-        OnPcLimitChanged();
-    }
-
-    public string PcLimitDisplay => PcLimitText.Rates(PcLimit);
+    public string PcLimitDisplay => _pcLimitCard.Display;
 
     /// <summary>Which traffic it counts, or why the last change didn't take.</summary>
-    public string PcLimitHint => _pcLimitError ?? PcLimitText.Scope(PcLimit);
+    public string PcLimitHint => _pcLimitCard.Hint;
 
-    public bool PcLimitHintIsError => _pcLimitError is not null;
+    public bool PcLimitHintIsError => _pcLimitCard.Error is not null;
 
     public bool CanEditPcLimit => EditHint is null;
 
     public string? PcLimitButtonHint => EditHint;
 
-    private void OnPcLimitChanged()
+    private void OnPcLimitChanged(bool changed = true)
     {
+        if (!changed)
+            return;
+        OnPropertyChanged(nameof(PcLimit));
         OnPropertyChanged(nameof(PcLimitDisplay));
         OnPropertyChanged(nameof(PcLimitHint));
         OnPropertyChanged(nameof(PcLimitHintIsError));
@@ -251,24 +232,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         var reply = _client.State == ConnectionState.Connected
             ? await _client.SendCommandAsync($"SET_PC_LIMIT {JsonSerializer.Serialize(limit, JsonOptions)}")
             : null;
-        _pcLimitError = RulesViewModel.ErrorOf(reply);
-        if (_pcLimitError is null)
-            PcLimit = ParsePcLimit(reply) ?? limit;
+        _pcLimitCard.Answered(reply, limit);
         OnPcLimitChanged();
-    }
-
-    private static WholePcLimit? ParsePcLimit(string? json)
-    {
-        if (json is null)
-            return null;
-        try
-        {
-            return JsonSerializer.Deserialize<WholePcLimit>(json, JsonOptions);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
     private DiagnosticInfo? _engineStatus;
@@ -497,7 +462,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         TotalUpload = "2.4 MB/s";
         ActiveConnectionCount = 5;
         ActiveRuleCount = 3;
-        PcLimit = new WholePcLimit { DownloadBytesPerSecond = 20L * 1024 * 1024, UploadBytesPerSecond = 3L * 1024 * 1024 };
+        OnPcLimitChanged(_pcLimitCard.Report(new WholePcLimit { DownloadBytesPerSecond = 20L * 1024 * 1024, UploadBytesPerSecond = 3L * 1024 * 1024 }));
         RecentAlertCount = 1;
         _statusTracker.StatusReceived(null);
 
@@ -591,7 +556,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (connected)
         {
             // Whatever kept the last change from taking was about a service that's gone since.
-            ClearPcLimitError();
+            OnPcLimitChanged(_pcLimitCard.Reconnected());
             _reconnectTimer.Stop();
             _pollTimer.Start();
             await PollServiceAsync();
@@ -657,10 +622,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             catch { }
         }
 
-        // A service from before the whole-PC limit answers with an error, which reads as off.
-        var pcLimitReply = await _client.SendCommandAsync("PC_LIMIT");
-        if (RulesViewModel.ErrorOf(pcLimitReply) is null && ParsePcLimit(pcLimitReply) is { } pcLimit)
-            PcLimit = pcLimit;
+        OnPcLimitChanged(_pcLimitCard.ReportReply(await _client.SendCommandAsync("PC_LIMIT")));
 
         await PollAlertEventsAsync();
     }

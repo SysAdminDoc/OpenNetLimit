@@ -49,12 +49,20 @@ public sealed record WholePcLimit
                 return null;
             }
             var hasRate = false;
+            var seen = new HashSet<string>();
             foreach (var field in doc.RootElement.EnumerateObject())
             {
                 var known = Array.Find(Fields, f => f.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
                 if (known is null)
                 {
                     problem = $"invalid whole-PC limit: there's no field \"{field.Name}\". It takes downloadBytesPerSecond, uploadBytesPerSecond and includeLan";
+                    return null;
+                }
+                // The last copy would win, so a second spelling of a rate set to 0 switched the
+                // limit off with no word, the same as a misspelled field used to.
+                if (!seen.Add(known))
+                {
+                    problem = $"invalid whole-PC limit: {known} is in it more than once";
                     return null;
                 }
                 hasRate |= known != "includeLan";

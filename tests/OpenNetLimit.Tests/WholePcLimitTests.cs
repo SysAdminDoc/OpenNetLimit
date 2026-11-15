@@ -202,7 +202,7 @@ public sealed class WholePcLimitTests
     [InlineData("ff02::fb", false)]
     public void InternetOnly_CountsTrafficThatLeavesTheLocalNetwork(string remote, bool counts)
     {
-        Assert.Equal(counts, PcLimitScope.Applies(Down(1000), isUpload: false, IPAddress.Parse(remote)));
+        Assert.Equal(counts, PcLimitScope.Applies(Down(1000), isUpload: false, IPAddress.Parse(remote), loopback: false));
     }
 
     [Theory]
@@ -215,7 +215,7 @@ public sealed class WholePcLimitTests
     {
         var limit = Down(1000) with { IncludeLan = true };
 
-        Assert.Equal(counts, PcLimitScope.Applies(limit, isUpload: false, IPAddress.Parse(remote)));
+        Assert.Equal(counts, PcLimitScope.Applies(limit, isUpload: false, IPAddress.Parse(remote), loopback: false));
     }
 
     [Theory]
@@ -232,15 +232,20 @@ public sealed class WholePcLimitTests
 
     [Theory]
     // Windows Update, BITS, Delivery Optimization and SMB copies run in svchost or System over TCP.
-    [InlineData(true, TransportProtocol.Tcp, true)]
-    // DNS, DHCP and NTP stay free.
-    [InlineData(true, TransportProtocol.Udp, false)]
-    [InlineData(false, TransportProtocol.Tcp, true)]
-    [InlineData(false, TransportProtocol.Udp, true)]
-    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(bool isProtected, TransportProtocol protocol, bool counts)
+    [InlineData(true, TransportProtocol.Tcp, 443, true)]
+    [InlineData(true, TransportProtocol.Tcp, 445, true)]
+    // DNS, DHCP and NTP stay free, DNS that falls back to TCP for a big answer too.
+    [InlineData(true, TransportProtocol.Udp, 53, false)]
+    [InlineData(true, TransportProtocol.Udp, 123, false)]
+    [InlineData(true, TransportProtocol.Tcp, 53, false)]
+    [InlineData(false, TransportProtocol.Tcp, 443, true)]
+    [InlineData(false, TransportProtocol.Tcp, 53, true)]
+    [InlineData(false, TransportProtocol.Udp, 443, true)]
+    public void WindowsServices_CountTowardTheWholePcLimitOverTcpOnly(bool isProtected, TransportProtocol protocol,
+        int remotePort, bool counts)
     {
-        var limits = WinDivertInterceptor.LimitsFor(isProtected, protocol, payloadLength: 1400, closesFlow: false,
-            pcLimitCounts: true, hasAppLimit: false);
+        var limits = WinDivertInterceptor.LimitsFor(isProtected, protocol, remotePort, payloadLength: 1400,
+            closesFlow: false, pcLimitCounts: true, hasAppLimit: false);
 
         Assert.Equal(counts, limits.WholePc);
         Assert.False(limits.App);
@@ -249,9 +254,9 @@ public sealed class WholePcLimitTests
     [Fact]
     public void WindowsServices_NeverGetAnAppLimit()
     {
-        var service = WinDivertInterceptor.LimitsFor(isProtected: true, TransportProtocol.Tcp, 1400, closesFlow: false,
+        var service = WinDivertInterceptor.LimitsFor(isProtected: true, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
             pcLimitCounts: false, hasAppLimit: true);
-        var app = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 1400, closesFlow: false,
+        var app = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 443, 1400, closesFlow: false,
             pcLimitCounts: false, hasAppLimit: true);
 
         Assert.False(service.Any);
@@ -266,11 +271,97 @@ public sealed class WholePcLimitTests
     {
         // An upload's ACKs come in on the download side. Holding them behind a download cap's
         // queue slowed the upload too.
-        var limits = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, payloadLength, closesFlow,
+        var limits = WinDivertInterceptor.LimitsFor(isProtected: false, TransportProtocol.Tcp, 443, payloadLength, closesFlow,
             pcLimitCounts: true, hasAppLimit: true);
 
         Assert.Equal(waits, limits.WholePc);
         Assert.Equal(waits, limits.App);
+    }
+
+    // The packet loop's own step, from a packet's facts to whether it goes, waits or is dropped.
+    // The parts above were tested, but how the loop joined them wasn't: dropping WinDivert's
+    // loopback flag or charging the wrong bucket there failed no test.
+    private const uint ServicePid = 4;
+    private const uint AppPid = 1;
+
+    private WinDivertInterceptor.PacketFate ChargeDownload(ProcessRateLimiter limiter, uint processId, bool isProtected,
+        string remote, bool loopback = false, int remotePort = 443, TransportProtocol protocol = TransportProtocol.Tcp)
+    {
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), processId, isProtected, protocol,
+            remotePort, payloadLength: 1000, closesFlow: false, isOutbound: false, IPAddress.Parse(remote), loopback,
+            out var delay);
+        Assert.Equal(fate == WinDivertInterceptor.PacketFate.Delay, delay > TimeSpan.Zero);
+        return fate;
+    }
+
+    private ProcessRateLimiter LimiterWithItsPcLimitUsedUp(WholePcLimit limit)
+    {
+        var limiter = NewLimiter();
+        limiter.SetPcLimit(limit);
+        // A new bucket starts full at 64 KB.
+        Assert.True(limiter.TryReserveWholePc(65_536, isUpload: false, MaxDelay, out _));
+        return limiter;
+    }
+
+    [Fact]
+    public void Charge_AWindowsServiceDownload_WaitsForTheWholePcLimit()
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9"));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9", protocol: TransportProtocol.Udp));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, ServicePid, isProtected: true, "203.0.113.9", remotePort: 53));
+    }
+
+    [Theory]
+    [InlineData("192.168.1.27")]
+    [InlineData("203.0.113.9")]
+    public void Charge_TrafficThatNeverLeavesThePc_GoesStraightThrough(string ownAddress)
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000) with { IncludeLan = true });
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send,
+            ChargeDownload(limiter, AppPid, isProtected: false, ownAddress, loopback: true));
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay,
+            ChargeDownload(limiter, AppPid, isProtected: false, ownAddress, loopback: false));
+    }
+
+    [Fact]
+    public void Charge_AnAppWithItsOwnLimit_WaitsForItsOwnLimitToo()
+    {
+        var limiter = NewLimiter();
+        limiter.SetPcLimit(Down(100_000_000));
+        limiter.SetLimit(AppPid, downloadBytesPerSecond: 10_000, uploadBytesPerSecond: 0);
+        Assert.True(limiter.TryReserve(AppPid, 65_536, isUpload: false, wholePc: false, MaxDelay, out _));
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Delay, ChargeDownload(limiter, AppPid, isProtected: false, "203.0.113.9"));
+    }
+
+    [Fact]
+    public void Charge_AnUploadUnderADownloadCap_GoesStraightOut()
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(10_000));
+
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, isProtected: false,
+            TransportProtocol.Tcp, 443, payloadLength: 1000, closesFlow: false, isOutbound: true,
+            IPAddress.Parse("203.0.113.9"), loopback: false, out var delay);
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Send, fate);
+        Assert.Equal(TimeSpan.Zero, delay);
+    }
+
+    [Fact]
+    public void Charge_PastTheLongestWait_IsDropped()
+    {
+        var limiter = LimiterWithItsPcLimitUsedUp(Down(1_000));
+
+        var fate = WinDivertInterceptor.Charge(limiter, new PacketScheduler(), AppPid, isProtected: false,
+            TransportProtocol.Tcp, 443, payloadLength: 60_000, closesFlow: false, isOutbound: false,
+            IPAddress.Parse("203.0.113.9"), loopback: false, out _);
+
+        Assert.Equal(WinDivertInterceptor.PacketFate.Drop, fate);
     }
 
     [Fact]
@@ -361,6 +452,17 @@ public sealed class WholePcLimitTests
         Assert.Contains(why, problem);
     }
 
+    [Theory]
+    // The last copy won, so a second spelling set to 0 switched the limit off.
+    [InlineData("""{"downloadBytesPerSecond":1048576,"DownloadBytesPerSecond":0}""", "downloadBytesPerSecond")]
+    [InlineData("""{"uploadBytesPerSecond":1024,"uploadBytesPerSecond":0}""", "uploadBytesPerSecond")]
+    [InlineData("""{"downloadBytesPerSecond":1024,"includeLan":true,"INCLUDELAN":false}""", "includeLan")]
+    public void Parse_WithAFieldGivenTwice_SaysWhich(string json, string field)
+    {
+        Assert.Null(WholePcLimit.Parse(json, out var problem));
+        Assert.Contains($"{field} is in it more than once", problem);
+    }
+
     [Fact]
     public void Parse_ReadsWhatTheServiceSaves()
     {
@@ -375,8 +477,8 @@ public sealed class WholePcLimitTests
     [Fact]
     public void DirectionWithoutACap_CountsNothing()
     {
-        Assert.False(PcLimitScope.Applies(Down(1000), isUpload: true, IPAddress.Parse("8.8.8.8")));
-        Assert.False(PcLimitScope.Applies(null, isUpload: false, IPAddress.Parse("8.8.8.8")));
+        Assert.False(PcLimitScope.Applies(Down(1000), isUpload: true, IPAddress.Parse("8.8.8.8"), loopback: false));
+        Assert.False(PcLimitScope.Applies(null, isUpload: false, IPAddress.Parse("8.8.8.8"), loopback: false));
     }
 
     [Fact]
@@ -460,18 +562,39 @@ public sealed class WholePcLimitTests
     }
 
     [Theory]
-    // Left as it showed, a rate set in bytes elsewhere stays exact.
-    [InlineData(976, 1_000_000, 1_000_000)]
-    [InlineData(1, 500, 500)]
-    [InlineData(0, 0, 0)]
-    // Changed, it's what was typed.
-    [InlineData(977, 1_000_000, 1_000_448)]
-    [InlineData(2, 500, 2048)]
-    [InlineData(0, 1_000_000, 0)]
-    [InlineData(64, 0, 65_536)]
-    public void Dialog_KeepsTheExactRateUnlessItChanged(long kilobytes, long current, long bytes)
+    // Left alone, a rate set in bytes elsewhere stays exact.
+    [InlineData(null, 1_000_000, 1_000_000)]
+    [InlineData(null, 500, 500)]
+    [InlineData(null, 0, 0)]
+    // Typed in, it's what was typed.
+    [InlineData(977L, 1_000_000, 1_000_448)]
+    [InlineData(2L, 500, 2048)]
+    [InlineData(0L, 1_000_000, 0)]
+    [InlineData(64L, 0, 65_536)]
+    // Even the number it showed. Matching what it showed used to keep the old rate, so these
+    // two rates couldn't be set over these limits at all.
+    [InlineData(976L, 1_000_000, 999_424)]
+    [InlineData(1L, 500, 1024)]
+    public void Dialog_KeepsTheExactRateUnlessItWasTypedIn(long? kilobytes, long now, long bytes)
     {
-        Assert.Equal(bytes, PcLimitText.Bytes(kilobytes, current));
+        var limit = PcLimitText.FromDialog(new WholePcLimit { DownloadBytesPerSecond = now, UploadBytesPerSecond = now },
+            kilobytes, kilobytes, includeLan: null);
+
+        Assert.Equal(bytes, limit.DownloadBytesPerSecond);
+        Assert.Equal(bytes, limit.UploadBytesPerSecond);
+    }
+
+    [Fact]
+    public void Dialog_LeftAlone_KeepsAChangeMadeWhileItWasOpen()
+    {
+        // The dialog showed 1 MB/s, then the CLI set 2 MB/s and counted the local network.
+        // OK after typing only an upload rate put the old download rate back.
+        var now = new WholePcLimit { DownloadBytesPerSecond = 2_097_152, IncludeLan = true };
+
+        var sent = PcLimitText.FromDialog(now, downloadKBps: null, uploadKBps: 512, includeLan: null);
+
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 2_097_152, UploadBytesPerSecond = 524_288, IncludeLan = true }, sent);
+        Assert.False(PcLimitText.FromDialog(now, null, null, includeLan: false).IncludeLan);
     }
 }
 
@@ -496,5 +619,109 @@ public sealed class PcLimitTextTests
         Assert.Equal($"↑ {ProcessViewModel.FormatBytes(512 * 1024)}", PcLimitText.Rates(upOnly));
         Assert.Equal(LocalizationManager.Text("PcLimit_InternetOnly"), PcLimitText.Scope(both));
         Assert.Equal(LocalizationManager.Text("PcLimit_WithLan"), PcLimitText.Scope(upOnly));
+    }
+}
+
+// The card's state used to live in the main window's view model, which tests can't build, so
+// nothing caught a regression in what it shows after a change fails.
+[Collection(CultureSwitchingCollection.Name)]
+public sealed class PcLimitCardTests
+{
+    private static readonly WholePcLimit OneMeg = new() { DownloadBytesPerSecond = 1_048_576 };
+
+    [Fact]
+    public void AChangeWithNoService_SaysSoAndKeepsTheLimit()
+    {
+        var card = new PcLimitCard();
+
+        card.Answered(null, OneMeg);
+
+        Assert.Equal(WholePcLimit.Off, card.Limit);
+        Assert.Equal(LocalizationManager.Text("Rules_NoService"), card.Error);
+        Assert.Equal(card.Error, card.Hint);
+    }
+
+    [Fact]
+    public void AChangeTheServiceTurnsDown_GivesItsReason()
+    {
+        var card = new PcLimitCard();
+
+        card.Answered("""{"error":"no rate in it"}""", OneMeg);
+
+        Assert.Equal(LocalizationManager.Format("Rules_ServiceError", "no rate in it"), card.Hint);
+        Assert.Equal(WholePcLimit.Off, card.Limit);
+    }
+
+    [Fact]
+    public void AChangeThatTakes_ShowsWhatTheServiceSaysItSet()
+    {
+        var card = new PcLimitCard();
+        card.Answered(null, OneMeg);
+
+        card.Answered("""{"downloadBytesPerSecond":1000000,"uploadBytesPerSecond":0,"includeLan":true}""", OneMeg);
+
+        Assert.Null(card.Error);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 1_000_000, IncludeLan = true }, card.Limit);
+        Assert.Equal(PcLimitText.Scope(card.Limit), card.Hint);
+    }
+
+    [Fact]
+    public void AnAnswerThatIsntALimit_ShowsTheOneSent()
+    {
+        var card = new PcLimitCard();
+
+        card.Answered("OK", OneMeg);
+
+        Assert.Null(card.Error);
+        Assert.Equal(OneMeg, card.Limit);
+    }
+
+    [Fact]
+    public void TheSameLimitPolledAgain_LeavesTheErrorUp()
+    {
+        var card = new PcLimitCard();
+        card.Answered(null, OneMeg);
+
+        Assert.False(card.Report(WholePcLimit.Off));
+        Assert.False(card.ReportReply("""{"downloadBytesPerSecond":0,"uploadBytesPerSecond":0,"includeLan":false}"""));
+        Assert.NotNull(card.Error);
+    }
+
+    [Fact]
+    public void ALimitChangedFromElsewhere_ClearsTheError()
+    {
+        var card = new PcLimitCard();
+        card.Answered(null, OneMeg);
+
+        Assert.True(card.ReportReply("""{"downloadBytesPerSecond":2097152,"uploadBytesPerSecond":0,"includeLan":true}"""));
+
+        Assert.Null(card.Error);
+        Assert.Equal(2_097_152, card.Limit.DownloadBytesPerSecond);
+    }
+
+    [Fact]
+    public void Reconnecting_ClearsTheErrorOnce()
+    {
+        var card = new PcLimitCard();
+        card.Answered(null, OneMeg);
+
+        Assert.True(card.Reconnected());
+        Assert.False(card.Reconnected());
+        Assert.Null(card.Error);
+    }
+
+    [Theory]
+    // A service from before the whole-PC limit doesn't know the command.
+    [InlineData("""{"error":"unknown command"}""")]
+    [InlineData(null)]
+    [InlineData("not json")]
+    public void APollWithNoLimitInIt_ChangesNothing(string? reply)
+    {
+        var card = new PcLimitCard();
+        card.Report(OneMeg);
+
+        Assert.False(card.ReportReply(reply));
+        Assert.Equal(OneMeg, card.Limit);
+        Assert.Null(card.Error);
     }
 }

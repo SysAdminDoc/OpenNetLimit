@@ -39,6 +39,20 @@ public partial class SetLimitDialog : Window, INotifyPropertyChanged
     /// <summary>The whole-PC limit should count the local network too.</summary>
     public bool IncludeLan => IncludeLanBox.IsChecked == true;
 
+    // Whether each box was typed in once the dialog showed its values. Retyping the number it
+    // showed still counts: 1 over a 500 B/s limit's "1" means 1 KB/s.
+    private bool _trackEdits;
+    private bool _shownIncludeLan;
+
+    /// <summary>The download box was typed in.</summary>
+    public bool DownloadEdited { get; private set; }
+
+    /// <summary>The upload box was typed in.</summary>
+    public bool UploadEdited { get; private set; }
+
+    /// <summary>The local network box ended up different from how it showed.</summary>
+    public bool IncludeLanChanged => IncludeLan != _shownIncludeLan;
+
     /// <summary>The dialog for the limit every app shares, filled in with the one in effect.</summary>
     public static SetLimitDialog ForWholePc(WholePcLimit current)
     {
@@ -51,6 +65,8 @@ public partial class SetLimitDialog : Window, INotifyPropertyChanged
         dialog.IncludeLanBox.IsChecked = current.IncludeLan;
         dialog.IncludeLanBox.Visibility = Visibility.Visible;
         dialog.Height += 34;
+        dialog._shownIncludeLan = current.IncludeLan;
+        dialog._trackEdits = true;
         return dialog;
     }
 
@@ -75,6 +91,10 @@ public partial class SetLimitDialog : Window, INotifyPropertyChanged
     {
         if (sender is not WpfTextBox box) return;
         _defaultBorderBrush ??= box.BorderBrush;
+        if (_trackEdits && ReferenceEquals(box, DownloadBox))
+            DownloadEdited = true;
+        else if (_trackEdits && ReferenceEquals(box, UploadBox))
+            UploadEdited = true;
 
         box.BorderBrush = TryParseKBps(box.Text, out _) ? _defaultBorderBrush : ErrorBorderBrush;
     }

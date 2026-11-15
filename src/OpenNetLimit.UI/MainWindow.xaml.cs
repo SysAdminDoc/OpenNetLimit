@@ -171,17 +171,15 @@ public partial class MainWindow : Window
 
     private async void OnSetPcLimit(object sender, RoutedEventArgs e)
     {
-        var current = _viewModel.PcLimit;
-        var dialog = SetLimitDialog.ForWholePc(current);
+        var dialog = SetLimitDialog.ForWholePc(_viewModel.PcLimit);
         dialog.Owner = this;
         if (dialog.ShowDialog() != true)
             return;
-        await _viewModel.SetPcLimitAsync(new WholePcLimit
-        {
-            DownloadBytesPerSecond = PcLimitText.Bytes(dialog.DownloadKBps, current.DownloadBytesPerSecond),
-            UploadBytesPerSecond = PcLimitText.Bytes(dialog.UploadKBps, current.UploadBytesPerSecond),
-            IncludeLan = dialog.IncludeLan
-        });
+        // The poll keeps going while the dialog is open, so what was left alone is read now.
+        await _viewModel.SetPcLimitAsync(PcLimitText.FromDialog(_viewModel.PcLimit,
+            dialog.DownloadEdited ? dialog.DownloadKBps : null,
+            dialog.UploadEdited ? dialog.UploadKBps : null,
+            dialog.IncludeLanChanged ? dialog.IncludeLan : null));
     }
 
     private async void OnRemoveLimit(object sender, RoutedEventArgs e)
