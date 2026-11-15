@@ -99,6 +99,10 @@ public class QuotaTracker
                 _removed[ruleId] = gone;
             }
         }
+        // A deleted rule back in the list with its cap not counting (off, or no cap) was in effect
+        // turned off, so turning it on later starts its cap over too.
+        foreach (var id in _removed.Keys.Where(id => existing.Contains(id) && !live.Contains(id)).ToList())
+            _removed.Remove(id);
 
         foreach (var rule in rules)
         {

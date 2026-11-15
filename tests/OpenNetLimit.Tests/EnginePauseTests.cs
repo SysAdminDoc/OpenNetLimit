@@ -252,6 +252,18 @@ public sealed class EnginePauseTests
         Assert.Equal(usFlag + "…", TrayNotice.Fit(usFlag + frenchFlag, 7));
         Assert.Equal(family + "…", TrayNotice.Fit(family + family, 12));
     }
+
+    [Fact]
+    public void Fit_NeverEndsOnASpaceThatBelongsToTheCharacterBeforeIt()
+    {
+        // U+0600 (Arabic number sign) joins whatever follows it, a space included, into one
+        // character. Cutting at that space left the sign to join the ellipsis instead.
+        var numberSign = ((char)0x0600).ToString();
+
+        var fitted = TrayNotice.Fit("ab cd" + numberSign + " efghij", 9);
+
+        Assert.Equal("ab cd" + numberSign + " e…", fitted);
+    }
 }
 
 /// <summary>These resolve text, so they can't run while another test switches the language.</summary>

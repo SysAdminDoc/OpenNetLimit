@@ -12,9 +12,10 @@ public static class LimitMenu
         : null;
 
     /// <summary>
-    /// Why no change can be made: the app isn't running as administrator, or the service turns
-    /// changes away for <paramref name="changesRefused"/>. Null when changes go through.
+    /// Why no change can be made: the service turns changes away for
+    /// <paramref name="changesRefused"/>, or the app isn't running as administrator. The refusal
+    /// comes first since running as administrator wouldn't get past it. Null when changes go through.
     /// </summary>
     public static string? EditHint(bool isAdmin, string? changesRefused) =>
-        !isAdmin ? LocalizationManager.Text("Menu_AdminRequired") : changesRefused;
+        changesRefused ?? (!isAdmin ? LocalizationManager.Text("Menu_AdminRequired") : null);
 }

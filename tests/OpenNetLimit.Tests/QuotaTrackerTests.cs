@@ -639,6 +639,40 @@ public class QuotaTrackerTests
     }
 
     [Fact]
+    public void UsedUpRule_PutBackTurnedOff_StartsOverWhenTurnedOn()
+    {
+        // An import that brought a deleted rule back turned off kept its old use, so turning it
+        // on later found the cap still used up, unlike any other rule turned off and on.
+        var ruleEngine = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+        ruleEngine.AddRule(rule);
+        monitor.RecordBytes(1, "chrome", 1500, false);
+        var tracker = new QuotaTracker(ruleEngine, monitor);
+        tracker.Update();
+
+        ruleEngine.RemoveRule(rule.Id);
+        tracker.Update();
+        var off = rule.Clone();
+        off.Enabled = false;
+        ruleEngine.AddRule(off);
+        tracker.Update();
+        var on = rule.Clone();
+        on.Enabled = true;
+        ruleEngine.UpdateRule(on);
+        tracker.Update();
+
+        var state = tracker.GetQuotaState(rule.Id);
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
     public void UsedUpCap_TurnedOffAndOnAgain_StartsOver()
     {
         // With no reset button, this is how a used-up cap gets cleared without raising the limit.

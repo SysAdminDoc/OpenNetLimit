@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text.Json;
@@ -762,9 +763,10 @@ public class EngineWorker : BackgroundService
             // not only those up to the first gap in the numbers: one deleted by hand left a gap,
             // and the file kept past it was copied again on every start.
             var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
-            foreach (var kept in Directory.EnumerateFiles(directory, Path.GetFileName(path) + ".unreadable*"))
+            var name = Path.GetFileName(path);
+            foreach (var kept in Directory.EnumerateFiles(directory, name + ".unreadable*"))
             {
-                if (File.ReadAllBytes(kept).AsSpan().SequenceEqual(content))
+                if (IsKeptCopy(Path.GetFileName(kept), name) && HoldsSameBytes(kept, content))
                     return true;
             }
             var copy = path + ".unreadable";
@@ -777,6 +779,40 @@ public class EngineWorker : BackgroundService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Could not keep a copy of {Path}", path);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> is a name this service gives a kept copy of
+    /// <paramref name="name"/>: <c>.unreadable</c>, or <c>.unreadable-N</c> from 2 up. Other files
+    /// that start the same way, like notes someone saved next to it, aren't copies.
+    /// </summary>
+    internal static bool IsKeptCopy(string candidate, string name)
+    {
+        var prefix = name + ".unreadable";
+        if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var rest = candidate.AsSpan(prefix.Length);
+        return rest.IsEmpty
+            || (rest.Length > 1 && rest[0] == '-'
+                && int.TryParse(rest[1..], NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= 2);
+    }
+
+    /// <summary>
+    /// Whether the copy at <paramref name="kept"/> holds exactly <paramref name="content"/>. A copy
+    /// that can't be read doesn't count, so a new one gets made instead of refusing changes, and
+    /// one of another size isn't read at all.
+    /// </summary>
+    private static bool HoldsSameBytes(string kept, byte[] content)
+    {
+        try
+        {
+            return new FileInfo(kept).Length == content.Length
+                && File.ReadAllBytes(kept).AsSpan().SequenceEqual(content);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
             return false;
         }
     }
@@ -1123,11 +1159,13 @@ public class EngineWorker : BackgroundService
         bool settled = (changeVersion & 1) == 0 && changeVersion == Volatile.Read(ref _engineChangeVersion);
         if (!settled && !running && !paused)
         {
-            // A whole pause and resume can pass between the reads above. Read what they left.
+            // A whole pause and resume can pass between the reads above. Read what they left,
+            // the error included: a resume clears it or sets a new one.
             running = _interceptor.IsRunning;
             paused = !running && _paused;
             if (paused)
                 driverLoadedReason = _driverLoadedReason;
+            engineError = _engineError;
         }
         if (engineError is null && settled && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";

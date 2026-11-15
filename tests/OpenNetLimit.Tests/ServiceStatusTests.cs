@@ -199,10 +199,11 @@ public class ServiceStatusTests
     }
 
     // The app turned edits on whenever it ran as administrator, so a change the service would
-    // turn away looked possible until it was tried.
+    // turn away looked possible until it was tried. Without admin rights it said to run as
+    // administrator, which wouldn't have helped while the service refused changes anyway.
     [Theory]
     [InlineData(false, null, "Menu_AdminRequired")]
-    [InlineData(false, "rules.json didn't load", "Menu_AdminRequired")]
+    [InlineData(false, "rules.json didn't load", "rules.json didn't load")]
     [InlineData(true, "rules.json didn't load", "rules.json didn't load")]
     [InlineData(true, null, null)]
     public void EditHint_SaysWhyNoChangeCanBeMade(bool isAdmin, string? changesRefused, string? expected)

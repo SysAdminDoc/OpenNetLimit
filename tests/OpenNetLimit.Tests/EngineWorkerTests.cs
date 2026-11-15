@@ -242,6 +242,62 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.Null(_controlPlane.ChangesRefused);
     }
 
+    // Any file starting with the name counted as a copy and was read whole, so a locked one
+    // refused every change and a big one was loaded into memory.
+    [Fact]
+    public async Task AnotherFileNamedLikeACopy_ThatCantBeRead_DoesntStopTheCopy()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        File.WriteAllText(RulesPath + ".unreadable-notes.txt", "what I changed");
+        using (new FileStream(RulesPath + ".unreadable-notes.txt", FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+            await worker.StartAsync(CancellationToken.None);
+            await _pipeStarted.Task.WaitAsync(Timeout);
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(broken, File.ReadAllText(RulesPath + ".unreadable"));
+        Assert.Null(_controlPlane.ChangesRefused);
+    }
+
+    [Fact]
+    public async Task AFileWithTheSameContent_UnderAnotherName_IsntTakenForTheCopy()
+    {
+        Directory.CreateDirectory(_dataDir);
+        const string broken = """{"version":1,"rules":[{"processName":"steam.exe",""";
+        File.WriteAllText(RulesPath, broken);
+        File.WriteAllText(RulesPath + ".unreadable.bak", broken);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+
+        await worker.StartAsync(CancellationToken.None);
+        await _pipeStarted.Task.WaitAsync(Timeout);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Equal(broken, File.ReadAllText(RulesPath + ".unreadable"));
+    }
+
+    [Theory]
+    [InlineData("rules.json.unreadable", true)]
+    [InlineData("RULES.JSON.UNREADABLE", true)]
+    [InlineData("rules.json.unreadable-2", true)]
+    [InlineData("rules.json.unreadable-17", true)]
+    [InlineData("rules.json.unreadable-1", false)]
+    [InlineData("rules.json.unreadable-0", false)]
+    [InlineData("rules.json.unreadable-", false)]
+    [InlineData("rules.json.unreadable-2x", false)]
+    [InlineData("rules.json.unreadable-+2", false)]
+    [InlineData("rules.json.unreadable-notes.txt", false)]
+    [InlineData("rules.json.unreadableX", false)]
+    [InlineData("rules.json", false)]
+    [InlineData("alerts.json.unreadable", false)]
+    public void IsKeptCopy_KnowsTheNamesItGivesCopies(string candidate, bool expected)
+    {
+        Assert.Equal(expected, EngineWorker.IsKeptCopy(candidate, "rules.json"));
+    }
+
     // It took changes it couldn't save, and said so only in the log.
     [Fact]
     public async Task UnreadableRulesFile_ThatCantBeCopied_RefusesChangesAndSaysWhy()
@@ -929,6 +985,33 @@ public sealed class EngineWorkerTests : IDisposable
         {
             Task.Run(() => _controlPlane.PauseHandler!(false, CancellationToken.None)).GetAwaiter().GetResult();
             interceptor.AfterRunningRead = () =>
+                Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+        };
+
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Running);
+        Assert.False(status.Paused);
+        Assert.Null(status.EngineError);
+    }
+
+    [Fact]
+    public async Task StatusRead_ThatAResumeOvertakes_DoesntKeepTheErrorItCleared()
+    {
+        // The read looked again at running and paused after a resume overtook it, but kept the
+        // error it read before, so a working engine came back with the last failed start's reason.
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        interceptor.IsRunning = false;
+        interceptor.WhenRunningRead = () =>
+        {
+            interceptor.StartFailure = new WinDivertOpenException(
+                WinDivert.Layer.Network, WinDivert.Flag.Sniff, 87, "The parameter is incorrect.");
+            Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+            interceptor.StartFailure = null;
+            interceptor.WhenRunningRead = () =>
                 Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
         };
 

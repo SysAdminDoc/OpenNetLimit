@@ -151,8 +151,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public RulesViewModel RulesViewModel { get; }
 
-    /// <summary>Why the service turns changes away, as it last said. Null when it takes them.</summary>
-    private string? ChangesRefused => _engineStatus?.ChangesRefused;
+    /// <summary>
+    /// Why the service turns changes away, as it last said. Null when it takes them. Kept through
+    /// a lost connection: the service that comes back loads the same file, so edits stay off
+    /// until it says otherwise.
+    /// </summary>
+    private string? ChangesRefused => _changesRefused;
+    private string? _changesRefused;
 
     /// <summary>Why no change can be made right now, or null when changes go through.</summary>
     private string? EditHint => LimitMenu.EditHint(IsAdmin, ChangesRefused);
@@ -323,8 +328,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             TrayNoticeRaised?.Invoke(notice);
         if (previous?.Paused != status?.Paused || previous?.StayPaused != status?.StayPaused)
             EngineStateChanged?.Invoke();
-        if (previous?.ChangesRefused != status?.ChangesRefused)
+        if (status is not null && status.ChangesRefused != _changesRefused)
+        {
+            _changesRefused = status.ChangesRefused;
             OnEditAccessChanged();
+        }
     }
 
     private string _permissionDisplay = "Read-only";

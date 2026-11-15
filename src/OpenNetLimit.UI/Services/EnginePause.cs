@@ -41,17 +41,21 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
             return maxLength == 1 ? "…" : string.Empty;
         var room = maxLength - 1;
         var cut = 0;
+        // Where the last space that's a character of its own starts, up to and including the one
+        // right after the cut, which means the word before it is whole already. A space that joins
+        // the character before it (after U+0600, say) isn't a word end: cutting there splits it.
+        var space = -1;
         var characters = StringInfo.GetTextElementEnumerator(text);
         while (characters.MoveNext())
         {
-            var end = characters.ElementIndex + characters.GetTextElement().Length;
+            var element = characters.GetTextElement();
+            if (element == " ")
+                space = characters.ElementIndex;
+            var end = characters.ElementIndex + element.Length;
             if (end > room)
                 break;
             cut = end;
         }
-        // text[cut] exists, since cut <= room < text.Length. A space there means the word before
-        // it is whole already.
-        var space = text.LastIndexOf(' ', cut);
         if (space * 2 >= cut && space > 0)
             cut = space;
         return text[..cut].TrimEnd() + "…";
