@@ -10,6 +10,17 @@ using Xunit;
 
 namespace OpenNetLimit.Tests;
 
+/// <summary>
+/// Tests that time real loopback traffic. Beside the parallel tests the probe's reads can wait
+/// a whole window for a thread-pool thread and measure one chunk, so these run on their own.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ThroughputTimingCollection
+{
+    public const string Name = "Times real loopback throughput";
+}
+
+[Collection(ThroughputTimingCollection.Name)]
 public class SelfTestTests
 {
     private const long Limit = 256 * 1024;
