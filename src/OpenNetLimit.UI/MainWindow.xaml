@@ -91,6 +91,8 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="1.35*"/>
                         </Grid.ColumnDefinitions>
 
                         <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="16,13">
@@ -133,6 +135,43 @@
                                 <TextBlock Text="{Binding ActiveConnectionCount}" FontSize="24" FontWeight="SemiBold"/>
                                 <TextBlock Text="{loc:Loc Metric_ApplicationsHint}" Style="{StaticResource SectionSubtitle}"/>
                             </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="6" Style="{StaticResource CardBorder}" Padding="16,11"
+                                AutomationProperties.Name="{loc:Loc Metric_PcLimit}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="{loc:Loc Metric_PcLimit}" Style="{StaticResource EyebrowText}"/>
+                                <TextBlock Grid.Row="1" Text="{Binding PcLimitDisplay}" FontSize="19" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding PcLimitDisplay}"
+                                           AutomationProperties.LiveSetting="Polite"/>
+                                <Grid Grid.Row="2" Margin="0,2,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding PcLimitHint}" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" ToolTip="{Binding PcLimitHint}"
+                                               AutomationProperties.LiveSetting="Polite">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource SectionSubtitle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding PcLimitHintIsError}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <Button Grid.Column="1" Content="{loc:Loc PcLimit_Change}" Style="{StaticResource CompactButton}"
+                                            Margin="8,0,0,0" Click="OnSetPcLimit" IsEnabled="{Binding CanEditPcLimit}"
+                                            ToolTipService.ShowOnDisabled="True" ToolTip="{Binding PcLimitButtonHint}"/>
+                                </Grid>
+                            </Grid>
                         </Border>
                     </Grid>
 

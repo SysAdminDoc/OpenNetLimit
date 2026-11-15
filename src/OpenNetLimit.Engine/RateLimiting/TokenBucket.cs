@@ -45,6 +45,16 @@ public class TokenBucket
         }
     }
 
+    /// <summary>Gives back a reservation for a packet another limit dropped after all.</summary>
+    public void Refund(int byteCount)
+    {
+        lock (_lock)
+        {
+            Refill();
+            _tokens = Math.Min(_tokens + byteCount, CapacityBytes);
+        }
+    }
+
     public bool TryConsume(int byteCount)
     {
         lock (_lock)

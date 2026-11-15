@@ -226,7 +226,8 @@ public class PipeServer
 
     private static readonly HashSet<string> RuleChanges = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE"
+        "ADD_RULE", "REMOVE_RULE", "UPDATE_RULE", "IMPORT_RULES", "ADD_ALERT_RULE", "UPDATE_ALERT_RULE", "REMOVE_ALERT_RULE",
+        "SET_PC_LIMIT"
     };
 
     internal Task<string> ProcessCommandAsync(string action, string payload, CancellationToken ct)
@@ -262,6 +263,8 @@ public class PipeServer
             "GEOIP" => ResolveGeoIp(payload, ct),
             "PAUSE" => Pause(payload, ct),
             "RESUME" => Resume(ct),
+            "PC_LIMIT" => Task.FromResult(JsonSerializer.Serialize(_controlPlane.GetPcLimit(), JsonOptions)),
+            "SET_PC_LIMIT" => Task.FromResult(SetPcLimit(payload)),
             _ => Task.FromResult(ErrorResponse("unknown command"))
         };
     }
@@ -293,6 +296,26 @@ public class PipeServer
     }
 
     private sealed record PauseRequest(bool StayPaused);
+
+    private string SetPcLimit(string payload)
+    {
+        if (_controlPlane.PcLimitHandler is not { } set)
+            return ErrorResponse("engine control unavailable");
+        WholePcLimit? limit;
+        try
+        {
+            limit = JsonSerializer.Deserialize<WholePcLimit>(payload, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return ErrorResponse($"invalid JSON: {ex.Message}");
+        }
+        if (limit is null)
+            return ErrorResponse("invalid whole-PC limit");
+        if (limit.Problem() is { } problem)
+            return ErrorResponse(problem);
+        return JsonSerializer.Serialize(set(limit), JsonOptions);
+    }
 
     private string AddAlertRule(string payload)
     {

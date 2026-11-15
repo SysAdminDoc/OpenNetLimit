@@ -67,10 +67,11 @@ public sealed class RestApiRouter
 
         var query = ParseQuery(request.QueryString);
 
-        // A service that didn't load the rules would keep a change only until it stops.
+        // A service that didn't load its saved state would keep a change only until it stops.
         if (method != "GET" && _controlPlane.ChangesRefused is { } refused &&
             (path.StartsWith("/api/v1/rules", StringComparison.OrdinalIgnoreCase) ||
-             path.StartsWith("/api/v1/alerts/rules", StringComparison.OrdinalIgnoreCase)))
+             path.StartsWith("/api/v1/alerts/rules", StringComparison.OrdinalIgnoreCase) ||
+             path.Equals("/api/v1/pc-limit", StringComparison.OrdinalIgnoreCase)))
             return RestApiResponse.Error(503, refused, JsonOptions);
 
         return path switch
@@ -121,6 +122,13 @@ public sealed class RestApiRouter
                 _controlPlane.PauseHandler is { } pause
                     ? RestApiResponse.Json(200, await pause(GetBool(query, "stay"), ct), JsonOptions)
                     : RestApiResponse.Error(503, "engine control unavailable", JsonOptions),
+            "/api/v1/pc-limit" when method == "GET" =>
+                RestApiResponse.Json(200, _controlPlane.GetPcLimit(), JsonOptions),
+            "/api/v1/pc-limit" when method == "PUT" =>
+                SetPcLimit(request.Body),
+            // Off, keeping whether it counts the local network for the next time it's set.
+            "/api/v1/pc-limit" when method == "DELETE" =>
+                ApplyPcLimit(_controlPlane.GetPcLimit() with { DownloadBytesPerSecond = 0, UploadBytesPerSecond = 0 }),
             "/api/v1/engine/resume" when method == "POST" =>
                 _controlPlane.ResumeHandler is { } resume
                     ? RestApiResponse.Json(200, await resume(ct), JsonOptions)
@@ -188,6 +196,31 @@ public sealed class RestApiRouter
             // A rule with no program is the caller's mistake, not a server error.
             return RestApiResponse.Error(400, ex.Message, JsonOptions);
         }
+    }
+
+    private RestApiResponse SetPcLimit(string body)
+    {
+        WholePcLimit? limit;
+        try
+        {
+            limit = JsonSerializer.Deserialize<WholePcLimit>(body, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return RestApiResponse.Error(400, $"invalid JSON: {ex.Message}", JsonOptions);
+        }
+        return limit is null
+            ? RestApiResponse.Error(400, "invalid whole-PC limit", JsonOptions)
+            : ApplyPcLimit(limit);
+    }
+
+    private RestApiResponse ApplyPcLimit(WholePcLimit limit)
+    {
+        if (limit.Problem() is { } problem)
+            return RestApiResponse.Error(400, problem, JsonOptions);
+        return _controlPlane.PcLimitHandler is { } set
+            ? RestApiResponse.Json(200, set(limit), JsonOptions)
+            : RestApiResponse.Error(503, "engine control unavailable", JsonOptions);
     }
 
     private RestApiResponse AddAlertRule(string body)

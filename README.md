@@ -39,6 +39,7 @@ Use it when a download is wrecking a call or when a background app is chewing th
 |---|---|
 | Live traffic | Current download and upload rates for each active process, plus a rolling connection chart |
 | Per-app control | Independent download and upload ceilings, blocking rules, wildcard paths, and protocol filters |
+| Whole-PC limit | One cap that all apps share, on internet traffic only unless you add the local network |
 | Usage history | Hourly or daily charts backed by a local database, with quotas and threshold alerts |
 | Repeatable rules | Schedules, app groups, import and export, plus a scriptable command-line client |
 | Local automation | A loopback REST API with keyed mutations and an explicit opt-in for remote access |
@@ -87,6 +88,12 @@ OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires admin
 
 The rule applies right away and keeps applying after the app restarts. OpenNetLimit won't block or limit system-critical Windows processes.
 
+### Limit the whole PC
+
+The **Whole-PC limit** card on the **Real-time** tab caps every app's traffic added together. Select **Change**, enter the download and upload speeds in KB/s, and select **OK**. A 0 leaves that direction uncapped, and 0 in both turns the limit off.
+
+It only counts internet traffic by default, so copying files to a NAS or another PC at home still runs at full speed. Check **Count local network traffic too** if you want that capped as well. Apps with their own limit stay under both. Changing it needs the app running as administrator.
+
 ### Manage rules and alerts
 
 The **Rules** tab lists every rule the service applies. **Add rule** opens a form where you pick the app by name or full path, then limit or block it. You can keep a rule to certain hours and days, or give it a daily, weekly or monthly data cap that blocks or slows the app once it's used up. Turning a rule off keeps it for later, and turning it back on starts its data cap over. **Undo** brings back one you deleted, with the data it had already used.
@@ -110,12 +117,13 @@ A pause ends when the service restarts. Check **Stay paused after restart** to k
 ./onl.exe snapshot
 ./onl.exe rules add --process steam.exe --download 8192 --upload 1024
 ./onl.exe stats top --days 7 --limit 10
+./onl.exe pc-limit set --download 1024
 ./onl.exe selftest
 ./onl.exe pause --stay-paused
 ./onl.exe resume
 ```
 
-`selftest` limits the CLI itself for a few seconds and tells you whether the limit held. `pause` exits with code 2 when another program keeps the driver loaded, and says which one. Over REST they're `POST /api/v1/engine/pause?stay=true` and `POST /api/v1/engine/resume`.
+`selftest` limits the CLI itself for a few seconds and tells you whether the limit held. `pause` exits with code 2 when another program keeps the driver loaded, and says which one. Over REST they're `POST /api/v1/engine/pause?stay=true` and `POST /api/v1/engine/resume`. `pc-limit set` takes KB/s like `rules add`, `--include-lan` counts the local network too, and `pc-limit off` turns it off.
 
 See the [CLI and REST API guide](docs/automation-api.md) for authentication, remote access, and the complete endpoint list.
 

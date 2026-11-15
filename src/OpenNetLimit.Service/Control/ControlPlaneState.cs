@@ -1,4 +1,5 @@
 using OpenNetLimit.Core.IPC;
+using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Storage;
 
@@ -22,6 +23,14 @@ public sealed class ControlPlaneState
 
     /// <summary>Starts the engine again and returns the new status.</summary>
     public Func<CancellationToken, Task<DiagnosticInfo>>? ResumeHandler { get; set; }
+
+    /// <summary>The whole-PC limit as last set, on or off.</summary>
+    public Func<WholePcLimit>? PcLimitProvider { get; set; }
+
+    /// <summary>Sets the whole-PC limit, keeps it for the next start and returns it.</summary>
+    public Func<WholePcLimit, WholePcLimit>? PcLimitHandler { get; set; }
+
+    public WholePcLimit GetPcLimit() => PcLimitProvider?.Invoke() ?? WholePcLimit.Off;
 
     public DiagnosticInfo GetDiagnostics() =>
         DiagnosticProvider?.Invoke() ?? new DiagnosticInfo { Running = false };

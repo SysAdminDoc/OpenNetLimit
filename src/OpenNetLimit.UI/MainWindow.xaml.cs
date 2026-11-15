@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using OpenNetLimit.Core.Models;
 using OpenNetLimit.UI.Services;
 using OpenNetLimit.UI.ViewModels;
 using Forms = System.Windows.Forms;
@@ -166,6 +167,20 @@ public partial class MainWindow : Window
             var upBytes = dialog.UploadKBps * 1024;
             await _viewModel.SetLimitAsync(process.ProcessName, downBytes, upBytes);
         }
+    }
+
+    private async void OnSetPcLimit(object sender, RoutedEventArgs e)
+    {
+        var dialog = SetLimitDialog.ForWholePc(_viewModel.PcLimit);
+        dialog.Owner = this;
+        if (dialog.ShowDialog() != true)
+            return;
+        await _viewModel.SetPcLimitAsync(new WholePcLimit
+        {
+            DownloadBytesPerSecond = dialog.DownloadKBps * 1024,
+            UploadBytesPerSecond = dialog.UploadKBps * 1024,
+            IncludeLan = dialog.IncludeLan
+        });
     }
 
     private async void OnRemoveLimit(object sender, RoutedEventArgs e)

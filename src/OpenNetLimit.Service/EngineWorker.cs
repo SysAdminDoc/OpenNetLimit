@@ -1,7 +1,9 @@
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
+using System.Text.Json;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
+using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
@@ -99,6 +101,18 @@ public class EngineWorker : BackgroundService
     /// <summary>There while the user wants the engine to stay paused after a restart.</summary>
     private readonly string _stayPausedPath;
 
+    private readonly string _pcLimitPath;
+
+    /// <summary>The whole-PC limit as last set, kept when it's off so "include LAN" isn't lost.</summary>
+    private volatile WholePcLimit _pcLimit = WholePcLimit.Off;
+
+    private static readonly JsonSerializerOptions PcLimitJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true
+    };
+
     public EngineWorker(
         IPacketInterceptor interceptor,
         IRuleEngine ruleEngine,
@@ -151,6 +165,7 @@ public class EngineWorker : BackgroundService
         _statsDbPath = Path.Combine(dataDir, "traffic.db");
         _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
         _stayPausedPath = Path.Combine(dataDir, "paused");
+        _pcLimitPath = Path.Combine(dataDir, "pc-limit.json");
     }
 
     // Since .NET 10 the host runs ExecuteAsync on a thread-pool thread and starts the next
@@ -181,6 +196,8 @@ public class EngineWorker : BackgroundService
         _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
         _controlPlane.PauseHandler = PauseAsync;
         _controlPlane.ResumeHandler = ResumeAsync;
+        _controlPlane.PcLimitProvider = () => _pcLimit;
+        _controlPlane.PcLimitHandler = SetPcLimit;
         return base.StartAsync(cancellationToken);
     }
 
@@ -264,6 +281,7 @@ public class EngineWorker : BackgroundService
 
         LoadRules();
         LoadAlerts();
+        LoadPcLimit();
         LoadPlugins();
         StartQuotaCounts();
         _reconciler.Reconcile();
@@ -789,6 +807,55 @@ public class EngineWorker : BackgroundService
                 _logger.LogError(ex, "Failed to save {What} to {Path}", what, file.Path);
             }
         }
+    }
+
+    private void LoadPcLimit()
+    {
+        if (!File.Exists(_pcLimitPath))
+            return;
+        try
+        {
+            var limit = JsonSerializer.Deserialize<WholePcLimit>(File.ReadAllText(_pcLimitPath), PcLimitJson)
+                ?? WholePcLimit.Off;
+            if (limit.Problem() is { } problem)
+                throw new InvalidDataException(problem);
+            _pcLimit = limit;
+            _rateLimiter.SetPcLimit(limit);
+            _logger.LogInformation("Whole-PC limit: {Download} B/s down, {Upload} B/s up, LAN {Lan}",
+                limit.DownloadBytesPerSecond, limit.UploadBytesPerSecond, limit.IncludeLan ? "included" : "left out");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
+                                       or InvalidDataException)
+        {
+            _logger.LogError(ex, "Failed to load the whole-PC limit from {Path}; starting without one", _pcLimitPath);
+            RecordLastError($"Failed to load the whole-PC limit, so it's off until it's set again: {ex.Message}");
+        }
+    }
+
+    /// <summary>Applies a whole-PC limit right away and keeps it for the next start.</summary>
+    private WholePcLimit SetPcLimit(WholePcLimit limit)
+    {
+        if (limit.Problem() is { } problem)
+            throw new ArgumentException(problem, nameof(limit));
+        // Under the save lock, so two changes that land together are saved in the order applied.
+        lock (_saveLock)
+        {
+            _rateLimiter.SetPcLimit(limit);
+            _pcLimit = limit;
+            var temp = _pcLimitPath + ".tmp";
+            try
+            {
+                File.WriteAllText(temp, JsonSerializer.Serialize(limit, PcLimitJson));
+                File.Move(temp, _pcLimitPath, overwrite: true);
+                _logger.LogInformation("Saved the whole-PC limit to {Path}", _pcLimitPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogError(ex, "Failed to save the whole-PC limit to {Path}", _pcLimitPath);
+                RecordLastError($"The whole-PC limit is in effect but wasn't saved, so a restart will lose it: {ex.Message}");
+            }
+        }
+        return limit;
     }
 
     private void LoadAlerts()

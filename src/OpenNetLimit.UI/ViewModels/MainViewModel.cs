@@ -148,6 +148,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnLimitMenuChanged();
                 UpdateRulesAccess();
+                OnPropertyChanged(nameof(CanEditPcLimit));
+                OnPropertyChanged(nameof(PcLimitButtonHint));
             }
         }
     }
@@ -182,6 +184,65 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         OnPropertyChanged(nameof(CanEditLimits));
         OnPropertyChanged(nameof(LimitMenuHint));
+    }
+
+    private WholePcLimit _pcLimit = WholePcLimit.Off;
+
+    /// <summary>The limit every app shares, as the service last reported it.</summary>
+    public WholePcLimit PcLimit
+    {
+        get => _pcLimit;
+        private set
+        {
+            if (SetField(ref _pcLimit, value))
+                OnPcLimitChanged();
+        }
+    }
+
+    private string? _pcLimitError;
+
+    public string PcLimitDisplay => PcLimitText.Rates(PcLimit);
+
+    /// <summary>Which traffic it counts, or why the last change didn't take.</summary>
+    public string PcLimitHint => _pcLimitError ?? PcLimitText.Scope(PcLimit);
+
+    public bool PcLimitHintIsError => _pcLimitError is not null;
+
+    public bool CanEditPcLimit => IsAdmin;
+
+    public string? PcLimitButtonHint => IsAdmin ? null : LocalizationManager.Text("Menu_AdminRequired");
+
+    private void OnPcLimitChanged()
+    {
+        OnPropertyChanged(nameof(PcLimitDisplay));
+        OnPropertyChanged(nameof(PcLimitHint));
+        OnPropertyChanged(nameof(PcLimitHintIsError));
+    }
+
+    /// <summary>Sets the whole-PC limit. What went wrong shows on its card.</summary>
+    public async Task SetPcLimitAsync(WholePcLimit limit)
+    {
+        var reply = _client.State == ConnectionState.Connected
+            ? await _client.SendCommandAsync($"SET_PC_LIMIT {JsonSerializer.Serialize(limit, JsonOptions)}")
+            : null;
+        _pcLimitError = RulesViewModel.ErrorOf(reply);
+        if (_pcLimitError is null)
+            PcLimit = ParsePcLimit(reply) ?? limit;
+        OnPcLimitChanged();
+    }
+
+    private static WholePcLimit? ParsePcLimit(string? json)
+    {
+        if (json is null)
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<WholePcLimit>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private DiagnosticInfo? _engineStatus;
@@ -405,6 +466,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         TotalUpload = "2.4 MB/s";
         ActiveConnectionCount = 5;
         ActiveRuleCount = 3;
+        PcLimit = new WholePcLimit { DownloadBytesPerSecond = 20L * 1024 * 1024, UploadBytesPerSecond = 3L * 1024 * 1024 };
         RecentAlertCount = 1;
         _statusTracker.StatusReceived(null);
 
@@ -561,6 +623,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             catch { }
         }
+
+        // A service from before the whole-PC limit answers with an error, which reads as off.
+        var pcLimitReply = await _client.SendCommandAsync("PC_LIMIT");
+        if (RulesViewModel.ErrorOf(pcLimitReply) is null && ParsePcLimit(pcLimitReply) is { } pcLimit)
+            PcLimit = pcLimit;
 
         await PollAlertEventsAsync();
     }
@@ -762,6 +829,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         OnPropertyChanged(nameof(ConnectionsDisplay));
         OnPropertyChanged(nameof(ActiveRulesDisplay));
+        OnPcLimitChanged();
+        OnPropertyChanged(nameof(PcLimitButtonHint));
         OnPropertyChanged(nameof(RecentAlertsDisplay));
         OnPropertyChanged(nameof(PermissionModeDisplay));
         OnPropertyChanged(nameof(ThemeDisplay));

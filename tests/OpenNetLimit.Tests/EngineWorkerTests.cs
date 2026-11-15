@@ -37,6 +37,10 @@ public sealed class EngineWorkerTests : IDisposable
     private string RulesPath => Path.Combine(_dataDir, "rules.json");
     private string AlertsPath => Path.Combine(_dataDir, "alerts.json");
     private string StayPausedPath => Path.Combine(_dataDir, "paused");
+    private string PcLimitPath => Path.Combine(_dataDir, "pc-limit.json");
+
+    /// <summary>The limiter the newest worker was given.</summary>
+    private ProcessRateLimiter _limiter = new();
 
     public EngineWorkerTests() => _alerts = new BandwidthAlertTracker(_monitor);
 
@@ -926,6 +930,83 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.Equal(TimeSpan.FromMilliseconds(expectedMs), wait);
     }
 
+    // A whole-PC limit set before a reboot still holds after it.
+    [Fact]
+    public async Task PcLimit_IsSavedAndAppliedAgainAfterARestart()
+    {
+        var limit = new WholePcLimit { DownloadBytesPerSecond = 1_048_576, IncludeLan = true };
+        using (var first = CreateWorker(new FakeInterceptor(), isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(first);
+            _controlPlane.PcLimitHandler!(limit);
+            await first.StopAsync(CancellationToken.None);
+        }
+
+        using var second = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(second);
+        var applied = _limiter.PcLimit;
+        var reported = _controlPlane.GetPcLimit();
+        await second.StopAsync(CancellationToken.None);
+
+        Assert.Equal(limit, applied);
+        Assert.Equal(limit, reported);
+    }
+
+    [Fact]
+    public async Task PcLimit_TurnedOff_StaysOffAfterARestart()
+    {
+        using (var first = CreateWorker(new FakeInterceptor(), isAdmin: true))
+        {
+            await StartAndWaitForBootAsync(first);
+            _controlPlane.PcLimitHandler!(new WholePcLimit { UploadBytesPerSecond = 65_536 });
+            _controlPlane.PcLimitHandler!(new WholePcLimit { IncludeLan = true });
+            await first.StopAsync(CancellationToken.None);
+        }
+
+        using var second = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(second);
+        var applied = _limiter.PcLimit;
+        var reported = _controlPlane.GetPcLimit();
+        await second.StopAsync(CancellationToken.None);
+
+        Assert.Null(applied);
+        Assert.Equal(new WholePcLimit { IncludeLan = true }, reported);
+    }
+
+    [Theory]
+    [InlineData("""{"downloadBytesPerSecond":""")]
+    [InlineData("""{"downloadBytesPerSecond":-1}""")]
+    public async Task PcLimitFile_ThatCantBeUsed_StartsOffAndSaysWhy(string contents)
+    {
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(PcLimitPath, contents);
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var applied = _limiter.PcLimit;
+        var reported = _controlPlane.GetPcLimit();
+        var lastError = File.ReadAllText(Path.Combine(_dataDir, "last-error.txt"));
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Null(applied);
+        Assert.True(reported.IsOff);
+        Assert.Contains("whole-PC limit", lastError);
+        Assert.Equal(contents, File.ReadAllText(PcLimitPath));
+    }
+
+    [Fact]
+    public async Task PcLimit_Negative_IsRefusedAndNotSaved()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+
+        Assert.Throws<ArgumentException>(() => _controlPlane.PcLimitHandler!(new WholePcLimit { UploadBytesPerSecond = -1 }));
+        var reported = _controlPlane.GetPcLimit();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(reported.IsOff);
+        Assert.False(File.Exists(PcLimitPath));
+    }
+
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>
         CreateWorker(interceptor, () => isAdmin);
 
@@ -934,7 +1015,7 @@ public sealed class EngineWorkerTests : IDisposable
         return new EngineWorker(
             interceptor,
             _rules,
-            new ProcessRateLimiter(),
+            _limiter = new ProcessRateLimiter(),
             new FlowTracker(),
             _monitor,
             RunPipe,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -39,6 +40,7 @@ public static class Program
                 "selftest" => await RunSelfTest(args[1..]),
                 "pause" => await PauseEngine(args[1..]),
                 "resume" => await ResumeEngine(),
+                "pc-limit" => await HandlePcLimit(args[1..]),
                 "help" or "--help" or "-h" => PrintUsage(),
                 _ => PrintUsage()
             };
@@ -176,6 +178,60 @@ public static class Program
 
     private static string? Text(JsonElement status, string name) =>
         status.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static async Task<int> HandlePcLimit(string[] args)
+    {
+        if (args.Length == 0 || args[0].Equals("show", StringComparison.OrdinalIgnoreCase))
+            return await GetJson("/api/v1/pc-limit");
+
+        switch (args[0].ToLowerInvariant())
+        {
+            case "set":
+                return PcLimitBody(args[1..], Console.Error) is { } body
+                    ? await PutJson("/api/v1/pc-limit", body)
+                    : 1;
+            case "off":
+                return await DeleteJson("/api/v1/pc-limit");
+            default:
+                return PrintUsage();
+        }
+    }
+
+    /// <summary>
+    /// The whole-PC limit that <c>pc-limit set</c> asks for, from KB/s on the command line. A
+    /// direction left out has no limit. Null, with why on <paramref name="error"/>, when the
+    /// arguments don't make a limit.
+    /// </summary>
+    internal static Dictionary<string, object>? PcLimitBody(string[] args, TextWriter error)
+    {
+        if (!TryKilobytes(args, "--download", error, out long download)
+            || !TryKilobytes(args, "--upload", error, out long upload))
+            return null;
+        if (download == 0 && upload == 0)
+        {
+            error.WriteLine("Error: give --download, --upload or both. To turn the limit off, run `onl pc-limit off`.");
+            return null;
+        }
+        return new Dictionary<string, object>
+        {
+            ["downloadBytesPerSecond"] = download * 1024,
+            ["uploadBytesPerSecond"] = upload * 1024,
+            ["includeLan"] = args.Contains("--include-lan", StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private static bool TryKilobytes(string[] args, string flag, TextWriter error, out long kilobytes)
+    {
+        kilobytes = 0;
+        var value = GetArg(args, flag, null);
+        if (value is null)
+            return true;
+        if (long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out kilobytes)
+            && kilobytes > 0 && kilobytes <= long.MaxValue / 1024)
+            return true;
+        error.WriteLine($"Error: {flag} value '{value}' is not a whole number of KB/s above 0");
+        return false;
+    }
 
     private static async Task<int> HandleRules(string[] args)
     {
@@ -334,6 +390,15 @@ public static class Program
         return response.IsSuccessStatusCode ? 0 : 1;
     }
 
+    private static async Task<int> PutJson(string path, object body)
+    {
+        using var client = CreateClient();
+        using var content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json");
+        var response = await client.PutAsync(BaseUrl + path, content);
+        PrintFormatted(await response.Content.ReadAsStringAsync());
+        return response.IsSuccessStatusCode ? 0 : 1;
+    }
+
     private static async Task<(bool Succeeded, string Body)> PostEmpty(string path)
     {
         using var client = CreateClient();
@@ -401,6 +466,13 @@ public static class Program
                                               if the driver is still loaded, and says why.
                                               --stay-paused keeps it paused after a restart
               resume                          Start limiting again
+
+              pc-limit                        Show the whole-PC limit
+              pc-limit set                    Cap the whole PC's internet traffic, shared
+                [--download <KB/s>]             by every app. A direction left out has no
+                [--upload <KB/s>]               cap. Apps with their own limit stay under it
+                [--include-lan]                 Count the local network too
+              pc-limit off                    Turn the whole-PC limit off
 
               rules list                      List all bandwidth rules
               rules add --process <name>      Add a bandwidth rule

@@ -428,6 +428,103 @@ public class RestApiRouterTests
     }
 
     [Fact]
+    public async Task PcLimit_PutThenGet_GivesTheSameLimit()
+    {
+        var current = WholePcLimit.Off;
+        var (_, _, router) = CreateRouter("secret", pcLimit: () => current, setPcLimit: limit => current = limit);
+
+        var put = await router.HandleAsync(new RestApiRequest("PUT", "/api/v1/pc-limit", string.Empty,
+            """{"downloadBytesPerSecond":1048576,"uploadBytesPerSecond":262144}""", IsLoopback: true, ApiKey: "secret"));
+        var get = await router.HandleAsync(new RestApiRequest("GET", "/api/v1/pc-limit", string.Empty, string.Empty,
+            IsLoopback: true, ApiKey: null));
+
+        Assert.Equal(200, put.StatusCode);
+        Assert.Equal(200, get.StatusCode);
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 1_048_576, UploadBytesPerSecond = 262_144 }, current);
+        Assert.Equal(put.Body, get.Body);
+        Assert.DoesNotContain("isOff", get.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PcLimit_Delete_TurnsItOffAndKeepsTheLanChoice()
+    {
+        var current = new WholePcLimit { DownloadBytesPerSecond = 1024, UploadBytesPerSecond = 2048, IncludeLan = true };
+        var (_, _, router) = CreateRouter("secret", pcLimit: () => current, setPcLimit: limit => current = limit);
+
+        var response = await router.HandleAsync(new RestApiRequest("DELETE", "/api/v1/pc-limit", string.Empty, string.Empty,
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new WholePcLimit { IncludeLan = true }, current);
+    }
+
+    [Theory]
+    [InlineData("""{"uploadBytesPerSecond":-5}""", "negative")]
+    [InlineData("""{"uploadBytesPerSecond":""", "invalid JSON")]
+    [InlineData("null", "invalid whole-PC limit")]
+    public async Task PcLimit_ThatIsntALimit_IsABadRequest(string body, string why)
+    {
+        var applied = false;
+        var (_, _, router) = CreateRouter("secret", setPcLimit: limit => { applied = true; return limit; });
+
+        var response = await router.HandleAsync(new RestApiRequest("PUT", "/api/v1/pc-limit", string.Empty, body,
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains(why, response.Body);
+        Assert.False(applied);
+    }
+
+    [Theory]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task PcLimit_ChangeWithoutTheKey_IsRefusedEvenLocally(string method)
+    {
+        var applied = false;
+        var (_, _, router) = CreateRouter("secret", setPcLimit: limit => { applied = true; return limit; });
+
+        var response = await router.HandleAsync(new RestApiRequest(method, "/api/v1/pc-limit", string.Empty,
+            """{"downloadBytesPerSecond":1024}""", IsLoopback: true, ApiKey: null));
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.False(applied);
+    }
+
+    [Theory]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task PcLimit_WhileChangesAreRefused_Answers503ButStillReads(string method)
+    {
+        var applied = false;
+        var (_, _, router) = CreateRouter("secret", changesRefused: "not running as administrator",
+            pcLimit: () => new WholePcLimit { DownloadBytesPerSecond = 4096 },
+            setPcLimit: limit => { applied = true; return limit; });
+
+        var change = await router.HandleAsync(new RestApiRequest(method, "/api/v1/pc-limit", string.Empty,
+            """{"downloadBytesPerSecond":1024}""", IsLoopback: true, ApiKey: "secret"));
+        var read = await router.HandleAsync(new RestApiRequest("GET", "/api/v1/pc-limit", string.Empty, string.Empty,
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(503, change.StatusCode);
+        Assert.Contains("not running as administrator", change.Body);
+        Assert.False(applied);
+        Assert.Equal(200, read.StatusCode);
+        Assert.Contains("\"downloadBytesPerSecond\":4096", read.Body);
+    }
+
+    [Fact]
+    public async Task PcLimit_BeforeTheEngineIsUp_Answers503()
+    {
+        var (_, _, router) = CreateRouter("secret");
+
+        var response = await router.HandleAsync(new RestApiRequest("PUT", "/api/v1/pc-limit", string.Empty,
+            """{"downloadBytesPerSecond":1024}""", IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("engine control unavailable", response.Body);
+    }
+
+    [Fact]
     public void Options_RemoteModeKeepsWildcardListenerPrefix()
     {
         var options = RestApiOptions.Create(
@@ -460,7 +557,9 @@ public class RestApiRouterTests
         TrafficStatsDb? stats = null,
         Func<bool, CancellationToken, Task<DiagnosticInfo>>? pause = null,
         Func<CancellationToken, Task<DiagnosticInfo>>? resume = null,
-        string? changesRefused = null)
+        string? changesRefused = null,
+        Func<WholePcLimit>? pcLimit = null,
+        Func<WholePcLimit, WholePcLimit>? setPcLimit = null)
     {
         var monitor = new TrafficMonitor();
         var rules = new RuleEngine();
@@ -476,7 +575,9 @@ public class RestApiRouterTests
             },
             StatsProvider = stats,
             PauseHandler = pause,
-            ResumeHandler = resume
+            ResumeHandler = resume,
+            PcLimitProvider = pcLimit,
+            PcLimitHandler = setPcLimit
         };
         var options = new RestApiOptions { ApiKey = apiKey };
         return (monitor, rules, new RestApiRouter(

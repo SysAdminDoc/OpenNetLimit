@@ -268,4 +268,15 @@
   <data name="AlertEditor_CooldownLabel" xml:space="preserve"><value>Repetir tras</value></data>
   <data name="AlertEditor_Minutes" xml:space="preserve"><value>minutos</value></data>
   <data name="AlertEditor_NeedThreshold" xml:space="preserve"><value>Escribe una velocidad mayor que 0 KB/s.</value></data>
+  <data name="Metric_PcLimit" xml:space="preserve"><value>LÍMITE DE TODO EL PC</value></data>
+  <data name="PcLimit_Off" xml:space="preserve"><value>Desactivado</value></data>
+  <data name="PcLimit_OffHint" xml:space="preserve"><value>Sin tope para el total del PC</value></data>
+  <data name="PcLimit_InternetOnly" xml:space="preserve"><value>Solo internet, compartido entre apps</value></data>
+  <data name="PcLimit_WithLan" xml:space="preserve"><value>Todo el tráfico, también la red local</value></data>
+  <data name="PcLimit_Change" xml:space="preserve"><value>Cambiar</value></data>
+  <data name="PcLimit_Title" xml:space="preserve"><value>Límite de todo el PC</value></data>
+  <data name="PcLimit_Subtitle" xml:space="preserve"><value>Un tope que comparten todas las apps de este PC.</value></data>
+  <data name="PcLimit_Scope" xml:space="preserve"><value>Las apps con su propio límite se quedan por debajo de ambos.</value></data>
+  <data name="PcLimit_ZeroHint" xml:space="preserve"><value>0 es sin tope en esa dirección. 0 en ambas lo desactiva.</value></data>
+  <data name="PcLimit_IncludeLan" xml:space="preserve"><value>Contar también el tráfico de la red local</value></data>
 </root>

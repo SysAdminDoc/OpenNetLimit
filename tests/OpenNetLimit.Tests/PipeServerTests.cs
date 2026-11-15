@@ -193,6 +193,77 @@ public class PipeServerTests
         Assert.DoesNotContain("\"error\"", reply);
     }
 
+    [Fact]
+    public async Task PcLimit_SetThenRead_GivesTheSameLimit()
+    {
+        var current = WholePcLimit.Off;
+        var controlPlane = new ControlPlaneState
+        {
+            PcLimitProvider = () => current,
+            PcLimitHandler = limit => current = limit
+        };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var set = await server.ProcessCommandAsync("SET_PC_LIMIT",
+            """{"downloadBytesPerSecond":1048576,"uploadBytesPerSecond":0,"includeLan":true}""", CancellationToken.None);
+        var read = await server.ProcessCommandAsync("PC_LIMIT", string.Empty, CancellationToken.None);
+
+        Assert.Equal(new WholePcLimit { DownloadBytesPerSecond = 1_048_576, IncludeLan = true }, current);
+        Assert.Equal(set, read);
+        Assert.Contains("\"downloadBytesPerSecond\":1048576", read);
+        Assert.DoesNotContain("isOff", read, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("""{"downloadBytesPerSecond":-1}""", "negative")]
+    [InlineData("""{"downloadBytesPerSecond":""", "invalid JSON")]
+    [InlineData("null", "invalid whole-PC limit")]
+    public async Task PcLimit_ThatIsntALimit_IsRefused(string payload, string why)
+    {
+        var applied = false;
+        var controlPlane = new ControlPlaneState { PcLimitHandler = limit => { applied = true; return limit; } };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("SET_PC_LIMIT", payload, CancellationToken.None);
+
+        Assert.Contains("\"error\"", reply);
+        Assert.Contains(why, reply);
+        Assert.False(applied);
+    }
+
+    [Fact]
+    public async Task PcLimit_BeforeTheEngineIsUp_SaysSo()
+    {
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused");
+
+        var reply = await server.ProcessCommandAsync("SET_PC_LIMIT", """{"uploadBytesPerSecond":1024}""", CancellationToken.None);
+        var read = await server.ProcessCommandAsync("PC_LIMIT", string.Empty, CancellationToken.None);
+
+        Assert.Contains("engine control unavailable", reply);
+        Assert.Contains("\"downloadBytesPerSecond\":0", read);
+    }
+
+    // The limit is saved state too, so a service that couldn't load its state can't take it.
+    [Fact]
+    public async Task PcLimit_WhileChangesAreRefused_SaysWhyButStillReads()
+    {
+        var applied = false;
+        var controlPlane = new ControlPlaneState
+        {
+            ChangesRefused = "not running as administrator",
+            PcLimitProvider = () => new WholePcLimit { UploadBytesPerSecond = 2048 },
+            PcLimitHandler = limit => { applied = true; return limit; }
+        };
+        var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+        var reply = await server.ProcessCommandAsync("SET_PC_LIMIT", """{"uploadBytesPerSecond":1024}""", CancellationToken.None);
+        var read = await server.ProcessCommandAsync("PC_LIMIT", string.Empty, CancellationToken.None);
+
+        Assert.Contains("not running as administrator", reply);
+        Assert.False(applied);
+        Assert.Contains("\"uploadBytesPerSecond\":2048", read);
+    }
+
     private static PipeServer CreateServer(RuleEngine rules, RecordingLogger logger, string pipeName,
         ControlPlaneState? controlPlane = null)
     {
