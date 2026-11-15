@@ -95,6 +95,52 @@ public class RestApiRouterTests
         Assert.Equal("chrome", rules.GetAllRules()[0].ProcessName);
     }
 
+    [Theory]
+    [InlineData("Limit", RuleAction.Limit)]
+    [InlineData("block", RuleAction.Block)]
+    [InlineData("ALLOW", RuleAction.Allow)]
+    public async Task AddRule_AcceptsTheActionNameTheCliSends(string action, RuleAction expected)
+    {
+        var (_, rules, router) = CreateRouter("secret");
+        // The body `onl rules add --process curl --download 256 --action <name>` posts.
+        var body = $$"""{"processName":"curl","downloadBytesPerSecond":262144,"action":"{{action}}","name":"curl limit"}""";
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", "/api/v1/rules", string.Empty, body, IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(201, response.StatusCode);
+        var rule = Assert.Single(rules.GetAllRules());
+        Assert.Equal(expected, rule.Action);
+        Assert.Equal(262144, rule.DownloadBytesPerSecond);
+    }
+
+    [Fact]
+    public async Task AddRule_UnknownActionName_SaysWhichNamesWork()
+    {
+        var (_, rules, router) = CreateRouter("secret");
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "POST", "/api/v1/rules", string.Empty, """{"processName":"curl","action":"Throttle"}""",
+            IsLoopback: true, ApiKey: "secret"));
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("Limit, Block, Allow", response.Body);
+        Assert.Empty(rules.GetAllRules());
+    }
+
+    [Fact]
+    public async Task Rules_StillListActionsAsNumbers()
+    {
+        var (_, rules, router) = CreateRouter("secret");
+        rules.AddRule(new BandwidthRule { ProcessName = "curl", Action = RuleAction.Block });
+
+        var response = await router.HandleAsync(new RestApiRequest(
+            "GET", "/api/v1/rules", string.Empty, string.Empty, IsLoopback: true, ApiKey: null));
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"action\":1", response.Body);
+    }
+
     [Fact]
     public async Task PutRule_UsesPathId()
     {

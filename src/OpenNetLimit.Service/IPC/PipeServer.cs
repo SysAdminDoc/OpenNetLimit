@@ -4,6 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using OpenNetLimit.Core;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
@@ -29,7 +30,8 @@ public class PipeServer
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new EnumNameOrNumberConverter() }
     };
 
     public PipeServer(

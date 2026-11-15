@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using OpenNetLimit.Core;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
 using OpenNetLimit.Core.Models;
@@ -26,7 +27,8 @@ public sealed class RestApiRouter
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        WriteIndented = false,
+        Converters = { new EnumNameOrNumberConverter() }
     };
 
     public RestApiRouter(
