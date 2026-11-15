@@ -2,6 +2,7 @@ using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.Engine.Rules;
 using Xunit;
@@ -176,6 +177,7 @@ public class RuleReconcilerTests
     private sealed class RecordingLimiter : IRateLimiter
     {
         public Dictionary<uint, (long Download, long Upload)> Limits { get; } = new();
+        public HashSet<uint> Blocked { get; } = new();
         public bool TryConsume(uint processId, int byteCount, bool isUpload) => true;
         public TimeSpan GetDelay(uint processId, int byteCount, bool isUpload) => TimeSpan.Zero;
         public bool TryReserve(uint processId, int byteCount, bool isUpload, TimeSpan maxDelay, out TimeSpan delay)
@@ -189,18 +191,36 @@ public class RuleReconcilerTests
             (downloadBytesPerSecond, uploadBytesPerSecond) = limit;
             return limited;
         }
-        public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond) =>
+        public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond)
+        {
+            Blocked.Remove(processId);
             Limits[processId] = (downloadBytesPerSecond, uploadBytesPerSecond);
-        public void RemoveLimit(uint processId) => Limits.Remove(processId);
-        public void RemoveAll() => Limits.Clear();
-        public bool HasLimit(uint processId) => Limits.ContainsKey(processId);
+        }
+        public void Block(uint processId)
+        {
+            Limits.Remove(processId);
+            Blocked.Add(processId);
+        }
+        public bool IsBlocked(uint processId) => Blocked.Contains(processId);
+        public void RemoveLimit(uint processId)
+        {
+            Limits.Remove(processId);
+            Blocked.Remove(processId);
+        }
+        public void RemoveAll()
+        {
+            Limits.Clear();
+            Blocked.Clear();
+        }
+        public bool HasLimit(uint processId) => Limits.ContainsKey(processId) || Blocked.Contains(processId);
     }
 
     /// <summary>The engine's wiring: reconcile whenever the rules change.</summary>
-    private static RuleReconciler Wire(RuleEngine rules, IRateLimiter limiter, FlowTracker flows)
+    private static RuleReconciler Wire(RuleEngine rules, IRateLimiter limiter, FlowTracker flows,
+        QuotaTracker? quotas = null)
     {
-        var reconciler = new RuleReconciler(rules, limiter, flows);
-        rules.OnRulesChanged += reconciler.Reconcile;
+        var reconciler = new RuleReconciler(rules, limiter, flows, quotas);
+        rules.OnRulesChanged += reconciler.ReconcileAfterRuleChange;
         return reconciler;
     }
 
@@ -339,6 +359,368 @@ public class RuleReconcilerTests
         flows.RegisterFlow(MakeFlowKey(101), 500, "curl", null);
 
         Assert.Equal((1_000L, 1_000L), limiter.Limits[500]);
+    }
+
+    private const string SteamFolder = @"C:\Games\Steam\";
+
+    [Fact]
+    public void UsedUpBlockQuota_StopsTrafficForEveryMatchingProcess()
+    {
+        // The old handler set a 0/0 limit, which means no limit, and matched only processes
+        // named exactly like the rule, so steamwebhelper under a folder rule was never touched.
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "steam",
+            ProcessPath = SteamFolder + "*",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        });
+        flows.RegisterFlow(MakeFlowKey(100), 1, "steam", SteamFolder + "steam.exe");
+        flows.RegisterFlow(MakeFlowKey(101), 2, "steamwebhelper", SteamFolder + "steamwebhelper.exe");
+        flows.RegisterFlow(MakeFlowKey(102), 3, "firefox", @"C:\Program Files\Mozilla Firefox\firefox.exe");
+        monitor.RecordBytes(1, "steam", 600, false, SteamFolder + "steam.exe");
+        monitor.RecordBytes(2, "steamwebhelper", 600, true, SteamFolder + "steamwebhelper.exe");
+
+        quotas.Update();
+        Assert.True(reconciler.ReconcileIfChanged());
+        flows.RegisterFlow(MakeFlowKey(103), 4, "steam", SteamFolder + "steam.exe");
+
+        foreach (uint pid in new uint[] { 1, 2, 4 })
+        {
+            Assert.True(limiter.IsBlocked(pid), $"pid {pid}");
+            Assert.False(limiter.TryReserve(pid, 100, isUpload: false, TimeSpan.FromSeconds(2), out _));
+        }
+        Assert.False(limiter.HasLimit(3));
+    }
+
+    [Fact]
+    public void UsedUpQuota_PointedAtAnotherApp_DoesNotBlockTheNewApp()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(100), 1, "chrome", null);
+        flows.RegisterFlow(MakeFlowKey(101), 2, "msedge", null);
+        monitor.RecordBytes(1, "chrome", 1_500, false);
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+        Assert.True(limiter.IsBlocked(1));
+
+        rule.ProcessName = "msedge";
+        rules.UpdateRule(rule);
+
+        Assert.False(limiter.IsBlocked(2));
+        Assert.False(limiter.IsBlocked(1));
+    }
+
+    [Fact]
+    public void RaisingAUsedUpQuota_UnblocksTheAppWithTheEdit()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(100), 1, "chrome", null);
+        monitor.RecordBytes(1, "chrome", 1_500, false);
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+        Assert.True(limiter.IsBlocked(1));
+
+        rule.Quota!.LimitBytes = 10_000;
+        rules.UpdateRule(rule);
+
+        Assert.False(limiter.IsBlocked(1));
+    }
+
+    [Fact]
+    public void TwoQuotasOnOneAppName_BlockOnlyTheFolderThatUsedItsQuota()
+    {
+        const string folderA = @"C:\A\";
+        const string folderB = @"C:\B\";
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            ProcessPath = folderA + "*",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        });
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "chrome",
+            ProcessPath = folderB + "*",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 5_000, OnExceeded = QuotaAction.Block }
+        });
+        flows.RegisterFlow(MakeFlowKey(100), 1, "chrome", folderA + "chrome.exe");
+        flows.RegisterFlow(MakeFlowKey(101), 2, "chrome", folderB + "chrome.exe");
+        monitor.RecordBytes(1, "chrome", 2_000, false, folderA + "chrome.exe");
+        monitor.RecordBytes(2, "chrome", 2_000, false, folderB + "chrome.exe");
+        int exceeded = 0;
+        quotas.OnQuotaExceeded += (_, _) => exceeded++;
+
+        for (int i = 0; i < 4; i++)
+        {
+            quotas.Update();
+            reconciler.ReconcileIfChanged();
+        }
+
+        Assert.Equal(1, exceeded);
+        Assert.True(limiter.IsBlocked(1));
+        Assert.False(limiter.IsBlocked(2));
+    }
+
+    [Fact]
+    public void UsedUpQuotaOnAFolderRuleWithoutAName_BlocksTheFolder()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessPath = SteamFolder + "*",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        });
+        flows.RegisterFlow(MakeFlowKey(100), 1, "steam", SteamFolder + "steam.exe");
+        monitor.RecordBytes(1, "steam", 5_000, false, SteamFolder + "steam.exe");
+
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+
+        Assert.True(limiter.IsBlocked(1));
+    }
+
+    [Fact]
+    public void UsedUpBlockQuota_IsLiftedWhenItsPeriodResets()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "curl",
+            DownloadBytesPerSecond = 262_144,
+            Quota = new QuotaConfig { LimitBytes = 1_000, Period = QuotaPeriod.Daily, OnExceeded = QuotaAction.Block }
+        });
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        monitor.RecordBytes(500, "curl", 2_000, false);
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+        Assert.True(limiter.IsBlocked(500));
+
+        quotas.ResetPeriod(QuotaPeriod.Daily);
+
+        Assert.True(reconciler.ReconcileIfChanged());
+        Assert.False(limiter.IsBlocked(500));
+        Assert.Equal((262_144L, 0L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void UsedUpThrottleQuota_SurvivesAnEditToAnotherRule()
+    {
+        // The quota handler used to set the throttle itself, and the next reconcile, run by
+        // any rule edit, put the rule's own limit back.
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "curl",
+            DownloadBytesPerSecond = 262_144,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Throttle, ThrottleBytesPerSecond = 10_240 }
+        });
+        var other = new BandwidthRule { ProcessName = "git", DownloadBytesPerSecond = 50_000 };
+        rules.AddRule(other);
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        monitor.RecordBytes(500, "curl", 2_000, false);
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+        Assert.Equal((10_240L, 10_240L), limiter.Limits[500]);
+
+        other.DownloadBytesPerSecond = 40_000;
+        rules.UpdateRule(other);
+
+        Assert.Equal((10_240L, 10_240L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void QuotaThrottle_NeverLoosensATighterRuleLimit()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "curl",
+            DownloadBytesPerSecond = 4_096,
+            Direction = RuleDirection.Download,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Throttle, ThrottleBytesPerSecond = 10_240 }
+        });
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        monitor.RecordBytes(500, "curl", 2_000, false);
+
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+
+        Assert.Equal((4_096L, 10_240L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void WarnOnlyQuota_LeavesTheLimitAlone()
+    {
+        var rules = new RuleEngine();
+        var monitor = new TrafficMonitor();
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        rules.AddRule(new BandwidthRule
+        {
+            ProcessName = "curl",
+            DownloadBytesPerSecond = 262_144,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.WarnOnly }
+        });
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        monitor.RecordBytes(500, "curl", 2_000, false);
+
+        quotas.Update();
+
+        Assert.False(reconciler.ReconcileIfChanged());
+        Assert.Equal((262_144L, 0L), limiter.Limits[500]);
+    }
+
+    [Fact]
+    public void ScheduledRule_FollowsItsWindowWithoutAnEdit()
+    {
+        // Moving the window stands in for the clock: no rule event fires either way, which is
+        // what happens when a schedule opens or closes on its own.
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "curl",
+            DownloadBytesPerSecond = 262_144,
+            ActiveFrom = DateTime.UtcNow.AddHours(1)
+        };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+        Assert.Empty(limiter.Limits);
+        Assert.False(reconciler.ReconcileIfChanged());
+
+        rule.ActiveFrom = DateTime.UtcNow.AddMinutes(-1);
+        Assert.True(reconciler.ReconcileIfChanged());
+        Assert.Equal((262_144L, 0L), limiter.Limits[500]);
+        Assert.False(reconciler.ReconcileIfChanged());
+
+        rule.ActiveUntil = DateTime.UtcNow.AddSeconds(-1);
+        Assert.True(reconciler.ReconcileIfChanged());
+        Assert.Empty(limiter.Limits);
+    }
+
+    /// <summary>Traffic stats that fail to list apps while <see cref="Failing"/> is set.</summary>
+    private sealed class FailingTrafficMonitor : ITrafficMonitor
+    {
+        private readonly TrafficMonitor _stats = new();
+        public bool Failing { get; set; } = true;
+        public void RecordBytes(uint processId, string processName, int byteCount, bool isUpload, string? processPath = null) =>
+            _stats.RecordBytes(processId, processName, byteCount, isUpload, processPath);
+        public ProcessTrafficInfo? GetProcessInfo(uint processId) => _stats.GetProcessInfo(processId);
+        public IReadOnlyList<ProcessTrafficInfo> GetAllProcesses() =>
+            Failing ? throw new InvalidOperationException("stats unavailable") : _stats.GetAllProcesses();
+        public TrafficSnapshot TakeSnapshot() => new();
+        public TrafficSnapshot TakeUsage() => new();
+        public event Action<TrafficSnapshot>? OnSnapshot { add { } remove { } }
+    }
+
+    [Fact]
+    public void UsedUpQuota_PointedAtAnotherAppWhileItsUpdateFails_DoesNotBlockTheNewApp()
+    {
+        var rules = new RuleEngine();
+        var monitor = new FailingTrafficMonitor { Failing = false };
+        var quotas = new QuotaTracker(rules, monitor);
+        var limiter = new ProcessRateLimiter();
+        var flows = new FlowTracker();
+        var reconciler = Wire(rules, limiter, flows, quotas);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Action = RuleAction.Allow,
+            Quota = new QuotaConfig { LimitBytes = 1_000, OnExceeded = QuotaAction.Block }
+        };
+        rules.AddRule(rule);
+        flows.RegisterFlow(MakeFlowKey(100), 1, "chrome", null);
+        flows.RegisterFlow(MakeFlowKey(101), 2, "msedge", null);
+        monitor.RecordBytes(1, "chrome", 1_500, false);
+        quotas.Update();
+        reconciler.ReconcileIfChanged();
+        Assert.True(limiter.IsBlocked(1));
+
+        monitor.Failing = true;
+        rule.ProcessName = "msedge";
+        Assert.Throws<InvalidOperationException>(() => rules.UpdateRule(rule));
+
+        Assert.False(limiter.IsBlocked(2));
+        Assert.False(limiter.IsBlocked(1));
+    }
+
+    [Fact]
+    public void QuotaUpdateThatFails_StillAppliesTheEditedRule()
+    {
+        var rules = new RuleEngine();
+        var limiter = new RecordingLimiter();
+        var flows = new FlowTracker();
+        Wire(rules, limiter, flows, new QuotaTracker(rules, new FailingTrafficMonitor()));
+        flows.RegisterFlow(MakeFlowKey(), 500, "curl", null);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            rules.AddRule(new BandwidthRule { ProcessName = "curl", DownloadBytesPerSecond = 262_144 }));
+
+        Assert.Equal((262_144L, 0L), limiter.Limits[500]);
     }
 }
 

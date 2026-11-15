@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using OpenNetLimit.Core.Interfaces;
@@ -24,6 +25,10 @@ public class RuleEngine : IRuleEngine
         ValidateRule(rule);
         lock (_lock)
         {
+            // Edits, removal and quotas find a rule by id. A rule copied from an export keeps
+            // its id, so a new rule whose id is taken gets its own.
+            if (rule.Id == Guid.Empty || _rules.Any(r => r.Id == rule.Id))
+                rule.Id = Guid.NewGuid();
             _rules.Add(rule);
             _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         }
@@ -145,6 +150,7 @@ public class RuleEngine : IRuleEngine
         }
 
         if (rules is null) return;
+        GiveEachItsOwnId(rules);
 
         lock (_lock)
         {
@@ -197,12 +203,22 @@ public class RuleEngine : IRuleEngine
         // Validate each imported rule to prevent invalid entries from polluting the rule list
         foreach (var rule in rules)
             ValidateRule(rule);
+        GiveEachItsOwnId(rules);
 
         lock (_lock)
         {
             if (replace)
                 _rules.Clear();
-            _rules.AddRange(rules);
+            // An imported rule that is already here replaces it, so importing the same file
+            // twice doesn't leave two copies sharing one id.
+            foreach (var rule in rules)
+            {
+                var index = _rules.FindIndex(r => r.Id == rule.Id);
+                if (index >= 0)
+                    _rules[index] = rule;
+                else
+                    _rules.Add(rule);
+            }
             _rules.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         }
         OnRulesChanged?.Invoke();
@@ -212,6 +228,42 @@ public class RuleEngine : IRuleEngine
     {
         if (string.IsNullOrWhiteSpace(rule.ProcessName) && string.IsNullOrWhiteSpace(rule.ProcessPath))
             throw new ArgumentException("Rule must specify at least ProcessName or ProcessPath.");
+    }
+
+    /// <summary>
+    /// Gives a rule a new id when it has none or an earlier rule in <paramref name="rules"/> has
+    /// it. Two rules sharing an id can't be edited or removed apart, and their quotas collide.
+    /// Both rules are kept, since a hand-edited file may reuse one id for different rules.
+    /// The new id comes from the old one and how many times it was seen, so loading or importing
+    /// the same file again gives the same ids, and an import replaces those rules instead of
+    /// adding them again.
+    /// </summary>
+    private static void GiveEachItsOwnId(List<BandwidthRule> rules)
+    {
+        var seen = new HashSet<Guid>();
+        var timesSeen = new Dictionary<Guid, int>();
+        foreach (var rule in rules)
+        {
+            if (rule.Id != Guid.Empty && seen.Add(rule.Id))
+                continue;
+            var original = rule.Id;
+            int count = timesSeen.GetValueOrDefault(original);
+            Guid id;
+            do
+            {
+                id = DerivedId(original, ++count);
+            } while (!seen.Add(id));
+            timesSeen[original] = count;
+            rule.Id = id;
+        }
+    }
+
+    private static Guid DerivedId(Guid original, int occurrence)
+    {
+        Span<byte> input = stackalloc byte[20];
+        original.TryWriteBytes(input);
+        BitConverter.TryWriteBytes(input[16..], occurrence);
+        return new Guid(SHA256.HashData(input)[..16]);
     }
 
     private sealed class RuleFileEnvelope

@@ -18,6 +18,7 @@ public sealed class EngineWorkerTests : IDisposable
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
     private readonly string _dataDir = Path.Combine(Path.GetTempPath(), $"onl-engine-{Guid.NewGuid():N}");
     private readonly RuleEngine _rules = new();
+    private readonly TrafficMonitor _monitor = new();
     private readonly ControlPlaneState _controlPlane = new();
     private readonly TaskCompletionSource _pipeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -124,6 +125,27 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task QuotaAddedBeforeTheFirstQuotaCheck_CountsFromWhenItWasAdded()
+    {
+        using var worker = CreateWorker(new FakeInterceptor(), isAdmin: true);
+        await worker.StartAsync(CancellationToken.None);
+        _monitor.RecordBytes(1, "chrome", 5000, false);
+        var rule = new BandwidthRule
+        {
+            ProcessName = "chrome",
+            Quota = new QuotaConfig { LimitBytes = 1000, OnExceeded = QuotaAction.Block }
+        };
+
+        _rules.AddRule(rule);
+        var state = _controlPlane.QuotaTracker!.GetQuotaState(rule.Id);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(state);
+        Assert.Equal(0, state.UsedBytes);
+        Assert.False(state.IsExceeded);
+    }
+
+    [Fact]
     public void StartFailure_MissingDll_SaysWhatIsMissing()
     {
         var message = EngineWorker.DescribeStartFailure(new DllNotFoundException("Unable to load DLL 'WinDivert.dll'"));
@@ -139,20 +161,31 @@ public sealed class EngineWorkerTests : IDisposable
         Assert.Equal("boom", message);
     }
 
+    [Theory]
+    [InlineData("2026-11-15T09:59:59.900", 350)]
+    [InlineData("2026-11-15T10:00:00.000", 60_250)]
+    [InlineData("2026-11-15T23:59:30.000", 30_250)]
+    public void ScheduleTick_LandsJustAfterTheNextMinuteStarts(string now, int expectedMs)
+    {
+        // Schedules open and close on the minute, so that's when the rules get rechecked.
+        var wait = EngineWorker.UntilNextMinute(DateTime.Parse(now, System.Globalization.CultureInfo.InvariantCulture));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMs), wait);
+    }
+
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, bool isAdmin) =>
         CreateWorker(interceptor, () => isAdmin);
 
     private EngineWorker CreateWorker(IPacketInterceptor interceptor, Func<bool> isAdmin)
     {
-        var monitor = new TrafficMonitor();
         return new EngineWorker(
             interceptor,
             _rules,
             new ProcessRateLimiter(),
             new FlowTracker(),
-            monitor,
+            _monitor,
             RunPipe,
-            new BandwidthAlertTracker(monitor),
+            new BandwidthAlertTracker(_monitor),
             new PluginManager(new PluginOptions { Enabled = false, PluginDirectory = Path.Combine(_dataDir, "plugins") },
                 NullLogger<PluginManager>.Instance),
             _controlPlane,

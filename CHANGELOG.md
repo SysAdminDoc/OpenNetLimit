@@ -30,6 +30,16 @@
 - Packet engine errors show up in the service log and the Windows event log. They used to go where only a debugger could see them
 - Stopping the service takes a fraction of a second instead of up to 10 seconds, so uninstalling, updating and shutting down Windows don't wait on it
 - When the service isn't installed, the app points you to the setup first and to `Install-Service.ps1` only for the ZIP
+- A quota set to block now blocks. It used to set a limit of zero, which the engine reads as no limit at all, so the app kept going at full speed. The block covers every app the rule matches, rules by path included, and lifts when the quota period resets
+- A quota that throttles stays in force until its period resets. Saving any rule used to put the app back on its normal limit
+- Scheduled rules switch on and off within a minute of their start and end times. Before, a rule only followed its schedule after some rule was edited
+- Raising the limit of a used-up quota gives the app its traffic back right away. After any change to a quota's limit, the warning comes again when the app nears the new one
+- Pointing a quota rule at a different app starts that app's quota from zero. It used to inherit the old app's usage, so the new app could be blocked at once
+- A quota you add while the service is running counts from the moment you save it. An app that had already downloaded a lot was blocked as soon as the rule went in
+- Two quota rules on the same app name (say, Chrome in two folders) each keep their own limit. Quotas on rules that only name a folder are counted too
+- Traffic that a Block rule or a used-up quota drops no longer counts as the app's usage, so a blocked app shows 0 B/s and its quota stops filling
+- Importing the same rules file twice no longer leaves two copies of every rule. A rule that arrives with an id already in use gets its own, so each one can be edited or deleted separately
+- Quota alerts sent to plugins report the usage they fired at. A quota period reset right after could make a plugin see 0 bytes used
 
 ### Changed
 - OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK

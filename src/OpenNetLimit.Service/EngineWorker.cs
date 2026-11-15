@@ -34,6 +34,7 @@ public class EngineWorker : BackgroundService
     private Timer? _quotaTimer;
     private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
+    private Timer? _scheduleTimer;
     private long _lastQuotaResetCheckTicks = DateTime.Now.Date.Ticks;
     private volatile string? _engineError;
     private volatile bool _engineStarted;
@@ -164,17 +165,17 @@ public class EngineWorker : BackgroundService
 
     private void LoadState(CancellationToken stoppingToken)
     {
-        _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker);
+        _quotaTracker = new QuotaTracker(_ruleEngine, _trafficMonitor);
+        _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker, _quotaTracker);
         if (_ruleEngine is RuleEngine concreteEngine)
         {
             concreteEngine.OnRulesChanged += () =>
             {
-                try { _reconciler.Reconcile(); }
+                try { _reconciler.ReconcileAfterRuleChange(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Rule reconciliation failed"); }
             };
         }
 
-        _quotaTracker = new QuotaTracker(_ruleEngine, _trafficMonitor);
         _quotaTracker.OnQuotaWarning += (name, state) =>
         {
             _logger.LogWarning("Quota warning for {Process}: {Percent}% used ({Used}/{Limit} bytes)",
@@ -186,37 +187,8 @@ public class EngineWorker : BackgroundService
             _logger.LogWarning("Quota exceeded for {Process}: {Used}/{Limit} bytes — action: {Action}",
                 name, state.UsedBytes, state.LimitBytes, state.Action);
             DispatchPluginEvent("quota.exceeded", state, stoppingToken);
-
-            // Enforce the configured quota action
-            switch (state.Action)
-            {
-                case OpenNetLimit.Core.Models.QuotaAction.Throttle:
-                    var rule = _ruleEngine.GetAllRules()
-                        .FirstOrDefault(r => r.ProcessName?.Equals(name, StringComparison.OrdinalIgnoreCase) == true && r.Quota is not null);
-                    if (rule?.Quota is not null)
-                    {
-                        var throttleRate = rule.Quota.ThrottleBytesPerSecond;
-                        foreach (var proc in _trafficMonitor.GetAllProcesses()
-                            .Where(p => rule.MatchesProcess(p.ProcessName, p.ProcessPath)))
-                        {
-                            _rateLimiter.SetLimit(proc.ProcessId, throttleRate, throttleRate);
-                        }
-                        _logger.LogInformation("Quota throttle applied for {Process}: {Rate} B/s", name, throttleRate);
-                    }
-                    break;
-
-                case OpenNetLimit.Core.Models.QuotaAction.Block:
-                    foreach (var proc in _trafficMonitor.GetAllProcesses()
-                        .Where(p => p.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        _rateLimiter.SetLimit(proc.ProcessId, 0, 0);
-                    }
-                    _logger.LogInformation("Quota block applied for {Process}: traffic dropped", name);
-                    break;
-
-                case OpenNetLimit.Core.Models.QuotaAction.WarnOnly:
-                    break;
-            }
+            // The reconciler enforces the Block or Throttle action right after this Update, for
+            // every matching process and until the period resets (UpdateQuotas).
         };
         _alertTracker.OnAlert += alert =>
         {
@@ -225,6 +197,9 @@ public class EngineWorker : BackgroundService
         };
 
         LoadRules();
+        // The first quota update sets where the saved quotas start counting. Done here, a quota
+        // added before the 30 s timer's first tick counts from when it was added, like any later one.
+        _quotaTracker.Update();
         LoadAlerts();
         LoadPlugins();
         _reconciler.Reconcile();
@@ -283,7 +258,8 @@ public class EngineWorker : BackgroundService
         }
 
         _flowPurgeTimer = new Timer(_ => PurgeStaleFlows(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
-        _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _quotaTimer = new Timer(_ => UpdateQuotas(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _scheduleTimer = new Timer(_ => OnScheduleTick(), null, UntilNextMinute(DateTime.Now), Timeout.InfiniteTimeSpan);
         _quotaResetTimer = new Timer(_ => CheckQuotaResets(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
@@ -449,6 +425,56 @@ public class EngineWorker : BackgroundService
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Reads quota usage, then enforces a quota that just ran out (or lifts one whose limit was
+    /// raised) without waiting for a rule edit.
+    /// </summary>
+    private void UpdateQuotas()
+    {
+        try
+        {
+            _quotaTracker?.Update();
+            _reconciler?.ReconcileIfChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Quota update failed");
+        }
+    }
+
+    /// <summary>
+    /// Runs just after each minute starts, which is when schedule windows open and close, so a
+    /// scheduled rule switches on or off on time instead of at the next rule edit.
+    /// </summary>
+    private void OnScheduleTick()
+    {
+        try
+        {
+            if (_reconciler?.ReconcileIfChanged() == true)
+                _logger.LogInformation("Rules reapplied: a schedule or quota changed which rules are in force");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Scheduled rule reconciliation failed");
+        }
+
+        try
+        {
+            _scheduleTimer?.Change(UntilNextMinute(DateTime.Now), Timeout.InfiniteTimeSpan);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The engine is stopping.
+        }
+    }
+
+    /// <summary>How long until a quarter second past the start of the next minute.</summary>
+    internal static TimeSpan UntilNextMinute(DateTime now)
+    {
+        var thisMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, now.Kind);
+        return thisMinute.AddMinutes(1) - now + TimeSpan.FromMilliseconds(250);
+    }
+
     private void CheckQuotaResets()
     {
         try
@@ -515,6 +541,7 @@ public class EngineWorker : BackgroundService
     {
         _stopping = true;
         _quotaTimer?.Dispose();
+        _scheduleTimer?.Dispose();
         _quotaResetTimer?.Dispose();
         _alertTimer?.Dispose();
         _statsTimer?.Dispose();

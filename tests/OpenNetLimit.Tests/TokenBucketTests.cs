@@ -197,6 +197,65 @@ public class ProcessRateLimiterTests
     }
 
     [Fact]
+    public void SettingTheSameRateAgain_KeepsTheDebtQueuedPacketsWaitBehind()
+    {
+        // The reconciler re-applies limits on a timer. A fresh bucket would start full and
+        // let the next burst through at full speed.
+        var limiter = new ProcessRateLimiter();
+        limiter.SetLimit(1, 1000, 0);
+        limiter.TryReserve(1, 65536, isUpload: false, Plenty, out _);
+
+        limiter.SetLimit(1, 1000, 0);
+
+        limiter.TryReserve(1, 1000, isUpload: false, Plenty, out var delay);
+        Assert.True(delay > TimeSpan.FromSeconds(0.5), $"delay {delay}");
+    }
+
+    [Fact]
+    public void SettingANewRate_StartsFreshBuckets()
+    {
+        var limiter = new ProcessRateLimiter();
+        limiter.SetLimit(1, 1000, 0);
+        limiter.TryReserve(1, 65536, isUpload: false, Plenty, out _);
+
+        limiter.SetLimit(1, 2000, 0);
+
+        limiter.TryReserve(1, 1000, isUpload: false, Plenty, out var delay);
+        Assert.Equal(TimeSpan.Zero, delay);
+        Assert.True(limiter.TryGetLimit(1, out long download, out _));
+        Assert.Equal(2000, download);
+    }
+
+    [Fact]
+    public void BlockedProcess_GetsNoTrafficThrough_UntilALimitReplacesTheBlock()
+    {
+        // Before Block existed a used-up quota called SetLimit(pid, 0, 0), which means no limit.
+        var limiter = new ProcessRateLimiter();
+        limiter.Block(1);
+
+        Assert.True(limiter.IsBlocked(1));
+        Assert.True(limiter.HasLimit(1));
+        Assert.False(limiter.TryReserve(1, 100, isUpload: false, Plenty, out _));
+        Assert.False(limiter.TryReserve(1, 100, isUpload: true, Plenty, out _));
+        Assert.False(limiter.TryConsume(1, 100, isUpload: false));
+        Assert.False(limiter.IsBlocked(2));
+
+        limiter.SetLimit(1, 1000, 0);
+        Assert.False(limiter.IsBlocked(1));
+        Assert.True(limiter.TryReserve(1, 100, isUpload: false, Plenty, out _));
+
+        limiter.Block(1);
+        limiter.RemoveLimit(1);
+        Assert.False(limiter.IsBlocked(1));
+        Assert.False(limiter.HasLimit(1));
+
+        // A block has no buckets, so it must not pass for an unlimited rate.
+        limiter.Block(1);
+        limiter.SetLimit(1, 0, 0);
+        Assert.False(limiter.IsBlocked(1));
+    }
+
+    [Fact]
     public void TryGetLimit_ReportsTheRatesInForce()
     {
         var limiter = new ProcessRateLimiter();

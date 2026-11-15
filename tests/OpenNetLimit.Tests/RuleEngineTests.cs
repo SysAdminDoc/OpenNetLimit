@@ -228,6 +228,110 @@ public class RuleEngineTests
     }
 
     [Fact]
+    public void AddRule_WithAnIdAlreadyInUse_GetsItsOwnId()
+    {
+        var engine = new RuleEngine();
+        var first = new BandwidthRule { ProcessName = "chrome" };
+        engine.AddRule(first);
+        var copy = new BandwidthRule { Id = first.Id, ProcessName = "firefox" };
+
+        engine.AddRule(copy);
+
+        Assert.NotEqual(first.Id, copy.Id);
+        engine.RemoveRule(copy.Id);
+        Assert.Equal("chrome", Assert.Single(engine.GetAllRules()).ProcessName);
+    }
+
+    [Fact]
+    public void ImportRules_SameRulesTwice_KeepsOneCopyOfEach()
+    {
+        var engine = new RuleEngine();
+        engine.AddRule(new BandwidthRule { ProcessName = "chrome", DownloadBytesPerSecond = 1000 });
+        var exported = engine.ExportRules();
+        var rule = engine.GetAllRules()[0];
+        rule.DownloadBytesPerSecond = 5000;
+        engine.UpdateRule(rule);
+
+        engine.ImportRules(exported, replace: false);
+        engine.ImportRules(exported, replace: false);
+
+        var kept = Assert.Single(engine.GetAllRules());
+        Assert.Equal(rule.Id, kept.Id);
+        Assert.Equal(1000, kept.DownloadBytesPerSecond);
+    }
+
+    [Fact]
+    public void ImportRules_TwoRulesSharingAnId_KeepsBothWithTheirOwnIds()
+    {
+        var engine = new RuleEngine();
+        var id = Guid.NewGuid();
+
+        engine.ImportRules($$"""[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"}]""");
+
+        var rules = engine.GetAllRules();
+        Assert.Equal(2, rules.Count);
+        Assert.NotEqual(rules[0].Id, rules[1].Id);
+    }
+
+    [Fact]
+    public void ImportRules_FileWithTwoRulesSharingAnId_ImportedTwice_KeepsTwoRules()
+    {
+        var engine = new RuleEngine();
+        var id = Guid.NewGuid();
+        var json = $$"""[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"}]""";
+
+        engine.ImportRules(json);
+        engine.ImportRules(json);
+
+        Assert.Equal(["chrome", "firefox"], engine.GetAllRules().Select(r => r.ProcessName).Order());
+    }
+
+    [Fact]
+    public void LoadRules_TwoRulesSharingAnId_GetTheSameIdsEveryTime()
+    {
+        var id = Guid.NewGuid();
+        var path = Path.Combine(Path.GetTempPath(), $"onl-rules-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, $$"""{"version":1,"rules":[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"}]}""");
+        try
+        {
+            var first = new RuleEngine();
+            first.LoadRules(path);
+            var second = new RuleEngine();
+            second.LoadRules(path);
+
+            Guid FirefoxId(RuleEngine engine) => engine.GetAllRules().Single(r => r.ProcessName == "firefox").Id;
+            Assert.NotEqual(id, FirefoxId(first));
+            Assert.Equal(FirefoxId(first), FirefoxId(second));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LoadRules_TwoRulesSharingAnId_CanBeEditedApart()
+    {
+        var id = Guid.NewGuid();
+        var path = Path.Combine(Path.GetTempPath(), $"onl-rules-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, $$"""{"version":1,"rules":[{"id":"{{id}}","processName":"chrome"},{"id":"{{id}}","processName":"firefox"}]}""");
+        try
+        {
+            var engine = new RuleEngine();
+            engine.LoadRules(path);
+
+            var chrome = engine.GetAllRules().Single(r => r.ProcessName == "chrome");
+            Assert.Equal(id, chrome.Id);
+            engine.RemoveRule(chrome.Id);
+            Assert.Equal("firefox", Assert.Single(engine.GetAllRules()).ProcessName);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void FindMatchingRule_WithRemotePort_FiltersCorrectly()
     {
         var engine = new RuleEngine();

@@ -11,6 +11,8 @@ public class ProcessRateLimiter : IRateLimiter
     {
         if (!_buckets.TryGetValue(processId, out var buckets))
             return true;
+        if (buckets.Blocked)
+            return false;
 
         var bucket = isUpload ? buckets.Upload : buckets.Download;
         return bucket?.TryConsume(byteCount) ?? true;
@@ -30,6 +32,8 @@ public class ProcessRateLimiter : IRateLimiter
         delay = TimeSpan.Zero;
         if (!_buckets.TryGetValue(processId, out var buckets))
             return true;
+        if (buckets.Blocked)
+            return false;
 
         var bucket = isUpload ? buckets.Upload : buckets.Download;
         return bucket?.TryReserve(byteCount, maxDelay, out delay) ?? true;
@@ -48,11 +52,23 @@ public class ProcessRateLimiter : IRateLimiter
 
     public void SetLimit(uint processId, long downloadBytesPerSecond, long uploadBytesPerSecond)
     {
-        var buckets = new ProcessBuckets(
-            downloadBytesPerSecond > 0 ? new TokenBucket(downloadBytesPerSecond) : null,
-            uploadBytesPerSecond > 0 ? new TokenBucket(uploadBytesPerSecond) : null);
+        long download = Math.Max(downloadBytesPerSecond, 0);
+        long upload = Math.Max(uploadBytesPerSecond, 0);
+        // Setting the rate a process already has keeps its buckets. A new bucket starts full and
+        // forgets the debt queued packets wait behind, so each reconcile would let a burst out.
+        _buckets.AddOrUpdate(processId,
+            _ => ProcessBuckets.For(download, upload),
+            (_, current) => current.Has(download, upload) ? current : ProcessBuckets.For(download, upload));
+    }
 
-        _buckets.AddOrUpdate(processId, buckets, (_, _) => buckets);
+    public void Block(uint processId)
+    {
+        _buckets[processId] = ProcessBuckets.BlockAll;
+    }
+
+    public bool IsBlocked(uint processId)
+    {
+        return _buckets.TryGetValue(processId, out var buckets) && buckets.Blocked;
     }
 
     public void RemoveLimit(uint processId)
@@ -70,5 +86,17 @@ public class ProcessRateLimiter : IRateLimiter
         return _buckets.ContainsKey(processId);
     }
 
-    private sealed record ProcessBuckets(TokenBucket? Download, TokenBucket? Upload);
+    private sealed record ProcessBuckets(TokenBucket? Download, TokenBucket? Upload, bool Blocked = false)
+    {
+        public static readonly ProcessBuckets BlockAll = new(null, null, Blocked: true);
+
+        public static ProcessBuckets For(long download, long upload) => new(
+            download > 0 ? new TokenBucket(download) : null,
+            upload > 0 ? new TokenBucket(upload) : null);
+
+        public bool Has(long download, long upload) =>
+            !Blocked
+            && (Download?.RefillBytesPerSecond ?? 0) == download
+            && (Upload?.RefillBytesPerSecond ?? 0) == upload;
+    }
 }

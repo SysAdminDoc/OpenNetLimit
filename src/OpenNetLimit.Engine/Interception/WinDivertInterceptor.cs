@@ -307,6 +307,35 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 var connection = _flowTracker.LookupConnection(flowKey);
                 string processName = connection?.ProcessName ?? "unknown";
 
+                var endpoints = PacketEndpoints.From(flowKey, isOutbound);
+                var remoteAddr = endpoints.RemoteAddress;
+                var remotePort = endpoints.RemotePort;
+                var protocolStr = flowKey.Protocol.ToString();
+                var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
+                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
+                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain);
+                bool isProtected = ProtectedProcesses.Contains(processName);
+                // A Block rule and a used-up quota that blocks both drop the packet here.
+                bool blockedByRule = matchingRule?.Action == RuleAction.Block;
+                if (!isProtected && (blockedByRule || _rateLimiter.IsBlocked(processId.Value)))
+                {
+                    Interlocked.Increment(ref _totalBlocked);
+                    // Dropped bytes never reached the app, so they don't count as its traffic or
+                    // fill its quota. Recording zero still lists the app.
+                    _trafficMonitor.RecordBytes(processId.Value, processName, 0, isOutbound, connection?.ProcessPath);
+                    _connectionLog.Log(new ConnectionLogEntry
+                    {
+                        ProcessId = processId.Value,
+                        ProcessName = processName,
+                        Action = "Blocked",
+                        Protocol = flowKey.Protocol.ToString(),
+                        LocalEndpoint = $"{endpoints.LocalAddress}:{endpoints.LocalPort}",
+                        RemoteEndpoint = $"{endpoints.RemoteAddress}:{endpoints.RemotePort}",
+                        RuleName = blockedByRule ? matchingRule!.Name : "Quota used up"
+                    });
+                    continue;
+                }
+
                 if (connection is not null)
                 {
                     if (isOutbound)
@@ -317,30 +346,7 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                var endpoints = PacketEndpoints.From(flowKey, isOutbound);
-                var remoteAddr = endpoints.RemoteAddress;
-                var remotePort = endpoints.RemotePort;
-                var protocolStr = flowKey.Protocol.ToString();
-                var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
-                var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
-                    remoteAddr, remotePort, protocolStr, resolvedDomain: resolvedDomain);
-                if (matchingRule?.Action == RuleAction.Block && !ProtectedProcesses.Contains(processName))
-                {
-                    Interlocked.Increment(ref _totalBlocked);
-                    _connectionLog.Log(new ConnectionLogEntry
-                    {
-                        ProcessId = processId.Value,
-                        ProcessName = processName,
-                        Action = "Blocked",
-                        Protocol = flowKey.Protocol.ToString(),
-                        LocalEndpoint = $"{endpoints.LocalAddress}:{endpoints.LocalPort}",
-                        RemoteEndpoint = $"{endpoints.RemoteAddress}:{endpoints.RemotePort}",
-                        RuleName = matchingRule.Name
-                    });
-                    continue;
-                }
-
-                if (_rateLimiter.HasLimit(processId.Value) && !ProtectedProcesses.Contains(processName))
+                if (_rateLimiter.HasLimit(processId.Value) && !isProtected)
                 {
                     // Every packet is charged, the delayed ones too, so a burst queues behind its
                     // own debt and leaves at the limit. A packet with nowhere to wait is dropped.
