@@ -22,4 +22,8 @@
     <ProjectReference Include="..\OpenNetLimit.Engine\OpenNetLimit.Engine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="OpenNetLimit.Tests" />
+  </ItemGroup>
+
 </Project>

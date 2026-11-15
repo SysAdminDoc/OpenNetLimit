@@ -2,6 +2,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.IPC;
+using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.IPC;
@@ -17,7 +18,8 @@ public class EngineWorker : BackgroundService
     private readonly IRateLimiter _rateLimiter;
     private readonly IFlowTracker _flowTracker;
     private readonly ITrafficMonitor _trafficMonitor;
-    private readonly PipeServer _pipeServer;
+    private readonly Func<CancellationToken, Task> _runControlPipe;
+    private readonly Func<bool> _isAdmin;
     private readonly BandwidthAlertTracker _alertTracker;
     private readonly PluginManager _pluginManager;
     private readonly ControlPlaneState _controlPlane;
@@ -33,15 +35,20 @@ public class EngineWorker : BackgroundService
     private Timer? _quotaResetTimer;
     private Timer? _alertTimer;
     private long _lastQuotaResetCheckTicks = DateTime.Now.Date.Ticks;
+    private volatile string? _engineError;
+    private volatile bool _engineStarted;
+    private volatile bool _stopping;
+    private bool _stateLoaded;
 
-    private static readonly string DataDir = Path.Combine(
+    private static readonly string DefaultDataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "OpenNetLimit");
 
-    private static readonly string RulesPath = Path.Combine(DataDir, "rules.json");
-    private static readonly string AlertsPath = Path.Combine(DataDir, "alerts.json");
-    private static readonly string StatsDbPath = Path.Combine(DataDir, "traffic.db");
-    private static readonly string LastErrorPath = Path.Combine(DataDir, "last-error.txt");
+    private readonly string _dataDir;
+    private readonly string _rulesPath;
+    private readonly string _alertsPath;
+    private readonly string _statsDbPath;
+    private readonly string _lastErrorPath;
 
     public EngineWorker(
         IPacketInterceptor interceptor,
@@ -54,17 +61,41 @@ public class EngineWorker : BackgroundService
         PluginManager pluginManager,
         ControlPlaneState controlPlane,
         ILogger<EngineWorker> logger)
+        : this(interceptor, ruleEngine, rateLimiter, flowTracker, trafficMonitor, pipeServer.StartAsync,
+            alertTracker, pluginManager, controlPlane, logger, DefaultDataDir, IsRunningAsAdmin)
+    {
+    }
+
+    internal EngineWorker(
+        IPacketInterceptor interceptor,
+        IRuleEngine ruleEngine,
+        IRateLimiter rateLimiter,
+        IFlowTracker flowTracker,
+        ITrafficMonitor trafficMonitor,
+        Func<CancellationToken, Task> runControlPipe,
+        BandwidthAlertTracker alertTracker,
+        PluginManager pluginManager,
+        ControlPlaneState controlPlane,
+        ILogger<EngineWorker> logger,
+        string dataDir,
+        Func<bool> isAdmin)
     {
         _interceptor = interceptor;
         _ruleEngine = ruleEngine;
         _rateLimiter = rateLimiter;
         _flowTracker = flowTracker;
         _trafficMonitor = trafficMonitor;
-        _pipeServer = pipeServer;
+        _runControlPipe = runControlPipe;
         _alertTracker = alertTracker;
         _pluginManager = pluginManager;
         _controlPlane = controlPlane;
         _logger = logger;
+        _isAdmin = isAdmin;
+        _dataDir = dataDir;
+        _rulesPath = Path.Combine(dataDir, "rules.json");
+        _alertsPath = Path.Combine(dataDir, "alerts.json");
+        _statsDbPath = Path.Combine(dataDir, "traffic.db");
+        _lastErrorPath = Path.Combine(dataDir, "last-error.txt");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,15 +103,41 @@ public class EngineWorker : BackgroundService
         _logger.LogInformation("OpenNetLimit engine starting");
         _controlPlane.DiagnosticProvider = GetDiagnosticInfo;
 
-        if (!ValidatePrerequisites())
+        if (ValidatePrerequisites())
         {
-            _logger.LogCritical("Prerequisite validation failed — engine will not start");
-            return;
+            ClearLastError();
+            EnsureDataDirectory();
+            LoadState(stoppingToken);
+
+            if (await TryStartInterceptorAsync(stoppingToken))
+                StartBackgroundWork();
+        }
+        else
+        {
+            _logger.LogCritical("Prerequisite validation failed; the packet engine will not start");
         }
 
-        ClearLastError();
-        EnsureDataDirectory();
+        // The control pipe stays up even when the engine can't start. Without it the app
+        // could only report "Service not running" and never the reason.
+        _controlPlane.QuotaTracker = _quotaTracker;
+        _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
+        _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
+        _logger.LogInformation("IPC pipe server started");
 
+        try
+        {
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("OpenNetLimit engine stopping");
+        }
+
+        await ShutdownGracefully();
+    }
+
+    private void LoadState(CancellationToken stoppingToken)
+    {
         _reconciler = new RuleReconciler(_ruleEngine, _rateLimiter, _flowTracker);
         if (_ruleEngine is RuleEngine concreteEngine)
         {
@@ -145,17 +202,24 @@ public class EngineWorker : BackgroundService
         LoadAlerts();
         LoadPlugins();
         _reconciler.Reconcile();
+        _stateLoaded = true;
+    }
 
+    private async Task<bool> TryStartInterceptorAsync(CancellationToken stoppingToken)
+    {
         try
         {
             await _interceptor.StartAsync(stoppingToken);
+            _engineStarted = true;
             _logger.LogInformation("Packet interceptor started");
             CheckWinDivertDriverSignature();
+            return true;
         }
         catch (Exception ex)
         {
-            var hint = "Failed to start packet interceptor.\n" +
-                       "Possible causes:\n" +
+            _engineError = DescribeStartFailure(ex);
+            var hint = $"Failed to start packet interceptor: {_engineError}\n" +
+                       "Other things to check:\n" +
                        "  - WinDivert driver not found or inaccessible\n" +
                        "  - HVCI (Memory Integrity) is enabled and blocking the driver\n" +
                        "  - Antivirus/EDR is blocking WinDivert64.sys\n" +
@@ -164,57 +228,49 @@ public class EngineWorker : BackgroundService
                        "See: https://github.com/basil00/WinDivert/issues/397\n" +
                        $"Error: {ex.Message}";
             RecordLastError(hint);
-            _logger.LogCritical(ex, "Failed to start packet interceptor — check {ErrorFile} for troubleshooting steps", LastErrorPath);
-            return;
+            _logger.LogCritical(ex, "Failed to start packet interceptor; check {ErrorFile} for troubleshooting steps", _lastErrorPath);
+            return false;
         }
+    }
 
+    /// <summary>One line the app can show when the packet engine can't start.</summary>
+    internal static string DescribeStartFailure(Exception ex) => ex switch
+    {
+        WinDivertOpenException open => $"{open.Reason} (Windows error {open.NativeErrorCode})",
+        DllNotFoundException => "WinDivert.dll is missing next to the service. Reinstall OpenNetLimit.",
+        _ => ex.Message
+    };
+
+    private void StartBackgroundWork()
+    {
         try
         {
-            _statsDb = new TrafficStatsDb(StatsDbPath);
+            _statsDb = new TrafficStatsDb(_statsDbPath);
             _statsTimer = new Timer(_ => RecordStats(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
             _purgeTimer = new Timer(_ => _statsDb.PurgeOlderThan(90), null, TimeSpan.FromHours(1), TimeSpan.FromHours(24));
             _controlPlane.StatsProvider = _statsDb;
-            _logger.LogInformation("Traffic statistics database initialized at {Path}", StatsDbPath);
+            _logger.LogInformation("Traffic statistics database initialized at {Path}", _statsDbPath);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to initialize stats database — statistics will be unavailable");
+            _logger.LogWarning(ex, "Failed to initialize stats database; statistics will be unavailable");
         }
 
         _flowPurgeTimer = new Timer(_ => PurgeStaleFlows(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         _quotaTimer = new Timer(_ => _quotaTracker?.Update(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         _quotaResetTimer = new Timer(_ => CheckQuotaResets(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         _alertTimer = new Timer(_ => _alertTracker.Update(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
-
-        _controlPlane.QuotaTracker = _quotaTracker;
-        _controlPlane.ConnectionLogProvider = () => _interceptor.GetRecentConnectionLog(100);
-        _ = Task.Run(() => RunPipeServer(stoppingToken), stoppingToken);
-        _logger.LogInformation("IPC pipe server started");
-
-        try
-        {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("OpenNetLimit engine stopping");
-        }
-
-        await ShutdownGracefully();
     }
 
     private bool ValidatePrerequisites()
     {
-        bool valid = true;
+        if (_isAdmin())
+            return true;
 
-        if (!IsRunningAsAdmin())
-        {
-            _logger.LogError("OpenNetLimit requires administrator privileges to load the WinDivert driver");
-            RecordLastError("Service not running as administrator");
-            valid = false;
-        }
-
-        return valid;
+        _engineError = WinDivertOpenException.DescribeError(5);
+        _logger.LogError("OpenNetLimit requires administrator privileges to load the WinDivert driver");
+        RecordLastError("Service not running as administrator");
+        return false;
     }
 
     private void CheckWinDivertDriverSignature()
@@ -276,11 +332,11 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            Directory.CreateDirectory(DataDir);
+            Directory.CreateDirectory(_dataDir);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not create data directory {DataDir}", DataDir);
+            _logger.LogWarning(ex, "Could not create data directory {DataDir}", _dataDir);
         }
     }
 
@@ -288,13 +344,13 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            _ruleEngine.LoadRules(RulesPath);
+            _ruleEngine.LoadRules(_rulesPath);
             _logger.LogInformation("Loaded {Count} rules from {Path}",
-                _ruleEngine.GetAllRules().Count, RulesPath);
+                _ruleEngine.GetAllRules().Count, _rulesPath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load rules from {Path} — starting with empty rule set", RulesPath);
+            _logger.LogError(ex, "Failed to load rules from {Path}; starting with empty rule set", _rulesPath);
             RecordLastError($"Failed to load rules: {ex.Message}");
         }
     }
@@ -303,12 +359,12 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            _ruleEngine.SaveRules(RulesPath);
-            _logger.LogInformation("Saved rules to {Path}", RulesPath);
+            _ruleEngine.SaveRules(_rulesPath);
+            _logger.LogInformation("Saved rules to {Path}", _rulesPath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save rules to {Path}", RulesPath);
+            _logger.LogError(ex, "Failed to save rules to {Path}", _rulesPath);
         }
     }
 
@@ -316,13 +372,13 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            _alertTracker.LoadRules(AlertsPath);
+            _alertTracker.LoadRules(_alertsPath);
             _logger.LogInformation("Loaded {Count} alert rules from {Path}",
-                _alertTracker.GetRules().Count, AlertsPath);
+                _alertTracker.GetRules().Count, _alertsPath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load alert rules from {Path} — starting with empty alert set", AlertsPath);
+            _logger.LogError(ex, "Failed to load alert rules from {Path}; starting with empty alert set", _alertsPath);
             RecordLastError($"Failed to load alert rules: {ex.Message}");
         }
     }
@@ -331,12 +387,12 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            _alertTracker.SaveRules(AlertsPath);
-            _logger.LogInformation("Saved alert rules to {Path}", AlertsPath);
+            _alertTracker.SaveRules(_alertsPath);
+            _logger.LogInformation("Saved alert rules to {Path}", _alertsPath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save alert rules to {Path}", AlertsPath);
+            _logger.LogError(ex, "Failed to save alert rules to {Path}", _alertsPath);
         }
     }
 
@@ -427,6 +483,7 @@ public class EngineWorker : BackgroundService
 
     private async Task ShutdownGracefully()
     {
+        _stopping = true;
         _quotaTimer?.Dispose();
         _quotaResetTimer?.Dispose();
         _alertTimer?.Dispose();
@@ -443,8 +500,13 @@ public class EngineWorker : BackgroundService
             _logger.LogError(ex, "Error stopping packet interceptor during shutdown");
         }
 
-        SaveRules();
-        SaveAlerts();
+        // Without a loaded state there is nothing to save, and saving the empty rule set
+        // would overwrite the user's rules.json.
+        if (_stateLoaded)
+        {
+            SaveRules();
+            SaveAlerts();
+        }
         _statsDb?.Dispose();
         _logger.LogInformation("OpenNetLimit engine stopped");
     }
@@ -456,7 +518,7 @@ public class EngineWorker : BackgroundService
         {
             try
             {
-                await _pipeServer.StartAsync(ct);
+                await _runControlPipe(ct);
                 break;
             }
             catch (OperationCanceledException)
@@ -476,11 +538,17 @@ public class EngineWorker : BackgroundService
         }
     }
 
-    private DiagnosticInfo GetDiagnosticInfo()
+    internal DiagnosticInfo GetDiagnosticInfo()
     {
+        var running = _interceptor.IsRunning;
+        var engineError = _engineError;
+        if (engineError is null && _engineStarted && !running && !_stopping)
+            engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
+
         return new DiagnosticInfo
         {
-            Running = _interceptor.IsRunning,
+            Running = running,
+            EngineError = engineError,
             ActiveFlows = _flowTracker.GetActiveConnections().Count,
             ActiveRules = _ruleEngine.GetAllRules().Count,
             StartedAt = _startedAt,
@@ -496,7 +564,7 @@ public class EngineWorker : BackgroundService
         try
         {
             EnsureDataDirectory();
-            File.WriteAllText(LastErrorPath, $"{DateTime.UtcNow:O} {message}");
+            File.WriteAllText(_lastErrorPath, $"{DateTime.UtcNow:O} {message}");
         }
         catch
         {
@@ -508,8 +576,8 @@ public class EngineWorker : BackgroundService
     {
         try
         {
-            if (File.Exists(LastErrorPath))
-                File.Delete(LastErrorPath);
+            if (File.Exists(_lastErrorPath))
+                File.Delete(_lastErrorPath);
         }
         catch
         {
