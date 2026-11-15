@@ -23,6 +23,7 @@
 - The control pipe stays up when the service isn't elevated or the engine fails to start, so the app and CLI can still report the problem
 - DNS answers are cached from responses again, which gives domain rules something to match
 - Fast downloads no longer stall, and short bursts of traffic no longer lose packets while the engine catches up. The driver's packet queue was left at its small default, and the driver dropped whatever didn't fit without reporting it
+- Packet engine errors show up in the service log and the Windows event log. They used to go where only a debugger could see them
 
 ## 1.0.2 (2026-09-12)
 

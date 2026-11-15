@@ -57,4 +57,6 @@ builder.Services.AddWindowsService(options =>
 });
 
 var host = builder.Build();
+System.Diagnostics.Trace.Listeners.Add(new LoggerTraceListener(
+    host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("OpenNetLimit.Engine")));
 host.Run();
