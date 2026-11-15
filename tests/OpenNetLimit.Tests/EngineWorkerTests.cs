@@ -787,6 +787,77 @@ public sealed class EngineWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Resume_AfterTheProgramHoldingTheDriverCloses_SaysLoadingNotItsName()
+    {
+        _driver.Then(DriverServiceState.Running, DriverServiceState.StopPending);
+        _programsUsingWinDivert = ["wireguard.exe"];
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        var paused = await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        // The user closes wireguard, as the balloon said, and resumes before a poll sees it.
+        _driver.Then(DriverServiceState.Stopped);
+        _programsUsingWinDivert = [];
+        DiagnosticInfo? duringStart = null;
+        interceptor.WhenStarting = () => duringStart ??= _controlPlane.GetDiagnostics();
+
+        var resumed = await _controlPlane.ResumeHandler!(CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains("wireguard.exe", paused.DriverLoadedReason);
+        Assert.NotNull(duringStart);
+        Assert.Equal(EngineWorker.LoadingReason, duringStart.DriverLoadedReason);
+        Assert.True(resumed.Running);
+    }
+
+    [Fact]
+    public async Task StatusRead_ThatAResumeFinishesUnder_BlamesNoOtherProgram()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        // Our own start loads the driver, and no other program has it.
+        interceptor.WhenStarting = () => _driver.Then(DriverServiceState.Running);
+        worker.WhenRecheckingDriver = () =>
+            Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+
+        var racing = _controlPlane.GetDiagnostics();
+        _driver.Then(DriverServiceState.StopPending, DriverServiceState.Stopped);
+        DiagnosticInfo? duringNextPause = null;
+        _duringUnloadWait = () => duringNextPause ??= _controlPlane.GetDiagnostics();
+        await _controlPlane.PauseHandler!(false, CancellationToken.None);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Null(racing.DriverLoadedReason);
+        Assert.NotNull(duringNextPause);
+        Assert.Equal(EngineWorker.UnloadingReason, duringNextPause.DriverLoadedReason);
+    }
+
+    [Fact]
+    public async Task StatusRead_ThatAWholePauseAndResumeOvertake_SaysRunning()
+    {
+        var interceptor = new FakeInterceptor();
+        using var worker = CreateWorker(interceptor, isAdmin: true);
+        await StartAndWaitForBootAsync(worker);
+        // The read sees the engine stopped by a pause, then the pause and a resume both finish
+        // before it looks at the pause flag.
+        interceptor.WhenRunningRead = () =>
+        {
+            Task.Run(() => _controlPlane.PauseHandler!(false, CancellationToken.None)).GetAwaiter().GetResult();
+            interceptor.AfterRunningRead = () =>
+                Task.Run(() => _controlPlane.ResumeHandler!(CancellationToken.None)).GetAwaiter().GetResult();
+        };
+
+        var status = _controlPlane.GetDiagnostics();
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.True(status.Running);
+        Assert.False(status.Paused);
+        Assert.Null(status.EngineError);
+    }
+
+    [Fact]
     public async Task FailedResume_LeavesAnotherProgramsDriverLoaded()
     {
         var interceptor = new FakeInterceptor();
@@ -943,6 +1014,9 @@ public sealed class EngineWorkerTests : IDisposable
         /// <summary>Runs once, on the next read of IsRunning, before it answers.</summary>
         public Action? WhenRunningRead { get; set; }
 
+        /// <summary>Runs once, on the next read of IsRunning, after it has its answer.</summary>
+        public Action? AfterRunningRead { get; set; }
+
         private bool _isRunning;
 
         public bool IsRunning
@@ -952,7 +1026,11 @@ public sealed class EngineWorkerTests : IDisposable
                 var hook = WhenRunningRead;
                 WhenRunningRead = null;
                 hook?.Invoke();
-                return _isRunning;
+                var answer = _isRunning;
+                var after = AfterRunningRead;
+                AfterRunningRead = null;
+                after?.Invoke();
+                return answer;
             }
             set => _isRunning = value;
         }

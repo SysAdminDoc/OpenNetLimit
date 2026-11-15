@@ -389,13 +389,14 @@ public class EngineWorker : BackgroundService
     /// stops a read that was already rechecking from writing back what it saw before the change.
     /// Call it holding the engine gate.
     /// </summary>
-    private void MarkDriverChanging(string placeholder = UnloadingReason)
+    private void MarkDriverChanging(string placeholder = UnloadingReason, bool nothingHoldsIt = false)
     {
         lock (_driverReasonLock)
         {
-            // A program known to hold the driver stays named. A placeholder gives way to the step
-            // now running, so a failed resume's unload doesn't still say it's loading.
-            if (_driverLoadedReason is null or UnloadingReason or LoadingReason)
+            // A program known to hold the driver stays named, unless the caller just saw the
+            // driver unloaded. A placeholder gives way to the step now running, so a failed
+            // resume's unload doesn't still say it's loading.
+            if (nothingHoldsIt || _driverLoadedReason is null or UnloadingReason or LoadingReason)
                 _driverLoadedReason = placeholder;
             _driverReasonVersion++;
             // Under the lock, so a recheck that saw no change in progress also sees the new version.
@@ -483,7 +484,9 @@ public class EngineWorker : BackgroundService
                 _engineError = null;
                 _resumeRefusal = null;
             }
-            MarkDriverChanging(LoadingReason);
+            // The program the reason names may have closed since the last poll. An unloaded
+            // driver says nothing holds it, so the name goes.
+            MarkDriverChanging(LoadingReason, nothingHoldsIt: driverWasUnloaded);
             Interlocked.Increment(ref _engineChangeVersion);
             try
             {
@@ -1041,6 +1044,14 @@ public class EngineWorker : BackgroundService
         // engine starts, so either one finishing between the two reads above can pair "not
         // paused" with "not running". Only a read no pause or resume overlapped can call that a crash.
         bool settled = (changeVersion & 1) == 0 && changeVersion == Volatile.Read(ref _engineChangeVersion);
+        if (!settled && !running && !paused)
+        {
+            // A whole pause and resume can pass between the reads above. Read what they left.
+            running = _interceptor.IsRunning;
+            paused = !running && _paused;
+            if (paused)
+                driverLoadedReason = _driverLoadedReason;
+        }
         if (engineError is null && settled && _engineStarted && !running && !_stopping && !paused)
             engineError = "The packet engine stopped after repeated errors. Restart the OpenNetLimit service.";
 
@@ -1081,8 +1092,10 @@ public class EngineWorker : BackgroundService
         lock (_driverReasonLock)
         {
             // A pause or resume that began after the caller looked owns the reason until it's done.
-            // Rechecking now would see the driver half changed and could wipe "loading".
-            if (_changingDriver)
+            // Rechecking now would see the driver half changed and could wipe "loading". One that
+            // already finished a resume leaves the driver ours, and the recheck would blame a
+            // stranger for it.
+            if (_changingDriver || !_paused)
                 return _driverLoadedReason;
             known = _driverLoadedReason;
             version = _driverReasonVersion;

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using OpenNetLimit.Core.IPC;
 
@@ -29,7 +30,8 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
 
     /// <summary>
     /// Cuts text to at most <paramref name="maxLength"/> characters, ending in an ellipsis when it
-    /// cut. It ends on a whole word when one ends in the second half, and never splits an emoji.
+    /// cut. It ends on a whole word when one ends in the second half, and never splits a
+    /// character, emoji made of several (flags, families, skin tones) included.
     /// </summary>
     public static string Fit(string text, int maxLength)
     {
@@ -37,13 +39,20 @@ public sealed record TrayNotice(string TitleKey, string? Body = null, string? Bo
             return text;
         if (maxLength <= 1)
             return maxLength == 1 ? "…" : string.Empty;
-        var cut = maxLength - 1;
-        if (char.IsHighSurrogate(text[cut - 1]))
-            cut--;
-        // text[cut] exists, since the text is longer than maxLength. A space there means the
-        // word before it is whole already.
+        var room = maxLength - 1;
+        var cut = 0;
+        var characters = StringInfo.GetTextElementEnumerator(text);
+        while (characters.MoveNext())
+        {
+            var end = characters.ElementIndex + characters.GetTextElement().Length;
+            if (end > room)
+                break;
+            cut = end;
+        }
+        // text[cut] exists, since cut <= room < text.Length. A space there means the word before
+        // it is whole already.
         var space = text.LastIndexOf(' ', cut);
-        if (space > cut / 2)
+        if (space * 2 >= cut && space > 0)
             cut = space;
         return text[..cut].TrimEnd() + "…";
     }

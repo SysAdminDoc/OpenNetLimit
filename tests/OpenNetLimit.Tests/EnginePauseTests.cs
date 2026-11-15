@@ -216,6 +216,8 @@ public sealed class EnginePauseTests
     [InlineData("one two three", 10, "one two…")]
     [InlineData("abcdefghij", 5, "abcd…")]
     [InlineData("a bcdefghijkl", 8, "a bcdef…")]
+    [InlineData("ab cdefg", 5, "ab…")]
+    [InlineData("ab cdefghi", 6, "ab cd…")]
     [InlineData("abcdefghij", 1, "…")]
     [InlineData("abcdefghij", 0, "")]
     [InlineData("abcdefghij", -1, "")]
@@ -235,6 +237,20 @@ public sealed class EnginePauseTests
         var fitted = TrayNotice.Fit("abc" + smile + "defgh", 5);
 
         Assert.Equal("abc…", fitted);
+    }
+
+    [Fact]
+    public void Fit_NeverSplitsAFlagOrAFamily()
+    {
+        string Letters(params int[] codes) => string.Concat(codes.Select(char.ConvertFromUtf32));
+        var usFlag = Letters(0x1F1FA, 0x1F1F8);
+        var frenchFlag = Letters(0x1F1EB, 0x1F1F7);
+        var family = Letters(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467);
+
+        // Each has room for part of the second one (half a flag, the first person of a family),
+        // which would draw as something else.
+        Assert.Equal(usFlag + "…", TrayNotice.Fit(usFlag + frenchFlag, 7));
+        Assert.Equal(family + "…", TrayNotice.Fit(family + family, 12));
     }
 }
 
