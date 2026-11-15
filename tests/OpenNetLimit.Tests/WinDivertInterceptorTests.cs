@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using OpenNetLimit.Core.Models;
 using OpenNetLimit.Engine.Interception;
+using OpenNetLimit.Engine.Monitoring;
 using SharpDivert;
 using Xunit;
 
@@ -128,6 +129,60 @@ public class WinDivertInterceptorTests
         Assert.Contains("Sniff", ex.Message);
         Assert.Contains("87", ex.Message);
         Assert.Equal(87, ex.NativeErrorCode);
+    }
+
+    [Fact]
+    public void InboundDnsResponse_IsCached()
+    {
+        var cache = new DnsDomainCache();
+        var answer = IPAddress.Parse("93.184.216.34");
+        var packet = Ipv4Udp(IPAddress.Parse("1.1.1.1"), 53, IPAddress.Parse("192.168.1.27"), 51000,
+            DnsDomainTests.BuildDnsResponse("example.com", answer));
+        var parsed = WinDivertInterceptor.ParsePacket(packet)!.Value;
+
+        Assert.True(WinDivertInterceptor.TryCacheDnsResponse(cache, parsed.flowKey, isOutbound: false, parsed.payloadData.Span));
+        Assert.Equal("example.com", cache.LookupDomain(answer));
+    }
+
+    [Fact]
+    public void OutboundDnsQuery_IsNotParsedAsAResponse()
+    {
+        var cache = new DnsDomainCache();
+        var packet = Ipv4Udp(IPAddress.Parse("192.168.1.27"), 51000, IPAddress.Parse("1.1.1.1"), 53,
+            DnsDomainTests.BuildDnsResponse("example.com", IPAddress.Parse("93.184.216.34")));
+        var parsed = WinDivertInterceptor.ParsePacket(packet)!.Value;
+
+        Assert.False(WinDivertInterceptor.TryCacheDnsResponse(cache, parsed.flowKey, isOutbound: true, parsed.payloadData.Span));
+        Assert.Equal(0, cache.Count);
+    }
+
+    [Fact]
+    public void InboundUdpFromOtherPorts_IsNotParsedAsDns()
+    {
+        var cache = new DnsDomainCache();
+        var packet = Ipv4Udp(IPAddress.Parse("1.1.1.1"), 5353, IPAddress.Parse("192.168.1.27"), 53,
+            DnsDomainTests.BuildDnsResponse("example.com", IPAddress.Parse("93.184.216.34")));
+        var parsed = WinDivertInterceptor.ParsePacket(packet)!.Value;
+
+        Assert.False(WinDivertInterceptor.TryCacheDnsResponse(cache, parsed.flowKey, isOutbound: false, parsed.payloadData.Span));
+    }
+
+    [Fact]
+    public void PacketEndpoints_PutTheRemoteSideFirstForInboundPackets()
+    {
+        var local = IPAddress.Parse("192.168.1.27");
+        var remote = IPAddress.Parse("104.20.23.154");
+        var inbound = WinDivertInterceptor.ParsePacket(Ipv4Tcp(remote, 443, local, 50123, 10))!.Value.flowKey;
+        var outbound = WinDivertInterceptor.ParsePacket(Ipv4Tcp(local, 50123, remote, 443, 10))!.Value.flowKey;
+
+        var fromInbound = WinDivertInterceptor.PacketEndpoints.From(inbound, isOutbound: false);
+        var fromOutbound = WinDivertInterceptor.PacketEndpoints.From(outbound, isOutbound: true);
+
+        Assert.Equal(fromOutbound, fromInbound);
+        Assert.Equal(remote, fromInbound.RemoteAddress);
+        Assert.Equal(443, fromInbound.RemotePort);
+        Assert.Equal(local, fromInbound.LocalAddress);
+        Assert.Equal(50123, fromInbound.LocalPort);
     }
 
     internal static byte[] Ipv4Tcp(IPAddress src, ushort srcPort, IPAddress dst, ushort dstPort, int payload) =>

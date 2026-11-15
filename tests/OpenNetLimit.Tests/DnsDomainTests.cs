@@ -192,7 +192,7 @@ public class DnsDomainTests
         return ms.ToArray();
     }
 
-    private static byte[] BuildDnsResponse(string domain, IPAddress ip)
+    internal static byte[] BuildDnsResponse(string domain, IPAddress ip)
     {
         var ms = new System.IO.MemoryStream();
         var writer = new System.IO.BinaryWriter(ms);

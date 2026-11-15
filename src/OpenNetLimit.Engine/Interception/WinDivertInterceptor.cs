@@ -233,8 +233,12 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                     continue;
                 }
 
-                var (flowKey, payloadLength, _) = parsed.Value;
+                var (flowKey, payloadLength, payloadData) = parsed.Value;
                 bool isOutbound = addr.Outbound;
+
+                // Responses are cached before attribution: lookups usually come back to the
+                // DNS Client service, not the app, and domain rules need them either way.
+                TryCacheDnsResponse(_dnsCache, flowKey, isOutbound, payloadData.Span);
 
                 var processId = _flowTracker.LookupProcessId(flowKey);
                 if (processId is null)
@@ -256,23 +260,9 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
 
                 _trafficMonitor.RecordBytes(processId.Value, processName, payloadLength, isOutbound, connection?.ProcessPath);
 
-                // Detect DNS responses (UDP from port 53) and cache domain→IP mappings
-                if (!isOutbound && flowKey.Protocol == TransportProtocol.Udp && flowKey.RemotePort == 53 && payloadLength > 12)
-                {
-                    try
-                    {
-                        var dnsRecords = DnsResponseParser.ParseResponse(parsed.Value.payloadData.Span);
-                        foreach (var record in dnsRecords)
-                            _dnsCache.RecordMapping(record.Address, record.Domain, record.Ttl);
-                    }
-                    catch
-                    {
-                        // Best-effort DNS parsing — don't disrupt packet flow
-                    }
-                }
-
-                var remoteAddr = isOutbound ? flowKey.RemoteAddress : flowKey.LocalAddress;
-                var remotePort = isOutbound ? (int)flowKey.RemotePort : (int)flowKey.LocalPort;
+                var endpoints = PacketEndpoints.From(flowKey, isOutbound);
+                var remoteAddr = endpoints.RemoteAddress;
+                var remotePort = endpoints.RemotePort;
                 var protocolStr = flowKey.Protocol.ToString();
                 var resolvedDomain = _dnsCache.LookupDomain(remoteAddr);
                 var matchingRule = _ruleEngine.FindMatchingRule(processName, connection?.ProcessPath,
@@ -286,8 +276,8 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                         ProcessName = processName,
                         Action = "Blocked",
                         Protocol = flowKey.Protocol.ToString(),
-                        LocalEndpoint = $"{flowKey.LocalAddress}:{flowKey.LocalPort}",
-                        RemoteEndpoint = $"{flowKey.RemoteAddress}:{flowKey.RemotePort}",
+                        LocalEndpoint = $"{endpoints.LocalAddress}:{endpoints.LocalPort}",
+                        RemoteEndpoint = $"{endpoints.RemoteAddress}:{endpoints.RemotePort}",
                         RuleName = matchingRule.Name
                     });
                     continue;
@@ -323,6 +313,43 @@ public sealed class WinDivertInterceptor : IPacketInterceptor
                 }
                 Thread.Sleep(Math.Min(consecutiveErrors * 100, 1000));
             }
+        }
+    }
+
+    /// <summary>
+    /// A packet key is (source, destination). Outbound packets leave from the local end and
+    /// inbound packets arrive from the remote end, so the sides swap with direction.
+    /// </summary>
+    internal readonly record struct PacketEndpoints(IPAddress LocalAddress, int LocalPort, IPAddress RemoteAddress, int RemotePort)
+    {
+        public static PacketEndpoints From(in FlowKey packetKey, bool isOutbound) => isOutbound
+            ? new(packetKey.LocalAddress, packetKey.LocalPort, packetKey.RemoteAddress, packetKey.RemotePort)
+            : new(packetKey.RemoteAddress, packetKey.RemotePort, packetKey.LocalAddress, packetKey.LocalPort);
+    }
+
+    /// <summary>
+    /// Caches the domain to address answers of an inbound DNS response (UDP from port 53).
+    /// Returns true when the packet was a DNS response that yielded at least one record.
+    /// </summary>
+    internal static bool TryCacheDnsResponse(DnsDomainCache cache, in FlowKey packetKey, bool isOutbound, ReadOnlySpan<byte> payload)
+    {
+        if (isOutbound || packetKey.Protocol != TransportProtocol.Udp || payload.Length <= 12)
+            return false;
+        if (PacketEndpoints.From(packetKey, isOutbound).RemotePort != 53)
+            return false;
+
+        try
+        {
+            var records = DnsResponseParser.ParseResponse(payload);
+            foreach (var record in records)
+                cache.RecordMapping(record.Address, record.Domain, record.Ttl);
+            return records.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            // A malformed response must never disrupt packet flow.
+            Trace.TraceWarning($"DNS response parse failed: {ex.Message}");
+            return false;
         }
     }
 
