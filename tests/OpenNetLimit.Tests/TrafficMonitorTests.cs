@@ -134,7 +134,6 @@ public class TrafficMonitorTests
         monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
         monitor.SampleRates();
 
-        _now += TimeSpan.FromSeconds(1);
         svchost.HasExited = true;
         monitor.SampleRates();
 
@@ -184,7 +183,6 @@ public class TrafficMonitorTests
         monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
         monitor.SampleRates();
 
-        _now += TimeSpan.FromSeconds(1);
         svchost.HasExited = true;
         monitor.SampleRates();
 
@@ -293,6 +291,25 @@ public class TrafficMonitorTests
 
         Assert.Null(flows.LookupConnection(Flow(1)));
         Assert.Equal("chrome", flows.LookupConnection(Flow(2))?.ProcessName);
+    }
+
+    [Fact]
+    public void AHeldProcessThatExitsAfterTheClockWentBack_StillTakesItsFlowsWithIt()
+    {
+        var flows = new FlowTracker(() => _now);
+        flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
+        var svchost = new FakeProcess();
+        _running[200] = svchost;
+        using var monitor = Held(flows: flows);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+
+        _now -= TimeSpan.FromHours(1);
+        svchost.HasExited = true;
+        monitor.SampleRates();
+
+        Assert.True(svchost.LetGo);
+        Assert.Null(flows.LookupConnection(Flow(1)));
     }
 
     [Fact]

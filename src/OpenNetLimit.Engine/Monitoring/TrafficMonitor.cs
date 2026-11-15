@@ -276,11 +276,17 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     /// <summary>Drops an exited process's flows, then lets go of it.</summary>
     private void LetGo(uint processId, IHeldProcess? process)
     {
-        // While it's held the ID can't be reused, so whatever was named for it until now was
-        // named for the process that exited. When it wasn't, flows named since the ID was free may
-        // be the next process's, and stay. With no hold at all, nothing is known about who has the
-        // ID now: its flows go, and no cutoff stays behind to turn a later one away.
-        _flows?.ForgetProcess(processId, process is null ? null : process.IdFreeSince ?? _utcNow());
+        // While it's held the ID can't be reused, so every flow named for it was named for the
+        // process that exited, and so is a name read before now that comes in late. When it
+        // wasn't held all along, flows named since the ID was free may be the next process's, and
+        // stay. With no hold at all, nothing is known about who has the ID now: its flows go, and
+        // nothing stays behind to turn a later one away.
+        if (process is null)
+            _flows?.ForgetProcess(processId);
+        else if (process.IdFreeSince is { } freeSince)
+            _flows?.ForgetProcess(processId, freeSince);
+        else
+            _flows?.ForgetHeldProcess(processId);
         process?.Dispose();
     }
 

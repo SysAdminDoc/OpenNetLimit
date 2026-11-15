@@ -145,7 +145,7 @@ internal sealed class SocketOwners
     /// name that far ahead would outlast every forget until the clock caught up, so it's named now.
     /// </summary>
     private static DateTime NoLaterThan(DateTime named, DateTime now) =>
-        named - now > HeldProcess.MostAheadOfTheClock ? now : named;
+        named - now > HeldProcess.ClockSlack ? now : named;
 
     /// <summary>
     /// Drops the sockets of a process that exited. The last read can be 30 seconds old, and a

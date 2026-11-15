@@ -42,11 +42,12 @@ internal sealed class HeldProcess : IHeldProcess
     internal static readonly TimeSpan StartStampLag = TimeSpan.FromMilliseconds(16);
 
     /// <summary>
-    /// How far past the clock a name's time or an ID's cutoff can be and still be taken as it is.
-    /// A process's start is read up to <see cref="StartStampLag"/> late, and the clock's own small
-    /// corrections stay under a second. One further ahead was made before the clock was set back.
+    /// How far a name's time can be past the clock, or the clock step back, before it's taken for
+    /// the clock being set. A process's start is read up to <see cref="StartStampLag"/> late, and
+    /// Windows Time steps the clock once it's more than about a second off, which after a sleep
+    /// can be a few seconds either way.
     /// </summary>
-    internal static readonly TimeSpan MostAheadOfTheClock = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan ClockSlack = TimeSpan.FromSeconds(5);
 
     private readonly ProcessWait _process;
 

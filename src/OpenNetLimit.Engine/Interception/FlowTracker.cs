@@ -10,13 +10,21 @@ public class FlowTracker : IFlowTracker
     private readonly ConcurrentDictionary<FlowKey, ConnectionInfo> _flows = new();
     private readonly Func<DateTime> _utcNow;
 
+    private readonly Func<long> _tickMs;
+
     /// <summary>
     /// The cutoff each exited process was forgotten with. A name read before it can still be on
     /// its way in (a socket owner looked up just before the forget), and must not bring it back.
     /// </summary>
-    private readonly ConcurrentDictionary<uint, DateTime> _forgottenBefore = new();
+    private readonly ConcurrentDictionary<uint, ForgetMark> _forgottenBefore = new();
 
-    /// <summary>How long a cutoff is kept. Names on their way in are microseconds old.</summary>
+    /// <summary>
+    /// A forget's cutoff, and when it was made by the clock and by the tick count, which setting
+    /// the clock doesn't move.
+    /// </summary>
+    private readonly record struct ForgetMark(DateTime Before, DateTime MadeAt, long MadeAtMs);
+
+    /// <summary>How long a cutoff is kept, by the tick count. Names on their way in are microseconds old.</summary>
     private static readonly TimeSpan ForgottenKeptFor = TimeSpan.FromMinutes(1);
 
     public FlowTracker()
@@ -24,7 +32,11 @@ public class FlowTracker : IFlowTracker
     {
     }
 
-    internal FlowTracker(Func<DateTime> utcNow) => _utcNow = utcNow;
+    internal FlowTracker(Func<DateTime> utcNow, Func<long>? tickMs = null)
+    {
+        _utcNow = utcNow;
+        _tickMs = tickMs ?? (() => Environment.TickCount64);
+    }
 
     public event Action<uint, string, string?>? FlowRegistered;
 
@@ -77,12 +89,23 @@ public class FlowTracker : IFlowTracker
 
     /// <summary>
     /// Whether a flow named at <paramref name="namedAt"/> was named for a process that's been
-    /// forgotten since. A cutoff well ahead of <paramref name="now"/> was made before the clock was
-    /// set back, and would turn away every process that gets the ID until the clock caught up.
+    /// forgotten since. A name stamped well past <paramref name="now"/> was made before the clock
+    /// was set back, and the clock hasn't gone back since the forget, so it's older than that too.
     /// </summary>
     private bool Forgotten(uint processId, DateTime namedAt, DateTime now) =>
-        _forgottenBefore.TryGetValue(processId, out var cutoff) && namedAt < cutoff
-        && cutoff - now <= HeldProcess.MostAheadOfTheClock;
+        _forgottenBefore.TryGetValue(processId, out var mark) && StillHolds(mark, now)
+        && (namedAt < mark.Before || namedAt - now > HeldProcess.ClockSlack);
+
+    /// <summary>
+    /// Whether a cutoff still turns names away: it's under a minute old, and the clock hasn't been
+    /// set back since it was made. One made before the clock went back would turn away every
+    /// process that got the ID until the clock caught up.
+    /// </summary>
+    private bool StillHolds(ForgetMark mark, DateTime now)
+    {
+        var age = TimeSpan.FromMilliseconds(_tickMs() - mark.MadeAtMs);
+        return age < ForgottenKeptFor && now - mark.MadeAt >= age - HeldProcess.ClockSlack;
+    }
 
     public void UnregisterFlow(FlowKey flowKey)
     {
@@ -110,15 +133,30 @@ public class FlowTracker : IFlowTracker
     public void ForgetProcess(uint processId, DateTime? identifiedBefore = null)
     {
         if (identifiedBefore is { } cutoff)
-        {
-            var now = _utcNow();
-            var stale = now - ForgottenKeptFor;
-            foreach (var (otherId, otherCutoff) in _forgottenBefore)
-                if (otherCutoff < stale || otherCutoff - now > HeldProcess.MostAheadOfTheClock)
-                    _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, otherCutoff));
-            _forgottenBefore.AddOrUpdate(processId, cutoff, (_, earlier) => earlier > cutoff ? earlier : cutoff);
-        }
+            MarkForgotten(processId, cutoff);
         ForgettingProcess?.Invoke(processId, identifiedBefore);
+        Sweep(processId, identifiedBefore);
+    }
+
+    public void ForgetHeldProcess(uint processId)
+    {
+        MarkForgotten(processId, _utcNow());
+        ForgettingProcess?.Invoke(processId, null);
+        Sweep(processId, null);
+    }
+
+    private void MarkForgotten(uint processId, DateTime before)
+    {
+        var mark = new ForgetMark(before, _utcNow(), _tickMs());
+        foreach (var (otherId, other) in _forgottenBefore)
+            if (!StillHolds(other, mark.MadeAt))
+                _forgottenBefore.TryRemove(KeyValuePair.Create(otherId, other));
+        _forgottenBefore.AddOrUpdate(processId, mark,
+            (_, earlier) => StillHolds(earlier, mark.MadeAt) && earlier.Before > before ? earlier : mark);
+    }
+
+    private void Sweep(uint processId, DateTime? identifiedBefore)
+    {
         foreach (var (flowKey, connection) in _flows)
         {
             // Only the exact entry seen: a flow registered again meanwhile is someone else's.
