@@ -1,36 +1,51 @@
-using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
-using System.Threading.RateLimiting;
 
 namespace OpenNetLimit.Service.API;
 
 public sealed class RestApiServer : BackgroundService
 {
     private const long MaxBodyBytes = 1024 * 1024;
+
+    /// <summary>
+    /// A client quiet this long is forgotten. Its wrong-key budget has filled back up long before,
+    /// so forgetting it gives back nothing it hadn't earned.
+    /// </summary>
+    internal static readonly TimeSpan IdleClient = TimeSpan.FromMinutes(10);
+
+    private static readonly TimeSpan PruneEvery = TimeSpan.FromMinutes(1);
+
     private readonly RestApiRouter _router;
     private readonly RestApiOptions _options;
     private readonly ILogger<RestApiServer> _logger;
-    private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new();
-    private Timer? _rateLimiterCleanupTimer;
+    private readonly Func<RestClientLimits> _newClientLimits;
+    private readonly Func<long> _tickMs;
+    private readonly TimeSpan? _refillEvery;
+    private readonly object _clientsLock = new();
+    private readonly Dictionary<string, RestClientLimits> _clients = [];
+    private Timer? _refillTimer;
+    private long _lastPruneMs;
+    private bool _disposed;
 
     public RestApiServer(RestApiRouter router, RestApiOptions options, ILogger<RestApiServer> logger)
+        : this(router, options, logger, () => new RestClientLimits(), () => Environment.TickCount64,
+            RestClientLimits.RefillPeriod)
+    {
+    }
+
+    /// <param name="refillEvery">How often a timer refills every client, null for none (tests call <see cref="RefillAll"/>).</param>
+    internal RestApiServer(RestApiRouter router, RestApiOptions options, ILogger<RestApiServer> logger,
+        Func<RestClientLimits> newClientLimits, Func<long> tickMs, TimeSpan? refillEvery)
     {
         _router = router;
         _options = options;
         _logger = logger;
-    }
-
-    private sealed class RateLimiterEntry
-    {
-        public RateLimiter Limiter { get; }
-        public DateTime LastAccess { get; set; }
-
-        public RateLimiterEntry(RateLimiter limiter)
-        {
-            Limiter = limiter;
-            LastAccess = DateTime.UtcNow;
-        }
+        _newClientLimits = newClientLimits;
+        _tickMs = tickMs;
+        _refillEvery = refillEvery;
+        _lastPruneMs = tickMs();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,8 +55,6 @@ public sealed class RestApiServer : BackgroundService
             _logger.LogInformation("REST API disabled by OPENNETLIMIT_API_DISABLED");
             return;
         }
-
-        _rateLimiterCleanupTimer = new Timer(_ => PruneIdleRateLimiters(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
         using var listener = new HttpListener();
         foreach (var url in _options.Urls)
@@ -86,39 +99,27 @@ public sealed class RestApiServer : BackgroundService
         RestApiResponse result;
         try
         {
-            var clientKey = context.Request.RemoteEndPoint?.Address?.ToString() ?? "unknown";
-            var entry = _rateLimiters.GetOrAdd(clientKey, _ => new RateLimiterEntry(
-                new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-                {
-                    TokenLimit = 10,
-                    ReplenishmentPeriod = TimeSpan.FromSeconds(10),
-                    TokensPerPeriod = 10,
-                    QueueLimit = 0
-                })));
-            entry.LastAccess = DateTime.UtcNow;
-
-            using var lease = await entry.Limiter.AcquireAsync(1, ct);
-            if (!lease.IsAcquired)
-            {
-                result = RestApiResponse.Error(429, "rate limit exceeded", RestApiRouter.JsonOptions);
-                await WriteResponseAsync(context.Response, result, ct);
-                return;
-            }
-
-            var body = await ReadBodyAsync(context.Request, ct);
-            var request = new RestApiRequest(
-                context.Request.HttpMethod,
-                context.Request.Url?.AbsolutePath ?? "/",
-                context.Request.Url?.Query ?? string.Empty,
-                body,
+            var request = context.Request;
+            var head = new RestApiRequest(
+                request.HttpMethod,
+                request.Url?.AbsolutePath ?? "/",
+                request.Url?.Query ?? string.Empty,
+                string.Empty,
                 IsLoopback(context),
-                GetApiKey(context.Request));
-
-            result = await _router.HandleAsync(request, ct);
+                GetApiKey(request));
+            result = await HandleAsync(ClientKey(request.RemoteEndPoint?.Address), head,
+                () => ReadBodyAsync(request, ct), ct);
         }
-        catch (InvalidOperationException ex)
+        catch (BodyTooLargeException)
         {
-            result = RestApiResponse.Error(413, ex.Message, RestApiRouter.JsonOptions);
+            result = RestApiResponse.Error(413, "request body too large", RestApiRouter.JsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The service is stopping with this request still waiting. Let the caller go now
+            // rather than leave it hanging until the listener closes.
+            context.Response.Abort();
+            return;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -129,13 +130,101 @@ public sealed class RestApiServer : BackgroundService
         await WriteResponseAsync(context.Response, result, ct);
     }
 
+    /// <summary>
+    /// Answers one request from <paramref name="client"/> within its limits. The key is checked from
+    /// the headers first, so a wrong one costs its try before the request waits or sends anything
+    /// more. The body is read last, and only for a change, which needs the right key to get there.
+    /// </summary>
+    internal async Task<RestApiResponse> HandleAsync(string client, RestApiRequest head,
+        Func<Task<string>> readBody, CancellationToken ct)
+    {
+        var limits = LimitsFor(client);
+        var refused = _router.Authorize(head);
+        if (!string.IsNullOrWhiteSpace(head.ApiKey)
+            && !(refused is { StatusCode: 401 } ? limits.TrySpendWrongKey() : limits.CanTryAKey))
+        {
+            var seconds = (int)Math.Max(1, Math.Ceiling(limits.UntilNextTry.TotalSeconds));
+            return RestApiResponse.Error(429,
+                $"too many wrong api keys, try again in {seconds} seconds", RestApiRouter.JsonOptions)
+                with { RetryAfterSeconds = seconds };
+        }
+
+        using var turn = await limits.WaitTurnAsync(ct);
+        if (turn is null)
+            return RestApiResponse.Error(429, "too many requests waiting, wait for some to finish",
+                RestApiRouter.JsonOptions) with { RetryAfterSeconds = 1 };
+        if (refused is not null)
+            return refused;
+
+        var body = RestApiRouter.CarriesBody(head.Method) ? await readBody() : string.Empty;
+        return await _router.HandleAsync(head with { Body = body }, ct);
+    }
+
+    /// <summary>
+    /// Who a request counts against. Every loopback address is one client, since a program on the
+    /// PC can send from 127.0.0.2 as easily as from 127.0.0.1, and an IPv6 address counts by its
+    /// /64, which one machine usually has to itself.
+    /// </summary>
+    internal static string ClientKey(IPAddress? address)
+    {
+        if (address is null)
+            return "unknown";
+        if (address.IsIPv4MappedToIPv6)
+            address = address.MapToIPv4();
+        if (IPAddress.IsLoopback(address))
+            return "loopback";
+        if (address.AddressFamily != AddressFamily.InterNetworkV6)
+            return address.ToString();
+        var bytes = address.GetAddressBytes();
+        Array.Clear(bytes, 8, 8);
+        return new IPAddress(bytes) + "/64";
+    }
+
+    private RestClientLimits LimitsFor(string client)
+    {
+        lock (_clientsLock)
+        {
+            if (!_clients.TryGetValue(client, out var limits))
+                _clients[client] = limits = _newClientLimits();
+            limits.LastRequestMs = _tickMs();
+            if (_refillEvery is { } every && !_disposed)
+                _refillTimer ??= new Timer(_ => RefillAll(), null, every, every);
+            return limits;
+        }
+    }
+
+    /// <summary>
+    /// Refills every client's requests, and forgets the ones that have been quiet a while. Both
+    /// happen under the lock that hands clients out, so a request never gets one being forgotten.
+    /// </summary>
+    internal void RefillAll()
+    {
+        RestClientLimits[] clients;
+        lock (_clientsLock)
+        {
+            long now = _tickMs();
+            if (now - _lastPruneMs >= PruneEvery.TotalMilliseconds)
+            {
+                _lastPruneMs = now;
+                foreach (var (client, idle) in _clients.Where(c => now - c.Value.LastRequestMs >= IdleClient.TotalMilliseconds).ToList())
+                {
+                    _clients.Remove(client);
+                    idle.Dispose();
+                }
+            }
+            clients = [.. _clients.Values];
+        }
+        foreach (var limits in clients)
+            limits.RefillRequests();
+    }
+
     private static async Task<string> ReadBodyAsync(HttpListenerRequest request, CancellationToken ct)
     {
         if (!request.HasEntityBody)
             return string.Empty;
 
         if (request.ContentLength64 > MaxBodyBytes)
-            throw new InvalidOperationException("request body too large");
+            throw new BodyTooLargeException();
 
         // Read with a hard byte cap to prevent DoS via chunked transfer-encoding
         // bodies that bypass the Content-Length check above
@@ -150,7 +239,7 @@ public sealed class RestApiServer : BackgroundService
         }
 
         if (totalRead > MaxBodyBytes)
-            throw new InvalidOperationException("request body too large");
+            throw new BodyTooLargeException();
 
         var encoding = request.ContentEncoding ?? Encoding.UTF8;
         return encoding.GetString(buffer, 0, totalRead);
@@ -163,6 +252,8 @@ public sealed class RestApiServer : BackgroundService
         response.ContentType = result.ContentType;
         response.ContentEncoding = Encoding.UTF8;
         response.ContentLength64 = bytes.Length;
+        if (result.RetryAfterSeconds is int retryAfter)
+            response.AddHeader("Retry-After", retryAfter.ToString(CultureInfo.InvariantCulture));
         await response.OutputStream.WriteAsync(bytes, ct);
         response.Close();
     }
@@ -187,15 +278,19 @@ public sealed class RestApiServer : BackgroundService
         return null;
     }
 
-    private void PruneIdleRateLimiters()
+    public override void Dispose()
     {
-        var cutoff = DateTime.UtcNow.AddMinutes(-10);
-        foreach (var kvp in _rateLimiters)
+        lock (_clientsLock)
         {
-            if (kvp.Value.LastAccess < cutoff && _rateLimiters.TryRemove(kvp.Key, out var removed))
-            {
-                removed.Limiter.Dispose();
-            }
+            _disposed = true;
+            _refillTimer?.Dispose();
+            _refillTimer = null;
+            foreach (var limits in _clients.Values)
+                limits.Dispose();
+            _clients.Clear();
         }
+        base.Dispose();
     }
+
+    private sealed class BodyTooLargeException : Exception;
 }

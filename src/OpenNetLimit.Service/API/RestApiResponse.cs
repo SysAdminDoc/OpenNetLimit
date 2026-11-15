@@ -4,6 +4,9 @@ namespace OpenNetLimit.Service.API;
 
 public sealed record RestApiResponse(int StatusCode, string ContentType, string Body)
 {
+    /// <summary>Sent as Retry-After: how many seconds a refused caller should wait before trying again.</summary>
+    public int? RetryAfterSeconds { get; init; }
+
     public static RestApiResponse Json<T>(int statusCode, T body, JsonSerializerOptions options) =>
         new(statusCode, "application/json; charset=utf-8", JsonSerializer.Serialize(body, options));
 

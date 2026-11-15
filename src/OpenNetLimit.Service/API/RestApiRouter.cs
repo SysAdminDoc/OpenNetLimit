@@ -146,6 +146,16 @@ public sealed class RestApiRouter
         };
     }
 
+    /// <summary>
+    /// The refusal the request gets for its key, or null when it may go on. It needs only the
+    /// method, path and key, so it can be decided before the body is read.
+    /// </summary>
+    internal RestApiResponse? Authorize(RestApiRequest request) =>
+        Authorize(request, request.Method.ToUpperInvariant(), NormalizePath(request.Path));
+
+    /// <summary>Whether a request with this method can carry a body the API reads: only a change does.</summary>
+    internal static bool CarriesBody(string method) => IsMutation(method.ToUpperInvariant());
+
     private RestApiResponse? Authorize(RestApiRequest request, string method, string path)
     {
         if (request.IsLoopback && !RequiresApiKey(method, path))
