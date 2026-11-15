@@ -58,6 +58,11 @@ public class TunnelAdaptersTests
     [InlineData(24, "Software Loopback Interface 1", false)]
     // PPPoE is a PPP link, and on a PC that dials its own DSL it's the only way out.
     [InlineData(23, "WAN Miniport (PPPOE)", false)]
+    // So is a VPN Windows dials itself (SSTP, L2TP, PPTP, IKEv2), whatever it's named. Its
+    // encrypted side comes from a networking service or is ESP or GRE, none of which count,
+    // so it has to count inside.
+    [InlineData(23, "Contoso VPN", false)]
+    [InlineData(23, "WAN Miniport (IKEv2)", false)]
     public void IsTunnel_GoesByTypeThenDescription(int type, string description, bool tunnel)
     {
         Assert.Equal(tunnel, TunnelAdapters.IsTunnel(type, description));
