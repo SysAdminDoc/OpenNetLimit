@@ -29,7 +29,7 @@
   <a href="docs/automation-api.md">Automation guide</a>
 </p>
 
-OpenNetLimit gives Windows users a clear view of per-app traffic and direct control over bandwidth. It runs locally and stores traffic history in SQLite. Limits are enforced through WinDivert.
+OpenNetLimit shows how much bandwidth each Windows app is using and lets you cap or block any of them. It runs locally, keeps traffic history in SQLite and enforces limits through WinDivert.
 
 Use it when a download is wrecking a call or when a background app is chewing through a hotspot allowance. OpenNetLimit shows the culprit and lets you act without replacing your firewall.
 
@@ -44,7 +44,7 @@ Use it when a download is wrecking a call or when a background app is chewing th
 | Local automation | A loopback REST API with keyed mutations and an explicit opt-in for remote access |
 | Private defaults | Rules and history remain on the PC. VirusTotal, GeoIP, webhooks, and remote access stay off until configured |
 
-## A clearer view of your connection
+## Screenshots
 
 | Guided first run | Bandwidth history |
 |---|---|
@@ -56,11 +56,11 @@ Use it when a download is wrecking a call or when a background app is chewing th
 
 ## Download
 
-The release ZIP contains a self-contained Windows x64 build. A separate .NET installation is not required.
+The release ZIP holds a self-contained Windows x64 build, so you don't need to install .NET.
 
 [Download OpenNetLimit 1.0.2](https://github.com/SysAdminDoc/OpenNetLimit/releases/latest)
 
-Each release includes a SHA-256 checksum file. Compare it before installation if the ZIP came from anywhere other than this repository.
+Each release has a SHA-256 checksum file. Check the ZIP against it if you got the ZIP anywhere other than this repository.
 
 ## Quick start
 
@@ -69,7 +69,7 @@ Each release includes a SHA-256 checksum file. Compare it before installation if
 3. Launch `OpenNetLimit.UI.exe`.
 4. Right-click an application in the traffic list to set or remove its limit.
 
-The service starts with Windows after installation. Run `./Uninstall-Service.ps1` from an Administrator PowerShell window to remove it. Traffic history and rules in `%ProgramData%\OpenNetLimit` are left intact.
+The service starts with Windows after installation. Run `./Uninstall-Service.ps1` from an Administrator PowerShell window to remove it. Your rules and traffic history in `%ProgramData%\OpenNetLimit` stay where they are.
 
 ### Driver trust note
 
@@ -83,7 +83,7 @@ OpenNetLimit loads the signed WinDivert kernel driver, so Windows requires admin
 2. Right-click it and choose **Set Bandwidth Limit**.
 3. Enter either limit in KB/s, then select **OK**.
 
-The rule takes effect immediately. System-critical Windows processes are protected from blocking and rate limits.
+The rule applies right away and keeps applying after the app restarts. OpenNetLimit won't block or limit system-critical Windows processes.
 
 ### Check traffic history
 
@@ -96,7 +96,10 @@ Open **History**, choose a process or keep **All**, then switch between hourly a
 ./onl.exe snapshot
 ./onl.exe rules add --process steam.exe --download 8192 --upload 1024
 ./onl.exe stats top --days 7 --limit 10
+./onl.exe selftest
 ```
+
+`selftest` limits the CLI itself for a few seconds and tells you whether the limit held.
 
 See the [CLI and REST API guide](docs/automation-api.md) for authentication, remote access, and the complete endpoint list.
 
@@ -111,7 +114,7 @@ dotnet test OpenNetLimit.sln -c Release
 ./scripts/build-release.ps1
 ```
 
-Marketing screenshots are captured on isolated Windows desktops. The capture process never switches away from the user's current desktop.
+The screenshot script works on separate Windows desktops and never switches away from the one you're using.
 
 ```powershell
 ./scripts/capture-marketing.ps1
@@ -126,7 +129,7 @@ Marketing screenshots are captured on isolated Windows desktops. The capture pro
 | `OpenNetLimit.Engine` | WinDivert interception, flow tracking, and packet scheduling |
 | `OpenNetLimit.CLI` | Scriptable access to status, rules, history, groups, and quotas |
 
-Persistent state lives in `%ProgramData%\OpenNetLimit`. The UI communicates with the service over a local named pipe. Read operations are available to local users, while rule changes require administrator rights.
+Persistent state lives in `%ProgramData%\OpenNetLimit`. The UI talks to the service over a local named pipe. Any local user can read from it, and changing rules takes administrator rights.
 
 ## Documentation
 
@@ -137,7 +140,7 @@ Persistent state lives in `%ProgramData%\OpenNetLimit`. The UI communicates with
 
 ## Brand archive
 
-The original crossing-lanes logo directions are preserved in [`assets/brand/concepts`](assets/brand/concepts). The accompanying `selection.json` identifies the approved app-icon direction and its untouched master. Prior social artwork and an unused version-refresh study live in [`assets/marketing/concepts`](assets/marketing/concepts). The complete README hero review, including the rejected clipped layout and selected evergreen final, lives in [`assets/concepts/2026-09-12-readme-hero`](assets/concepts/2026-09-12-readme-hero). Production-ready artwork remains in `assets/brand`, `assets/marketing`, and `src/OpenNetLimit.UI/Assets`.
+Earlier logo and artwork concepts are kept in [`assets/brand/concepts`](assets/brand/concepts), [`assets/marketing/concepts`](assets/marketing/concepts) and [`assets/concepts/2026-09-12-readme-hero`](assets/concepts/2026-09-12-readme-hero). The `selection.json` in the first folder names the approved app icon. Production artwork lives in `assets/brand`, `assets/marketing` and `src/OpenNetLimit.UI/Assets`.
 
 ## License
 
