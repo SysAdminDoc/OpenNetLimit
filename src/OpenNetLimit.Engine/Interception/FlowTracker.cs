@@ -42,17 +42,32 @@ public class FlowTracker : IFlowTracker
     public void UnregisterFlow(FlowKey flowKey)
     {
         // Replace with a new ConnectionInfo that has ClosedAt set,
-        // avoiding torn DateTime? reads by PurgeStale on the timer thread
-        _flows.AddOrUpdate(flowKey,
-            _ => new ConnectionInfo { FlowKey = flowKey, ClosedAt = DateTime.UtcNow },
-            (_, existing) => new ConnectionInfo
+        // avoiding torn DateTime? reads by PurgeStale on the timer thread.
+        // A flow that isn't here (never registered, or its process exited) stays gone: adding
+        // it with no process would credit its last packets to process 0.
+        while (_flows.TryGetValue(flowKey, out var existing))
+        {
+            var closed = new ConnectionInfo
             {
                 FlowKey = existing.FlowKey,
                 ProcessId = existing.ProcessId,
                 ProcessName = existing.ProcessName,
                 ProcessPath = existing.ProcessPath,
                 ClosedAt = DateTime.UtcNow
-            });
+            };
+            if (_flows.TryUpdate(flowKey, closed, existing))
+                return;
+        }
+    }
+
+    public void ForgetProcess(uint processId)
+    {
+        foreach (var (flowKey, connection) in _flows)
+        {
+            // Only the exact entry seen: a flow registered again meanwhile is someone else's.
+            if (connection.ProcessId == processId)
+                _flows.TryRemove(KeyValuePair.Create(flowKey, connection));
+        }
     }
 
     public uint? LookupProcessId(FlowKey flowKey)

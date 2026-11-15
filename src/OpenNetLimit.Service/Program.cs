@@ -36,7 +36,8 @@ builder.Services.AddSingleton<IFlowTracker, FlowTracker>();
 builder.Services.AddSingleton<IRateLimiter, ProcessRateLimiter>();
 builder.Services.AddSingleton<IServiceHosts, ServiceHosts>();
 builder.Services.AddSingleton<ITrafficMonitor>(services => TrafficMonitor.ForService(
-    services.GetRequiredService<IRateLimiter>(), services.GetRequiredService<IServiceHosts>()));
+    services.GetRequiredService<IRateLimiter>(), services.GetRequiredService<IServiceHosts>(),
+    services.GetRequiredService<IFlowTracker>()));
 builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
 builder.Services.AddSingleton<IDriverService, WindowsDriverService>();
 builder.Services.AddSingleton(services => new DriverUnloader(services.GetRequiredService<IDriverService>()));

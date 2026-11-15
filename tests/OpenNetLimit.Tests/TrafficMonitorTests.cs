@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Net;
 using OpenNetLimit.Core.Interfaces;
 using OpenNetLimit.Core.Models;
+using OpenNetLimit.Engine.Interception;
 using OpenNetLimit.Engine.Monitoring;
 using OpenNetLimit.Engine.RateLimiting;
 using OpenNetLimit.Engine.Rules;
@@ -86,16 +88,68 @@ public class TrafficMonitorTests
     {
         public bool HasExited { get; set; }
         public bool LetGo { get; private set; }
-        public void Dispose() => LetGo = true;
+        public Action? OnLetGo { get; init; }
+
+        public void Dispose()
+        {
+            LetGo = true;
+            OnLetGo?.Invoke();
+        }
     }
 
     /// <summary>What <see cref="HoldProcess"/> hands out for each ID; an ID with nothing is gone.</summary>
     private readonly Dictionary<uint, IHeldProcess> _running = new();
     private DateTime _now = new(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
 
-    private TrafficMonitor Held(IServiceHosts? hosts = null) =>
+    private TrafficMonitor Held(IServiceHosts? hosts = null, IFlowTracker? flows = null) =>
         new(TimeSpan.FromSeconds(1), null, sampleOnTimer: false, hosts,
-            (processId, _) => _running.GetValueOrDefault(processId), () => _now);
+            (processId, _) => _running.GetValueOrDefault(processId), () => _now, flows);
+
+    private static FlowKey Flow(ushort localPort) =>
+        new(TransportProtocol.Tcp, IPAddress.Parse("192.168.1.100"), localPort, IPAddress.Parse("93.184.216.34"), 443);
+
+    [Fact]
+    public void AProcessThatExits_TakesItsFlowsWithIt_SoALatePacketCantNameTheNextOneWithItsId()
+    {
+        var flows = new FlowTracker();
+        flows.RegisterFlow(Flow(1), 200, "svchost", SvchostPath);
+        flows.RegisterFlow(Flow(2), 200, "svchost", SvchostPath);
+        flows.UnregisterFlow(Flow(2));
+        flows.RegisterFlow(Flow(3), 300, "curl", null);
+        uint? ownerWhenLetGo = 0;
+        var svchost = new FakeProcess { OnLetGo = () => ownerWhenLetGo = flows.LookupProcessId(Flow(1)) };
+        _running[200] = svchost;
+        using var monitor = Held(flows: flows);
+        monitor.RecordBytes(200, "svchost", 100, isUpload: false, SvchostPath);
+        monitor.SampleRates();
+
+        svchost.HasExited = true;
+        monitor.SampleRates();
+
+        // Gone before the ID is free: a late packet on either flow has no owner, and the flow's
+        // own deleted event finds nothing to close.
+        Assert.True(svchost.LetGo);
+        Assert.Null(ownerWhenLetGo);
+        Assert.Null(flows.LookupProcessId(Flow(2)));
+        flows.UnregisterFlow(Flow(1));
+        Assert.Null(flows.LookupConnection(Flow(1)));
+        Assert.Equal(300u, flows.LookupProcessId(Flow(3)));
+    }
+
+    [Fact]
+    public void SamplingAfterDispose_HoldsNothing()
+    {
+        int holds = 0;
+        var monitor = new TrafficMonitor(TimeSpan.FromSeconds(1), null, sampleOnTimer: false, null,
+            (_, _) => { holds++; return new FakeProcess(); });
+        monitor.RecordBytes(200, "curl", 100, isUpload: false);
+
+        // A timer tick that was already on its way when the service stopped.
+        monitor.Dispose();
+        monitor.SampleRates();
+
+        Assert.Equal(0, holds);
+    }
 
     [Fact]
     public void AProcessThatExits_LeavesTheList_AndTheNextOneWithItsIdStartsItsOwn()

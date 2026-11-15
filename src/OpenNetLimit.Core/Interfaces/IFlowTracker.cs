@@ -14,4 +14,11 @@ public interface IFlowTracker
     IReadOnlyList<ConnectionInfo> GetActiveConnections();
     IReadOnlyList<ConnectionInfo> GetConnectionsByProcess(uint processId);
     void PurgeStale(TimeSpan maxAge);
+
+    /// <summary>
+    /// Drops every flow, open or closed, of a process that exited. Windows can give its ID to
+    /// another process once it's let go, and a late packet on one of its flows would be
+    /// credited to that process under the old one's name.
+    /// </summary>
+    void ForgetProcess(uint processId);
 }

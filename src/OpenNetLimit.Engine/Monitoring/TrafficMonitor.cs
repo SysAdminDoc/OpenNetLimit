@@ -17,11 +17,15 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         new(ReferenceEqualityComparer.Instance);
 
     private readonly HoldProcess? _holdProcess;
+    private readonly IFlowTracker? _flows;
     private readonly Func<DateTime> _utcNow;
     private readonly object _sampleLock = new();
 
     /// <summary>The process behind each entry, held until it exits. Only used under <see cref="_sampleLock"/>.</summary>
     private readonly Dictionary<uint, Held> _held = new();
+
+    /// <summary>Set by <see cref="Dispose"/>. Only used under <see cref="_sampleLock"/>.</summary>
+    private bool _disposed;
 
     /// <summary>
     /// Guards <see cref="_exited"/> and <see cref="_retired"/>, and an entry's move from
@@ -56,21 +60,24 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     /// another process unseen: one that exits leaves the list, and the next process with its ID
     /// starts its own entry instead of adding to the old one.
     /// </summary>
-    public static TrafficMonitor ForService(IRateLimiter rateLimiter, IServiceHosts serviceHosts) =>
-        new(TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true, serviceHosts, HeldProcess.Hold);
+    public static TrafficMonitor ForService(IRateLimiter rateLimiter, IServiceHosts serviceHosts, IFlowTracker flows) =>
+        new(TimeSpan.FromSeconds(1), rateLimiter, sampleOnTimer: true, serviceHosts, HeldProcess.Hold, flows: flows);
 
     /// <summary>
     /// With <paramref name="sampleOnTimer"/> off, rates are only sampled by calling
     /// <see cref="SampleRates"/>, so a test can't lose its bytes to a timer tick mid-test.
     /// Without <paramref name="holdProcess"/> no process is held and none leaves the list.
+    /// A process that leaves it takes its flows in <paramref name="flows"/> with it.
     /// </summary>
     internal TrafficMonitor(TimeSpan snapshotInterval, IRateLimiter? rateLimiter, bool sampleOnTimer,
-        IServiceHosts? serviceHosts = null, HoldProcess? holdProcess = null, Func<DateTime>? utcNow = null)
+        IServiceHosts? serviceHosts = null, HoldProcess? holdProcess = null, Func<DateTime>? utcNow = null,
+        IFlowTracker? flows = null)
     {
         _intervalSeconds = snapshotInterval.TotalSeconds;
         _rateLimiter = rateLimiter;
         _serviceHosts = serviceHosts;
         _holdProcess = holdProcess;
+        _flows = flows;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _snapshotTimer = sampleOnTimer
             ? new Timer(OnSnapshotTick, null, snapshotInterval, snapshotInterval)
@@ -182,6 +189,9 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
     {
         lock (_sampleLock)
         {
+            // A tick already on its way when the monitor was disposed would hold processes again.
+            if (_disposed)
+                return;
             foreach (var (pid, info) in _processes)
             {
                 long down = 0, up = 0;
@@ -243,6 +253,8 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
             _exited.Add((info, _utcNow()));
         }
         _counters.TryRemove(processId, out _);
+        // While it's held the ID can't be reused, so these flows are all the exited process's.
+        _flows?.ForgetProcess(processId);
         if (_held.Remove(processId, out var held))
             held.Process.Dispose();
     }
@@ -388,6 +400,7 @@ public class TrafficMonitor : ITrafficMonitor, IDisposable
         _snapshotTimer.Dispose();
         lock (_sampleLock)
         {
+            _disposed = true;
             foreach (var held in _held.Values)
                 held.Process.Dispose();
             _held.Clear();

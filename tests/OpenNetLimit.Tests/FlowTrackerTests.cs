@@ -60,6 +60,34 @@ public class FlowTrackerTests
     }
 
     [Fact]
+    public void UnregisterFlow_OfAFlowItNeverHad_AddsNothing()
+    {
+        var tracker = new FlowTracker();
+
+        tracker.UnregisterFlow(MakeFlowKey());
+
+        // Its last packets would be credited to process 0 otherwise.
+        Assert.Null(tracker.LookupConnection(MakeFlowKey()));
+        Assert.Null(tracker.LookupProcessId(MakeFlowKey()));
+    }
+
+    [Fact]
+    public void ForgetProcess_DropsItsOpenAndClosedFlows_AndKeepsEveryoneElses()
+    {
+        var tracker = new FlowTracker();
+        tracker.RegisterFlow(MakeFlowKey(1), 200, "svchost", null);
+        tracker.RegisterFlow(MakeFlowKey(2), 200, "svchost", null);
+        tracker.UnregisterFlow(MakeFlowKey(2));
+        tracker.RegisterFlow(MakeFlowKey(3), 300, "curl", null);
+
+        tracker.ForgetProcess(200);
+
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(1)));
+        Assert.Null(tracker.LookupConnection(MakeFlowKey(2)));
+        Assert.Equal(300u, tracker.LookupProcessId(MakeFlowKey(3)));
+    }
+
+    [Fact]
     public void GetActiveConnections_ExcludesClosed()
     {
         var tracker = new FlowTracker();
