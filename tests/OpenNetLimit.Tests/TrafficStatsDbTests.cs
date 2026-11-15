@@ -79,6 +79,39 @@ public class TrafficStatsDbTests : IDisposable
         Assert.Empty(stats);
     }
 
+    [Fact]
+    public void Stats_FindAnAppWhateverCaseItsNameIsIn()
+    {
+        _db.RecordSnapshot(MakeSnapshot("Steam", 1000, 500));
+        _db.RecordSnapshot(MakeSnapshot("steam", 2000, 1000));
+        _db.RecordSnapshot(MakeSnapshot("chrome", 100, 50));
+
+        var hour = Assert.Single(_db.GetHourlyStats("STEAM", 1));
+        Assert.Equal(3000, hour.BytesReceived);
+        Assert.Equal(1500, hour.BytesSent);
+
+        var day = Assert.Single(_db.GetDailyStats("steam", 1));
+        Assert.Equal(3000, day.BytesReceived);
+        Assert.Equal(1500, day.BytesSent);
+
+        var top = _db.GetTopProcesses(days: 1);
+        Assert.Equal(2, top.Count);
+        Assert.Equal("steam", top[0].ProcessName, ignoreCase: true);
+        Assert.Equal(3000, top[0].TotalBytesReceived);
+        Assert.Equal(1500, top[0].TotalBytesSent);
+    }
+
+    [Fact]
+    public void Stats_ForOneApp_LeaveOtherAppsOut()
+    {
+        _db.RecordSnapshot(MakeSnapshot("Steam", 1000, 500));
+        _db.RecordSnapshot(MakeSnapshot("steamwebhelper", 7000, 7000));
+
+        Assert.Equal(1000, Assert.Single(_db.GetHourlyStats("steam", 1)).BytesReceived);
+        Assert.Equal(1000, Assert.Single(_db.GetDailyStats("steam", 1)).BytesReceived);
+        Assert.Empty(_db.GetHourlyStats("stea", 1));
+    }
+
     private static TrafficSnapshot MakeSnapshot(string processName, long down, long up) => new()
     {
         Processes =

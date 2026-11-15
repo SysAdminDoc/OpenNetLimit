@@ -456,7 +456,7 @@ public class PipeServer
     private string GetStatsHourly(string payload)
     {
         if (_controlPlane.StatsProvider is null) return ErrorResponse("stats unavailable");
-        var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
+        var processName = string.IsNullOrWhiteSpace(payload) ? null : ProcessNames.Normalize(payload);
         var entries = _controlPlane.StatsProvider.GetHourlyStats(processName);
         return JsonSerializer.Serialize(entries, JsonOptions);
     }
@@ -464,7 +464,7 @@ public class PipeServer
     private string GetStatsDaily(string payload)
     {
         if (_controlPlane.StatsProvider is null) return ErrorResponse("stats unavailable");
-        var processName = string.IsNullOrWhiteSpace(payload) ? null : payload.Trim();
+        var processName = string.IsNullOrWhiteSpace(payload) ? null : ProcessNames.Normalize(payload);
         var entries = _controlPlane.StatsProvider.GetDailyStats(processName);
         return JsonSerializer.Serialize(entries, JsonOptions);
     }

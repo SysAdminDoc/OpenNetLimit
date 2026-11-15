@@ -13,6 +13,7 @@ using OpenNetLimit.Engine.Rules;
 using OpenNetLimit.Service.Control;
 using OpenNetLimit.Service.Geo;
 using OpenNetLimit.Service.IPC;
+using OpenNetLimit.Service.Storage;
 using OpenNetLimit.Service.Plugins;
 using OpenNetLimit.Service.Security;
 using Xunit;
@@ -229,6 +230,34 @@ public class PipeServerTests
         Assert.Equal(set, read);
         Assert.Contains("\"downloadBytesPerSecond\":1048576", read);
         Assert.DoesNotContain("isOff", read, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("STATS_HOURLY")]
+    [InlineData("STATS_DAILY")]
+    public async Task Stats_ForAnAppTypedWithExeOrOtherCase_FindItsHistory(string command)
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"onl_test_{Guid.NewGuid()}.db");
+        try
+        {
+            using var stats = new TrafficStatsDb(dbPath);
+            stats.RecordSnapshot(new TrafficSnapshot
+            {
+                Processes = [new ProcessTrafficInfo { ProcessId = 1, ProcessName = "steam", CurrentDownloadBytesPerSecond = 4096 }]
+            });
+            var controlPlane = new ControlPlaneState { StatsProvider = stats };
+            var server = CreateServer(new RuleEngine(), new RecordingLogger(), "unused", controlPlane);
+
+            var reply = await server.ProcessCommandAsync(command, " Steam.exe ", CancellationToken.None);
+
+            Assert.Contains("4096", reply);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch (IOException) { }
+        }
     }
 
     [Theory]

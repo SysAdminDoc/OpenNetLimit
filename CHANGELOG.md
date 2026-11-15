@@ -64,6 +64,7 @@
 - The control pipe's `EXPORT_RULES` answers on one line like every other command. It sent indented JSON, so a client reading line by line got only `[`
 - Table cells in the app have padding and sit centered in their rows. The text used to hug the top left corner
 - A speed alert set on a program's full path no longer goes off for apps whose path Windows won't share, like protected system processes. It used to fire for every one of them
+- Usage history finds an app however its name is typed. `onl stats hourly --process Steam` used to come back empty for `steam`, and a name with a space or `&` in it got cut short. Days where Windows reported the same app under two spellings now add up into one row
 
 ### Changed
 - OpenNetLimit runs on .NET 10, the current long-term support release. Microsoft stopped patching .NET 8 on November 10, 2026. The release builds bundle the runtime, so there's still nothing extra to install. Building from source needs the .NET 10 SDK

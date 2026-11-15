@@ -7,6 +7,7 @@ public sealed class TrafficStatsDb : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly object _dbLock = new();
+    private const string NameCollation = "APP_NAME";
 
     public TrafficStatsDb(string dbPath)
     {
@@ -16,6 +17,9 @@ public sealed class TrafficStatsDb : IDisposable
 
         _connection = new SqliteConnection($"Data Source={dbPath}");
         _connection.Open();
+        // Windows names apps case-insensitively, so "Steam" and "steam" are one app. The
+        // collation lives on the connection only; the file stays readable by any sqlite tool.
+        _connection.CreateCollation(NameCollation, (a, b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase));
         InitializeSchema();
     }
 
@@ -121,9 +125,12 @@ public sealed class TrafficStatsDb : IDisposable
             if (processName is not null)
             {
                 cmd.CommandText = """
-                    SELECT process_name, hour_utc, bytes_received, bytes_sent
+                    SELECT MIN(process_name) as process_name, hour_utc,
+                        SUM(bytes_received) as bytes_received,
+                        SUM(bytes_sent) as bytes_sent
                     FROM traffic_hourly
-                    WHERE process_name = @name AND hour_utc >= @since
+                    WHERE process_name = @name COLLATE APP_NAME AND hour_utc >= @since
+                    GROUP BY hour_utc
                     ORDER BY hour_utc;
                     """;
                 cmd.Parameters.AddWithValue("@name", processName);
@@ -156,9 +163,12 @@ public sealed class TrafficStatsDb : IDisposable
             if (processName is not null)
             {
                 cmd.CommandText = """
-                    SELECT process_name, date_utc as period, bytes_received, bytes_sent
+                    SELECT MIN(process_name) as process_name, date_utc as period,
+                        SUM(bytes_received) as bytes_received,
+                        SUM(bytes_sent) as bytes_sent
                     FROM traffic_daily
-                    WHERE process_name = @name AND date_utc >= @since
+                    WHERE process_name = @name COLLATE APP_NAME AND date_utc >= @since
+                    GROUP BY date_utc
                     ORDER BY date_utc;
                     """;
                 cmd.Parameters.AddWithValue("@name", processName);
@@ -188,12 +198,12 @@ public sealed class TrafficStatsDb : IDisposable
             var since = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
-                SELECT process_name,
+                SELECT MIN(process_name) as process_name,
                     SUM(bytes_received) as total_received,
                     SUM(bytes_sent) as total_sent
                 FROM traffic_daily
                 WHERE date_utc >= @since
-                GROUP BY process_name
+                GROUP BY process_name COLLATE APP_NAME
                 ORDER BY (total_received + total_sent) DESC
                 LIMIT @limit;
                 """;

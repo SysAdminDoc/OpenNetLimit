@@ -266,6 +266,40 @@ public class RestApiRouterTests
     }
 
     [Theory]
+    [InlineData("hourly", "Steam", "STEAM.exe")]
+    [InlineData("daily", "Steam", "steam")]
+    [InlineData("hourly", "Big & Tall Sync", "big & tall sync.exe")]
+    [InlineData("daily", "Big & Tall Sync", "Big & Tall Sync")]
+    public async Task CliStats_ForAnApp_FindItsHistoryWhateverTheCaseOrSpelling(string period, string recorded, string typed)
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"onl_test_{Guid.NewGuid()}.db");
+        using (var stats = new TrafficStatsDb(dbPath))
+        {
+            stats.RecordSnapshot(new TrafficSnapshot
+            {
+                Processes =
+                [
+                    new ProcessTrafficInfo { ProcessId = 1, ProcessName = recorded, CurrentDownloadBytesPerSecond = 4096 },
+                    new ProcessTrafficInfo { ProcessId = 2, ProcessName = "other", CurrentDownloadBytesPerSecond = 9999 }
+                ]
+            });
+            var (_, _, router) = CreateRouter(stats: stats);
+            var path = OpenNetLimit.CLI.Program.StatsPath([period, "--process", typed])!;
+            var question = path.IndexOf('?');
+
+            var response = await router.HandleAsync(new RestApiRequest(
+                "GET", path[..question], path[(question + 1)..], string.Empty, IsLoopback: true, ApiKey: null));
+
+            Assert.Equal(200, response.StatusCode);
+            Assert.Contains("\"bytesReceived\":4096", response.Body);
+            Assert.DoesNotContain("9999", response.Body);
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var file in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+            File.Delete(file);
+    }
+
+    [Theory]
     [InlineData("Limit", RuleAction.Limit)]
     [InlineData("block", RuleAction.Block)]
     [InlineData("ALLOW", RuleAction.Allow)]

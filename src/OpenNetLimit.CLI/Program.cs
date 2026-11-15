@@ -250,14 +250,20 @@ public static class Program
 
     private static async Task<int> HandleStats(string[] args)
     {
-        if (args.Length == 0) return PrintUsage();
+        var path = args.Length == 0 ? null : StatsPath(args);
+        return path is null ? PrintUsage() : await GetJson(path);
+    }
 
+    internal static string? StatsPath(string[] args)
+    {
+        // App names can hold spaces or '&', so they go into the query string escaped.
+        var process = Uri.EscapeDataString(GetArg(args, "--process", "") ?? "");
         return args[0].ToLowerInvariant() switch
         {
-            "top" => await GetJson($"/api/v1/stats/top?days={GetArg(args, "--days", "7")}&limit={GetArg(args, "--limit", "20")}"),
-            "hourly" => await GetJson($"/api/v1/stats/hourly?processName={GetArg(args, "--process", "")}&hours={GetArg(args, "--hours", "24")}"),
-            "daily" => await GetJson($"/api/v1/stats/daily?processName={GetArg(args, "--process", "")}&days={GetArg(args, "--days", "30")}"),
-            _ => PrintUsage()
+            "top" => $"/api/v1/stats/top?days={GetArg(args, "--days", "7")}&limit={GetArg(args, "--limit", "20")}",
+            "hourly" => $"/api/v1/stats/hourly?processName={process}&hours={GetArg(args, "--hours", "24")}",
+            "daily" => $"/api/v1/stats/daily?processName={process}&days={GetArg(args, "--days", "30")}",
+            _ => null
         };
     }
 
